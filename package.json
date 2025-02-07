@@ -1,0 +1,16 @@
+{
+  "name": "bun_arb",
+  "module": "index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "bignumber.js": "^9.1.2",
+    "mathjs": "^14.2.1",
+    "viem": "^2.22.16"
+  }
+}

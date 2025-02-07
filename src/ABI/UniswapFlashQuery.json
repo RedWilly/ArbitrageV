@@ -1,0 +1,117 @@
+[
+	{
+		"inputs": [
+			{
+				"internalType": "contract IBaseV1Pair[]",
+				"name": "_pairs",
+				"type": "address[]"
+			}
+		],
+		"name": "filterVolatileHermesPairs",
+		"outputs": [
+			{
+				"internalType": "bool[]",
+				"name": "",
+				"type": "bool[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "contract UniswapV2Factory",
+				"name": "_uniswapFactory",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_start",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_stop",
+				"type": "uint256"
+			}
+		],
+		"name": "getPairsByIndexRange",
+		"outputs": [
+			{
+				"internalType": "address[3][]",
+				"name": "",
+				"type": "address[3][]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "contract UniswapV2Factory",
+				"name": "_uniswapFactory",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_start",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "_stop",
+				"type": "uint256"
+			}
+		],
+		"name": "getPairsByIndexRange1",
+		"outputs": [
+			{
+				"internalType": "address[3][]",
+				"name": "",
+				"type": "address[3][]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "contract UniswapV2Factory[]",
+				"name": "_factories",
+				"type": "address[]"
+			}
+		],
+		"name": "getPairsLength",
+		"outputs": [
+			{
+				"internalType": "uint256[]",
+				"name": "",
+				"type": "uint256[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "contract IUniswapV2Pair[]",
+				"name": "_pairs",
+				"type": "address[]"
+			}
+		],
+		"name": "getReservesByPairs",
+		"outputs": [
+			{
+				"internalType": "uint256[3][]",
+				"name": "",
+				"type": "uint256[3][]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+]
