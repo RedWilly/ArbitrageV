@@ -2,7 +2,9 @@ import { formatUnits } from 'viem';
 import { initializeNetwork } from './src/network';
 import { getAllPairsInfo, type PairInfo } from './src/getinfo';
 import { ArbitrageGraph } from './src/graph';
-import { DEBUG, WETH_ADDRESS } from './src/constants';
+import { DEBUG, ADDRESSES } from './src/constants';
+import { EventMonitor } from './src/event';
+import { findAndLogArbitrageOpportunities } from "./src/opp";
 
 async function main() {
     try {
@@ -11,7 +13,6 @@ async function main() {
         const network = await initializeNetwork();
         console.log("Fetching pairs information...");
         const pairs = await getAllPairsInfo(network.client);
-
 
         if (DEBUG) {
             console.log(`Found ${pairs.length} pairs`);
@@ -26,32 +27,24 @@ async function main() {
             graph.addPair(pair);
         }
 
-        // Search for arbitrage opportunities starting from WETH
-        console.log("Searching for arbitrage opportunities...");
-        const opportunities = graph.findArbitrageOpportunities(WETH_ADDRESS);
+        // Find arbitrage opportunities
+        console.log("Searching for initial arbitrage opportunities...");
+        findAndLogArbitrageOpportunities(graph);
 
-        if (opportunities.paths.length > 0) {
-            console.log(`Found ${opportunities.paths.length} potential arbitrage opportunities:`);
-            
-            opportunities.paths.forEach((path, index) => {
-                const profit = opportunities.profits[index];
-                const pairs = opportunities.pairs[index];
-                const optimalAmount = opportunities.optimalAmounts[index];
-                const profitPercentage = (profit / optimalAmount) * 100;
-                
-                console.log(`\nOpportunity #${index + 1}:`);
-                console.log(`Path: ${path.join(' -> ')}`);
-                console.log(`Expected profit: ${formatUnits(BigInt(profit), 18)} ETH`);
-                console.log(`Optimal input amount: ${optimalAmount} wei || ${formatUnits(BigInt(optimalAmount), 18)} ETH`);
-                console.log(`Profit percentage: ${profitPercentage.toFixed(2)}%`);
-                console.log(`Pairs used: ${pairs.join(', ')}`);
-            });
-        } else {
-            console.log("No profitable arbitrage opportunities found");
-        }
+        // Start monitoring events
+        console.log("\nStarting event monitor...");
+        const monitor = new EventMonitor(graph, network.client);
+        await monitor.start();
+
+        // Keep the process running
+        process.on('SIGINT', async () => {
+            console.log('\nStopping event monitor...');
+            await monitor.stop();
+            process.exit();
+        });
 
     } catch (error) {
-        console.error('Error:', error);
+        console.error("Error:", error);
         process.exit(1);
     }
 }

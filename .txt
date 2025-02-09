@@ -1,1 +1,0 @@
-okay now work on our @event.ts this will monitor blockchain check every newblock

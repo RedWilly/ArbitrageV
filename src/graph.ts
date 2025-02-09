@@ -1,5 +1,5 @@
 // graph.ts
-import { maxHops, MAX_ENTRIES_PER_TOKEN, DEBUG } from './constants';
+import { maxHops, MAX_ENTRIES_PER_TOKEN, DEBUG, minProfit, ADDRESSES, NERK } from './constants';
 import { type Address } from 'viem';
 
 export type PairInfo = {
@@ -102,20 +102,33 @@ export class ArbitrageGraph {
 
   // Helper function to update pair reserves without re-building the entire graph
   updatePairReserves(pairAddress: Address, reserve0: bigint, reserve1: bigint): void {
-    const pair = this.pairs.get(pairAddress);
-    if (!pair) {
-      console.warn(`Pair ${pairAddress} not found in graph.  Consider adding it first.`);
-      return;
+    this.updatePairReservesBatch([{ pairAddress, reserve0, reserve1 }]);
+  }
+
+  // New method to handle batch updates efficiently
+  updatePairReservesBatch(updates: { pairAddress: Address; reserve0: bigint; reserve1: bigint }[]): void {
+    const updatedPairs = new Set<PairInfo>();
+
+    for (const update of updates) {
+      const pair = this.pairs.get(update.pairAddress);
+      if (!pair) {
+        console.warn(`Pair ${update.pairAddress} not found in graph. Consider adding it first.`);
+        continue;
+      }
+
+      // Update the reserves in the PairInfo
+      pair.reserve0 = update.reserve0;
+      pair.reserve1 = update.reserve1;
+      updatedPairs.add(pair);
+
+      if (DEBUG) {
+        console.log(`Updated reserves for pair ${update.pairAddress}: ${update.reserve0}, ${update.reserve1}`);
+      }
     }
 
-    // Update the reserves in the PairInfo
-    pair.reserve0 = reserve0;
-    pair.reserve1 = reserve1;
-
-    // IMPORTANT: Update the edges in the graph
-    this.updateGraphEdges({ ...pair, reserve0, reserve1 });
-    if (DEBUG) {
-      console.log(`Updated reserves for pair ${pairAddress}: ${reserve0}, ${reserve1}`);
+    // Update graph edges only once for all modified pairs
+    for (const pair of updatedPairs) {
+      this.updateGraphEdges(pair);
     }
   }
 
@@ -177,13 +190,17 @@ export class ArbitrageGraph {
             dp[step][targetToken].sort((a, b) => b.amountOut - a.amountOut);
             dp[step][targetToken] = dp[step][targetToken].slice(0, MAX_ENTRIES_PER_TOKEN);
 
-            // Record cycle if returns to start with profit potential
-            if (targetToken === startToken && step >= 2) {
-              rawOpportunities.push({
-                path: newEntry.path,
-                pairs: newEntry.pairs,
-                directions: newEntry.directions,
-              });
+            // Record opportunities:
+            // 1. Always check for circular arbitrage (startToken to startToken)
+            // 2. If NERK is true, also check for direct arbitrage (startToken to ADDRESSES[1].address)
+            if (step >= 2) {
+              if (targetToken === startToken || (NERK && targetToken === ADDRESSES[1].address)) {
+                rawOpportunities.push({
+                  path: newEntry.path,
+                  pairs: newEntry.pairs,
+                  directions: newEntry.directions,
+                });
+              }
             }
           }
         }
@@ -196,7 +213,7 @@ export class ArbitrageGraph {
         const { maxProfit, optimalInput } = this.calculateMaxProfit(opp);
         return { ...opp, profit: maxProfit, optimalInput };
       })
-      .filter(opp => opp.profit > 0)
+      .filter(opp => opp.profit > Number(minProfit))  // Filter based on minProfit threshold
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 20);
 
@@ -236,7 +253,7 @@ export class ArbitrageGraph {
 
         // Check if the Hessian is invertible (non-zero determinant).
         if (hessian === 0) {
-            console.warn("Hessian is zero, cannot invert.");
+            // console.warn("Hessian is zero, cannot invert.");
             break; // Or handle this case differently.
         }
 

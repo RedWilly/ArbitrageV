@@ -8,7 +8,7 @@ import fs from 'fs';
 // Special batch size for Woof factory
 const WOOF_RESERVES_BATCH_SIZE = 5;
 const TAX_CHECK_BATCH_SIZE = 2;
-const MIN_LIQUIDITY = parseEther("50"); // 50 ether minimum liquidity
+const MIN_LIQUIDITY = parseEther("50");
 
 interface TaxCheckResult {
     buyFeeBps: bigint;

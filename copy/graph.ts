@@ -1,4 +1,4 @@
-import { type PairInfo } from "./getinfo";
+import { type PairInfo } from "./getinfov4";
 import { type Address } from 'viem';
 import { DEBUG } from './constants';
 
