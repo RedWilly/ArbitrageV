@@ -14,21 +14,10 @@ interface ArbitrageOpportunity {
 
 // Keeps track of executed pairs to avoid conflicts
 class OpportunityManager {
-    private usedPairs: Set<string> = new Set();
     private networkConfig: NetworkConfig;
 
     constructor(networkConfig: NetworkConfig) {
         this.networkConfig = networkConfig;
-    }
-
-    // Check if an opportunity conflicts with already executed pairs
-    private hasConflict(pairs: Address[]): boolean {
-        return pairs.some(pair => this.usedPairs.has(pair.toLowerCase()));
-    }
-
-    // Mark pairs as used after execution
-    private markPairsAsUsed(pairs: Address[]): void {
-        pairs.forEach(pair => this.usedPairs.add(pair.toLowerCase()));
     }
 
     // Process and execute a batch of opportunities
@@ -46,22 +35,9 @@ class OpportunityManager {
         }
 
         for (const opp of sortedOpps) {
-            // Skip if any pairs conflict
-            if (this.hasConflict(opp.pairs)) {
-                if (DEBUG) {
-                    console.log('Skipping opportunity due to pair conflict:', {
-                        pairs: opp.pairs,
-                        usedPairs: Array.from(this.usedPairs)
-                    });
-                }
-                continue;
-            }
-
             try {
                 // Execute the opportunity
                 await this.executeArbitrageOpportunity(graph, opp);
-                // Mark pairs as used only after successful execution
-                this.markPairsAsUsed(opp.pairs);
                 
                 if (DEBUG) {
                     console.log('Successfully executed opportunity:', {
@@ -75,9 +51,6 @@ class OpportunityManager {
                 }
             }
         }
-
-        // Clear used pairs after processing batch
-        this.usedPairs.clear();
     }
 
     private async executeArbitrageOpportunity(
