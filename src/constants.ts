@@ -8,7 +8,7 @@ export const RPC_URL = process.env.RPC_URL;
 
 export const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
-// export const ARB_CONTRACT = process.env.ARB_CONTRACT_ADDRESS;
+export const ARB_CONTRACT = process.env.ARB_CONTRACT_ADDRESS;
 
 export const UNISWAP_FLASH_QUERY_CONTRACT =
     process.env.UNISWAP_FLASH_QUERY_CONTRACT_ADDRESS;
@@ -23,7 +23,7 @@ export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string
     { name: "DAMN", address: "0xeCe898EdCc0AF91430603175F945D8de75291c70" as `0x${string}`, LPAMOUNT: parseEther("500000000").toString() } //damn
 ];
 
-export const NERK = false;
+export const NERK = true;
 
 //factory addresses and fees
 export const FACTORY: { name: string; address: `0x${string}`; fee: number }[] = [

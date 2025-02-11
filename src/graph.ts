@@ -40,6 +40,8 @@ export class ArbitrageGraph {
   private graph: { [key: Address]: Edge[] } = {};
   private tokens: Set<Address> = new Set();
   private pairs: Map<Address, PairInfo> = new Map();
+  // Track highest reserve pairs for each token for instant lookup
+  private tokenToHighestReservePair: { [key: Address]: { pairAddress: Address; reserves: bigint; fee: number } } = {};
 
   addPair(pair: PairInfo): void {
     const [res0, res1] = [Number(pair.reserve0), Number(pair.reserve1)];
@@ -56,6 +58,26 @@ export class ArbitrageGraph {
   private updateGraphEdges(pair: PairInfo): void {
     const [res0, res1] = [Number(pair.reserve0), Number(pair.reserve1)];
     if (res0 === 0 || res1 === 0) return;
+
+    // Update highest reserve tracking for token0
+    const currentBest0 = this.tokenToHighestReservePair[pair.token0];
+    if (!currentBest0 || pair.reserve0 > currentBest0.reserves) {
+      this.tokenToHighestReservePair[pair.token0] = {
+        pairAddress: pair.pairAddress,
+        reserves: pair.reserve0,
+        fee: pair.fee
+      };
+    }
+
+    // Update highest reserve tracking for token1
+    const currentBest1 = this.tokenToHighestReservePair[pair.token1];
+    if (!currentBest1 || pair.reserve1 > currentBest1.reserves) {
+      this.tokenToHighestReservePair[pair.token1] = {
+        pairAddress: pair.pairAddress,
+        reserves: pair.reserve1,
+        fee: pair.fee
+      };
+    }
 
     // Token0 -> Token1 edge
     this.graph[pair.token0] = this.graph[pair.token0] || [];
@@ -135,7 +157,7 @@ export class ArbitrageGraph {
   findArbitrageOpportunities(
     startToken: Address,
     maxDepth: number = maxHops
-  ): { paths: Address[][]; pairs: Address[][]; profits: number[]; optimalAmounts: number[] } {
+  ): { paths: Address[][]; pairs: Address[][]; profits: number[]; optimalAmounts: number[]; fees: number[][] } {
     const dp: DPTable = {};
     const rawOpportunities: Array<{
       path: Address[];
@@ -222,6 +244,13 @@ export class ArbitrageGraph {
       pairs: validated.map(opp => opp.pairs),
       profits: validated.map(opp => opp.profit),
       optimalAmounts: validated.map(opp => opp.optimalInput),
+      fees: validated.map(opp => 
+        opp.pairs.map(pairAddress => {
+          const pair = this.pairs.get(pairAddress);
+          if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
+          return pair.fee;
+        })
+      ),
     };
   }
 
@@ -443,6 +472,27 @@ export class ArbitrageGraph {
     return { calculateProfit, calculateJacobian, calculateHessian };
   }
 
+  // Fast lookup for pair with highest reserves
+  findBestPairForToken(
+    token: Address,
+    amountIn: bigint,
+    excludePairs: Address[] = []
+  ): { pairAddress: Address; fee: number } | null {
+    const bestPair = this.tokenToHighestReservePair[token];
+    if (!bestPair) return null;
+
+    // Check if pair is excluded
+    if (excludePairs.includes(bestPair.pairAddress)) return null;
+
+    // Check if reserves are sufficient (3x amountIn)
+    if (bestPair.reserves < amountIn * BigInt(3)) return null;
+
+    return {
+      pairAddress: bestPair.pairAddress,
+      fee: bestPair.fee
+    };
+  }
+
   getTokens(): Address[] {
     return Array.from(this.tokens);
   }
@@ -461,5 +511,6 @@ export class ArbitrageGraph {
     this.graph = {};
     this.tokens.clear();
     this.pairs.clear();
+    this.tokenToHighestReservePair = {};
   }
 }

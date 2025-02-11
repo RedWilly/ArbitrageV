@@ -29,11 +29,11 @@ async function main() {
 
         // Find arbitrage opportunities
         console.log("Searching for initial arbitrage opportunities...");
-        findAndLogArbitrageOpportunities(graph);
+        await findAndLogArbitrageOpportunities(graph, network);
 
         // Start monitoring events
         console.log("\nStarting event monitor...");
-        const monitor = new EventMonitor(graph, network.client);
+        const monitor = new EventMonitor(graph, network);
         await monitor.start();
 
         // Keep the process running

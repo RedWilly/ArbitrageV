@@ -26,15 +26,17 @@ export class EventMonitor {
     private isCheckingArbitrage: boolean = false;
     private unwatchFn: any;
     private pendingUpdates: ReserveUpdate[] = [];
+    private networkConfig: any;
 
-    constructor(graph: ArbitrageGraph, client: any) {
+    constructor(graph: ArbitrageGraph, networkConfig: any) {
         this.graph = graph;
-        this.client = client;
+        this.networkConfig = networkConfig;
+        this.client = networkConfig.client;
     }
 
     async start() {
         if (this.isRunning) {
-            console.log('Event monitor is already running');
+            if (DEBUG) console.log('Event monitor is already running');
             return;
         }
 
@@ -54,11 +56,7 @@ export class EventMonitor {
                 address: pairAddresses,
                 events: SYNC_EVENT_ABI,
                 onLogs: this.handleSyncEvents.bind(this),
-                onError: (error: any) => {
-                    console.error('Error in event monitoring:', error);
-                    // Try to restart if there's an error
-                    this.restart();
-                },
+                onError: this.onError.bind(this),
                 strict: true
             });
 
@@ -104,7 +102,7 @@ export class EventMonitor {
                 };
             }
 
-            console.log('Unknown Sync event topic:', topic);
+            if (DEBUG) console.log('Unknown Sync event topic:', topic);
             return null;
         } catch (error) {
             console.error('Failed to decode Sync event:', error);
@@ -114,7 +112,7 @@ export class EventMonitor {
 
     private async handleSyncEvents(logs: any[]) {
         try {
-            console.log(`Received ${logs.length} events`);
+            if (DEBUG) console.log(`Received ${logs.length} events`);
             
             // Create a mapping of lowercase to original case addresses
             const pairAddresses = this.graph.getPairAddresses();
@@ -144,18 +142,18 @@ export class EventMonitor {
                 // Get the original case address for updating the graph
                 const pairAddress = addressMap.get(lowercaseAddress) as Address;
 
-                console.log('Raw event log:', JSON.stringify(logForDisplay, null, 2));
+                if (DEBUG) console.log('Raw event log:', JSON.stringify(logForDisplay, null, 2));
 
                 // Decode the Sync event
                 const decodedEvent = this.decodeSyncEvent(log);
                 if (!decodedEvent) {
-                    console.log('Failed to decode Sync event');
+                    if (DEBUG) console.log('Failed to decode Sync event');
                     continue;
                 }
 
                 const { reserve0, reserve1 } = decodedEvent;
 
-                console.log(`Sync event from ${pairAddress}:`, {
+                if (DEBUG) console.log(`Sync event from ${pairAddress}:`, {
                     reserve0: reserve0.toString(),
                     reserve1: reserve1.toString()
                 });
@@ -166,7 +164,7 @@ export class EventMonitor {
 
             // If we're currently checking arbitrage, add these updates to pending queue
             if (this.isCheckingArbitrage) {
-                console.log(`Adding ${updates.length} updates to pending queue`);
+                if (DEBUG) console.log(`Adding ${updates.length} updates to pending queue`);
                 this.pendingUpdates.push(...updates);
                 return;
             }
@@ -183,12 +181,12 @@ export class EventMonitor {
         if (updates.length === 0) return;
 
         try {
-            console.log(`Processing ${updates.length} reserve updates`);
+            if (DEBUG) console.log(`Processing ${updates.length} reserve updates`);
             
             // Update all reserves at once using batch update
             try {
                 this.graph.updatePairReservesBatch(updates);
-                console.log(`Successfully updated ${updates.length} pairs`);
+                if (DEBUG) console.log(`Successfully updated ${updates.length} pairs`);
             } catch (error) {
                 console.error('Failed to update reserves:', error);
                 return;
@@ -196,7 +194,7 @@ export class EventMonitor {
 
             // Check for arbitrage opportunities only once after all updates
             this.isCheckingArbitrage = true;
-            console.log('Starting arbitrage check after batch update...');
+            if (DEBUG) console.log('Starting arbitrage check after batch update...');
             await this.checkArbitrageOpportunities();
 
             // Process any pending updates that came during arbitrage check
@@ -214,7 +212,7 @@ export class EventMonitor {
     private async checkArbitrageOpportunities() {
         try {
             // Search for arbitrage opportunities starting from WETH
-            findAndLogArbitrageOpportunities(this.graph);
+            await findAndLogArbitrageOpportunities(this.graph, this.networkConfig);
         } catch (error) {
             console.error('Error checking arbitrage opportunities:', error);
         }
@@ -224,26 +222,42 @@ export class EventMonitor {
         if (!this.isRunning) return;
         
         this.isRunning = false;
-        console.log('Stopping event monitor...');
+        if (DEBUG) console.log('Stopping event monitor...');
         
         // Unsubscribe from events
         if (this.unwatchFn) {
             try {
                 await this.unwatchFn();
-                console.log('Successfully unsubscribed from events');
+                if (DEBUG) console.log('Successfully unsubscribed from events');
             } catch (error) {
                 console.error('Error unsubscribing from events:', error);
             }
         }
         
-        if (this.client) {
-            await this.client.destroy();
-        }
+        // Clear any pending updates
+        this.pendingUpdates = [];
     }
 
     private async restart() {
         await this.stop();
         await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
         await this.start();
+    }
+
+    private async onError(error: any) {
+        console.error('Error in event monitoring:', error);
+
+        // Check if it's a filter-related error
+        const errorMessage = error.message?.toLowerCase() || '';
+        const errorDetails = error.details?.toLowerCase() || '';
+        
+        if (errorMessage.includes('filter not found') || 
+            errorDetails.includes('filter not found') ||
+            errorMessage.includes('invalid parameters') ||
+            errorDetails.includes('invalid parameters')) {
+            
+            if (DEBUG) console.log('Filter error detected, restarting event monitor...');
+            await this.restart();
+        }
     }
 }

@@ -1,6 +1,6 @@
 import { createPublicClient, http, createWalletClient, type Account } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { mainnet } from 'viem/chains';
+import { shibarium } from 'viem/chains';
 import { RPC_URL, PRIVATE_KEY } from './constants';
 
 // Network configuration type
@@ -26,13 +26,19 @@ export async function initializeNetwork(): Promise<NetworkConfig> {
 
   // Create public client for reading from the blockchain
   const client = createPublicClient({
-    chain: mainnet,
+    chain: {
+      ...shibarium,
+      id: 109
+    },
     transport: http(RPC_URL),
   });
 
   // Create wallet client for sending transactions
   const walletClient = createWalletClient({
-    chain: mainnet,
+    chain: {
+      ...shibarium,
+      id: 109
+    },
     transport: http(RPC_URL),
     account,
   });
