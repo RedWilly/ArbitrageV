@@ -40,6 +40,6 @@ export const maxIterations = 100;
 export const maxHops = 30;
 export const MAX_ENTRIES_PER_TOKEN = 10;
 
-export const DEBUG = true;
+export const DEBUG = false;
 
 export const BATCH_SIZE = 200;
