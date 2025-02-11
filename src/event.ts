@@ -245,7 +245,9 @@ export class EventMonitor {
     }
 
     private async onError(error: any) {
-        console.error('Error in event monitoring:', error);
+        if (DEBUG) {
+            console.error('Error in event monitoring:', error);
+        }
 
         // Check if it's a filter-related error
         const errorMessage = error.message?.toLowerCase() || '';
