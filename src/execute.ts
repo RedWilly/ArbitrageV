@@ -134,32 +134,37 @@ class OpportunityManager {
             });
         }
 
-        // Simulate first
-        const { request } = await this.networkConfig.client.simulateContract({
+        // Get next nonce
+        const nonce = this.nonceManager.getAndIncrement();
+
+        const simulationParams = {
             address: ARB_CONTRACT as Address,
             abi: ArbABI,
             functionName: 'executeArbitrage',
             args: [
-                flashLoanPair.pairAddress,    // flashLoanPair
-                startToken,                   // startToken
-                opportunity.optimalAmount,    // borrowAmount
-                opportunity.pairs,            // arbPairs
-                opportunity.fees,             // arbFees
-                flashLoanPair.fee             // repayFee
+              flashLoanPair.pairAddress,    // flashLoanPair
+              startToken,                   // startToken
+              opportunity.optimalAmount,    // borrowAmount
+              opportunity.pairs,            // arbPairs
+              opportunity.fees,             // arbFees
+              flashLoanPair.fee             // repayFee
             ],
-            account: this.networkConfig.account
-        });
+            account: this.networkConfig.account,
+            // Pass your custom transaction settings to simulation:
+            overrides: {
+              nonce,
+              maxFeePerGas: parseGwei(String(MAX_FEE)),
+              maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE))
+            }
+          };
 
-        // Get next nonce
-        const nonce = this.nonceManager.getAndIncrement();
+          const { request } = await this.networkConfig.client.simulateContract(simulationParams);
+
+
 
         // Prepare transaction parameters with EIP-1559 gas settings
         const txRequest = {
             ...request,
-            nonce,
-            maxFeePerGas: parseGwei(String(MAX_FEE)),
-            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE)),
-            type: 'eip1559' as const
         };
 
         // Send transaction
@@ -190,30 +195,35 @@ class OpportunityManager {
             });
         }
 
+        // Get next nonce
+        const nonce = this.nonceManager.getAndIncrement();
+
         // Simulate first
-        const { request } = await this.networkConfig.client.simulateContract({
+        const simulationParams = {
             address: ARB_CONTRACT as Address,
             abi: ArbABI,
             functionName: 'executeArbitrageDirect',
             args: [
-                opportunity.path[0],          // startToken
-                opportunity.optimalAmount,    // startAmount
-                opportunity.pairs,            // arbPairs
-                opportunity.fees              // arbFees
+              opportunity.path[0],         // startToken
+              opportunity.optimalAmount,   // startAmount
+              opportunity.pairs,           // arbPairs
+              opportunity.fees             // arbFees
             ],
-            account: this.networkConfig.account
-        });
+            account: this.networkConfig.account,
+            // Pass your custom transaction settings to simulation:
+            overrides: {
+              nonce,
+              maxFeePerGas: parseGwei(String(MAX_FEE)),
+              maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE))
+            }
+        };
 
-        // Get next nonce
-        const nonce = this.nonceManager.getAndIncrement();
+        const { request } = await this.networkConfig.client.simulateContract(simulationParams);
+
 
         // Prepare transaction parameters with EIP-1559 gas settings
         const txRequest = {
             ...request,
-            nonce,
-            maxFeePerGas: parseGwei(String(MAX_FEE)),
-            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE)),
-            type: 'eip1559' as const
         };
 
         // Send transaction
