@@ -1,6 +1,6 @@
 import { type Address, createPublicClient, http, parseAbiItem, formatUnits, parseGwei } from 'viem';
 import { ArbitrageGraph } from './graph';
-import { ARB_CONTRACT, DEBUG, BASE_FEE, MAX_FEE, MAX_PRIORITY_FEE } from './constants';
+import { ARB_CONTRACT, DEBUG, GAS_LIMIT } from './constants';
 import ArbABI from './ABI/Arb.json';
 import { type NetworkConfig } from './network';
 import { NonceManager, createNonceManager } from './nonce';
@@ -138,6 +138,10 @@ class OpportunityManager {
         // Get next nonce
         const nonce = this.nonceManager.getAndIncrement();
 
+        // Calculate gas price (60% of profit / fixed gas limit)
+        const sixtyPercentProfit = opportunity.expectedProfit * 600n / 1000n;
+        const gasPrice = sixtyPercentProfit / BigInt(GAS_LIMIT);
+
         // Send transaction directly with gas parameters
         const hash = await this.networkConfig.walletClient.writeContract({
             address: ARB_CONTRACT as Address,
@@ -154,9 +158,9 @@ class OpportunityManager {
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
-            maxFeePerGas: parseGwei(String(MAX_FEE)),
-            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE)),
-            type: 'eip1559' as const
+            gasPrice: gasPrice,
+            gas: GAS_LIMIT, // Set fixed gas limit
+            type: 'legacy' as const,
         });
         
         if (DEBUG) {
@@ -164,8 +168,7 @@ class OpportunityManager {
                 hash,
                 nonce,
                 type: 'flashswap',
-                maxFeePerGas: `${MAX_FEE} Gwei`,
-                maxPriorityFeePerGas: `${MAX_PRIORITY_FEE} Gwei`
+                gasPrice: `${gasPrice}`
             });
         }
 
@@ -193,6 +196,10 @@ class OpportunityManager {
         // Get next nonce
         const nonce = this.nonceManager.getAndIncrement();
 
+        // Calculate gas price (70% of profit / fixed gas limit)
+        const seventyPercentProfit = opportunity.expectedProfit * 700n / 1000n;
+        const gasPrice = seventyPercentProfit / BigInt(GAS_LIMIT);
+
         // Send transaction directly with gas parameters
         const hash = await this.networkConfig.walletClient.writeContract({
             address: ARB_CONTRACT as Address,
@@ -207,9 +214,9 @@ class OpportunityManager {
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
-            maxFeePerGas: parseGwei(String(MAX_FEE)),
-            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE)),
-            type: 'eip1559' as const
+            gasPrice,
+            gas: GAS_LIMIT, // Set fixed gas limit
+            type: 'legacy' as const,
         });
 
         if (DEBUG) {
@@ -217,8 +224,7 @@ class OpportunityManager {
                 hash,
                 nonce,
                 type: 'direct',
-                maxFeePerGas: `${MAX_FEE} Gwei`,
-                maxPriorityFeePerGas: `${MAX_PRIORITY_FEE} Gwei`
+                gasPrice: `${gasPrice}`
             });
         }
 
