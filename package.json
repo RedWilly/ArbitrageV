@@ -6,7 +6,8 @@
     "start": "bun run index.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/node-telegram-bot-api": "^0.64.7"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
@@ -15,6 +16,7 @@
     "bignumber.js": "^9.1.2",
     "dotenv": "^16.4.7",
     "mathjs": "^14.2.1",
+    "node-telegram-bot-api": "^0.66.0",
     "viem": "^2.22.16"
   }
 }

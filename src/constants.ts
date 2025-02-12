@@ -48,3 +48,7 @@ export const BATCH_SIZE = 200;
 export const BASE_FEE = 2.8;
 export const MAX_FEE = 9;
 export const MAX_PRIORITY_FEE = 9;
+
+// Telegram notification settings
+export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+export const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';

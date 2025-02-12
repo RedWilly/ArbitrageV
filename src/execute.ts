@@ -4,6 +4,7 @@ import { ARB_CONTRACT, DEBUG, BASE_FEE, MAX_FEE, MAX_PRIORITY_FEE } from './cons
 import ArbABI from './ABI/Arb.json';
 import { type NetworkConfig } from './network';
 import { NonceManager, createNonceManager } from './nonce';
+import { notificationService } from './Notify';
 
 interface ArbitrageOpportunity {
     path: Address[];
@@ -167,6 +168,13 @@ class OpportunityManager {
                 maxPriorityFeePerGas: `${MAX_PRIORITY_FEE} Gwei`
             });
         }
+
+        // Send notification
+        await notificationService.sendTransactionNotification(
+            hash,
+            'flashswap',
+            opportunity.expectedProfit
+        );
     }
 
     private async executeDirectly(
@@ -213,6 +221,13 @@ class OpportunityManager {
                 maxPriorityFeePerGas: `${MAX_PRIORITY_FEE} Gwei`
             });
         }
+
+        // Send notification
+        await notificationService.sendTransactionNotification(
+            hash,
+            'direct',
+            opportunity.expectedProfit
+        );
     }
 }
 
