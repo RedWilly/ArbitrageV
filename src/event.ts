@@ -194,7 +194,8 @@ export class EventMonitor {
 
             // Check for arbitrage opportunities only once after all updates
             this.isCheckingArbitrage = true;
-            if (DEBUG) console.log('Starting arbitrage check after batch update...');
+            // if (DEBUG) 
+            console.log('Starting arbitrage check after batch update...');
             await this.checkArbitrageOpportunities();
 
             // Process any pending updates that came during arbitrage check
