@@ -39,7 +39,7 @@ class NotificationService {
             `💵 <b>Expected Profit:</b> ${profitInEth.toFixed(6)} ETH\n\n` +
             `🔗 <b>Transaction:</b>\n` +
             `<code>${hash}</code>\n\n` +
-            `🔍 <a href="https://www.shibariumscan.com/tx/${hash}">View on Explorer</a>`;
+            `🔍 <a href="https://www.shibariumscan.io/tx/${hash}">View on Explorer</a>`;
 
         try {
             await this.bot.sendMessage(TELEGRAM_CHAT_ID, message, {

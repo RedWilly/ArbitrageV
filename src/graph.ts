@@ -214,14 +214,37 @@ export class ArbitrageGraph {
 
             // Record opportunities:
             // 1. Always check for circular arbitrage (startToken to startToken)
-            // 2. If NERK is true, also check for direct arbitrage (startToken to ADDRESSES[1].address)
+            // 2. If NERK is true:
+            //    a. Check direct arbitrage (startToken to NERK token)
+            //    b. Check reverse arbitrage (NERK token to startToken)
+            //    c. Check NERK circular arbitrage (NERK token to NERK token)
             if (step >= 2) {
-              if (targetToken === startToken || (NERK && targetToken === ADDRESSES[1].address)) {
+            //if (targetToken === startToken || (NERK && targetToken === ADDRESSES[1].address)) {
+              if (targetToken === startToken) {
+                // Case 1: Circular arbitrage
                 rawOpportunities.push({
                   path: newEntry.path,
                   pairs: newEntry.pairs,
                   directions: newEntry.directions,
                 });
+              // New cases start here - codestamp
+              } else if (NERK) {
+                const nerkToken = ADDRESSES[1].address;
+                if (
+                  // Case 2a: Direct arbitrage (startToken to NERK)
+                  (startToken !== nerkToken && targetToken === nerkToken) ||
+                  // Case 2b: Reverse arbitrage (NERK to startToken)
+                  (startToken === nerkToken && targetToken !== nerkToken) ||
+                  // Case 2c: NERK circular arbitrage (NERK to NERK)
+                  (startToken === nerkToken && targetToken === nerkToken)
+                ) {
+                  rawOpportunities.push({
+                    path: newEntry.path,
+                    pairs: newEntry.pairs,
+                    directions: newEntry.directions,
+                  });
+                }
+                // End of new cases - codestamp
               }
             }
           }

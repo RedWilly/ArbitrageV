@@ -35,7 +35,7 @@ export const FACTORY: { name: string; address: `0x${string}`; fee: number }[] = 
     { name: "woof", address: "0xB9fbdFA27B7ba8BB2d4bB4aB399e4c55F0F7F83a" as `0x${string}`, fee: 20 },
 ];
 
-export const minProfit = parseEther("0.004"); //0.1 WETH - minimum profit
+export const minProfit = parseEther("0.05"); //0.1 WETH - minimum profit
 export const maxIterations = 100;
 export const maxHops = 10;
 export const MAX_ENTRIES_PER_TOKEN = 10;
@@ -46,7 +46,7 @@ export const BATCH_SIZE = 200;
 
 // Gas fee settings (in Gwei)
 export const BASE_FEE = 2.8;
-export const MAX_FEE = 18;
+export const MAX_FEE = 19;
 export const MAX_PRIORITY_FEE = 19;
 
 // Telegram notification settings
