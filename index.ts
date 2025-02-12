@@ -5,12 +5,19 @@ import { ArbitrageGraph } from './src/graph';
 import { DEBUG, ADDRESSES } from './src/constants';
 import { EventMonitor } from './src/event';
 import { findAndLogArbitrageOpportunities } from "./src/opp";
+import { createNonceManager } from './src/nonce';
 
 async function main() {
     try {
         // Initialize network and get pairs info
         console.log("Initializing network...");
         const network = await initializeNetwork();
+
+        // Initialize nonce manager
+        console.log("Initializing nonce manager...");
+        const nonceManager = createNonceManager(network.account);
+        await nonceManager.initialize(network.client);
+
         console.log("Fetching pairs information...");
         const pairs = await getAllPairsInfo(network.client);
 

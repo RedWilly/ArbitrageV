@@ -43,3 +43,8 @@ export const MAX_ENTRIES_PER_TOKEN = 10;
 export const DEBUG = false;
 
 export const BATCH_SIZE = 200;
+
+// Gas fee settings (in Gwei)
+export const BASE_FEE = 2.8;
+export const MAX_FEE = 8;
+export const MAX_PRIORITY_FEE = 8;
