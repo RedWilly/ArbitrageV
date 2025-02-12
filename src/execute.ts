@@ -137,38 +137,25 @@ class OpportunityManager {
         // Get next nonce
         const nonce = this.nonceManager.getAndIncrement();
 
-        const simulationParams = {
+        // Send transaction directly with gas parameters
+        const hash = await this.networkConfig.walletClient.writeContract({
             address: ARB_CONTRACT as Address,
             abi: ArbABI,
             functionName: 'executeArbitrage',
             args: [
-              flashLoanPair.pairAddress,    // flashLoanPair
-              startToken,                   // startToken
-              opportunity.optimalAmount,    // borrowAmount
-              opportunity.pairs,            // arbPairs
-              opportunity.fees,             // arbFees
-              flashLoanPair.fee             // repayFee
+                flashLoanPair.pairAddress,    // flashLoanPair
+                startToken,                   // startToken
+                opportunity.optimalAmount,    // borrowAmount
+                opportunity.pairs,            // arbPairs
+                opportunity.fees,             // arbFees
+                flashLoanPair.fee             // repayFee
             ],
+            chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
-            // Pass your custom transaction settings to simulation:
-            overrides: {
-              nonce,
-              maxFeePerGas: parseGwei(String(MAX_FEE)),
-              maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE))
-            }
-          };
-
-          const { request } = await this.networkConfig.client.simulateContract(simulationParams);
-
-
-
-        // Prepare transaction parameters with EIP-1559 gas settings
-        const txRequest = {
-            ...request,
-        };
-
-        // Send transaction
-        const hash = await this.networkConfig.walletClient.writeContract(txRequest);
+            nonce,
+            maxFeePerGas: parseGwei(String(MAX_FEE)),
+            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE))
+        });
         
         if (DEBUG) {
             console.log('Transaction sent:', {
@@ -198,36 +185,23 @@ class OpportunityManager {
         // Get next nonce
         const nonce = this.nonceManager.getAndIncrement();
 
-        // Simulate first
-        const simulationParams = {
+        // Send transaction directly with gas parameters
+        const hash = await this.networkConfig.walletClient.writeContract({
             address: ARB_CONTRACT as Address,
             abi: ArbABI,
             functionName: 'executeArbitrageDirect',
             args: [
-              opportunity.path[0],         // startToken
-              opportunity.optimalAmount,   // startAmount
-              opportunity.pairs,           // arbPairs
-              opportunity.fees             // arbFees
+                opportunity.path[0],          // startToken
+                opportunity.optimalAmount,    // startAmount
+                opportunity.pairs,            // arbPairs
+                opportunity.fees              // arbFees
             ],
+            chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
-            // Pass your custom transaction settings to simulation:
-            overrides: {
-              nonce,
-              maxFeePerGas: parseGwei(String(MAX_FEE)),
-              maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE))
-            }
-        };
-
-        const { request } = await this.networkConfig.client.simulateContract(simulationParams);
-
-
-        // Prepare transaction parameters with EIP-1559 gas settings
-        const txRequest = {
-            ...request,
-        };
-
-        // Send transaction
-        const hash = await this.networkConfig.walletClient.writeContract(txRequest);
+            nonce,
+            maxFeePerGas: parseGwei(String(MAX_FEE)),
+            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE))
+        });
 
         if (DEBUG) {
             console.log('Transaction sent:', {
