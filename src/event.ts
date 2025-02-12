@@ -256,7 +256,9 @@ export class EventMonitor {
         if (errorMessage.includes('filter not found') || 
             errorDetails.includes('filter not found') ||
             errorMessage.includes('invalid parameters') ||
-            errorDetails.includes('invalid parameters')) {
+            errorDetails.includes('invalid parameters')||
+            errorMessage.includes('rpc request failed')||
+            errorDetails.includes('rpc request failed')) {
             
             if (DEBUG) console.log('Filter error detected, restarting event monitor...');
             await this.restart();
