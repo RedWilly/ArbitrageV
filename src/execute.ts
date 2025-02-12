@@ -154,7 +154,8 @@ class OpportunityManager {
             account: this.networkConfig.account,
             nonce,
             maxFeePerGas: parseGwei(String(MAX_FEE)),
-            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE))
+            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE)),
+            type: 'eip1559' as const
         });
         
         if (DEBUG) {
@@ -162,7 +163,6 @@ class OpportunityManager {
                 hash,
                 nonce,
                 type: 'flashswap',
-                gas: `${BASE_FEE} Gwei`,
                 maxFeePerGas: `${MAX_FEE} Gwei`,
                 maxPriorityFeePerGas: `${MAX_PRIORITY_FEE} Gwei`
             });
@@ -200,7 +200,8 @@ class OpportunityManager {
             account: this.networkConfig.account,
             nonce,
             maxFeePerGas: parseGwei(String(MAX_FEE)),
-            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE))
+            maxPriorityFeePerGas: parseGwei(String(MAX_PRIORITY_FEE)),
+            type: 'eip1559' as const
         });
 
         if (DEBUG) {
@@ -208,7 +209,6 @@ class OpportunityManager {
                 hash,
                 nonce,
                 type: 'direct',
-                gas: `${BASE_FEE} Gwei`,
                 maxFeePerGas: `${MAX_FEE} Gwei`,
                 maxPriorityFeePerGas: `${MAX_PRIORITY_FEE} Gwei`
             });
