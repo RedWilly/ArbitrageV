@@ -47,7 +47,7 @@ export const BATCH_SIZE = 200;
 // Gas fee settings (in Gwei)
 export const BASE_FEE = 2.8;
 export const MAX_FEE = 18;
-export const MAX_PRIORITY_FEE = 18;
+export const MAX_PRIORITY_FEE = 19;
 
 // Telegram notification settings
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
