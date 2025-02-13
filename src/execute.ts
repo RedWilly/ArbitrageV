@@ -15,7 +15,7 @@ interface ArbitrageOpportunity {
 }
 
 // Keeps track of executed pairs to avoid conflicts
-class OpportunityManager {
+export class OpportunityManager {
     private usedPairs: Set<string> = new Set();
     private networkConfig: NetworkConfig;
     private nonceManager: NonceManager;
@@ -138,9 +138,8 @@ class OpportunityManager {
         // Get next nonce
         const nonce = this.nonceManager.getAndIncrement();
 
-        // Calculate gas price (60% of profit / fixed gas limit)
-        const sixtyPercentProfit = opportunity.expectedProfit * 600n / 1000n;
-        const gasPrice = sixtyPercentProfit / BigInt(GAS_LIMIT);
+        // Calculate dynamic gas fees based on opportunity's expected profit
+        const { maxFeePerGas, maxPriorityFeePerGas } = this.calculateGasFees(opportunity.expectedProfit);
 
         // Send transaction directly with gas parameters
         const hash = await this.networkConfig.walletClient.writeContract({
@@ -158,9 +157,10 @@ class OpportunityManager {
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
-            gasPrice: gasPrice,
-            gas: GAS_LIMIT, // Set fixed gas limit
-            type: 'legacy' as const,
+            maxFeePerGas,
+            maxPriorityFeePerGas,
+            gas: GAS_LIMIT,
+            type: 'eip1559' as const
         });
         
         if (DEBUG) {
@@ -168,7 +168,6 @@ class OpportunityManager {
                 hash,
                 nonce,
                 type: 'flashswap',
-                gasPrice: `${gasPrice}`
             });
         }
 
@@ -196,9 +195,8 @@ class OpportunityManager {
         // Get next nonce
         const nonce = this.nonceManager.getAndIncrement();
 
-        // Calculate gas price (70% of profit / fixed gas limit)
-        const seventyPercentProfit = opportunity.expectedProfit * 700n / 1000n;
-        const gasPrice = seventyPercentProfit / BigInt(GAS_LIMIT);
+        // Calculate dynamic gas fees based on opportunity's expected profit
+        const { maxFeePerGas, maxPriorityFeePerGas } = this.calculateGasFees(opportunity.expectedProfit);
 
         // Send transaction directly with gas parameters
         const hash = await this.networkConfig.walletClient.writeContract({
@@ -214,9 +212,10 @@ class OpportunityManager {
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
-            gasPrice,
-            gas: GAS_LIMIT, // Set fixed gas limit
-            type: 'legacy' as const,
+            maxFeePerGas,
+            maxPriorityFeePerGas,
+            gas: GAS_LIMIT,
+            type: 'eip1559' as const
         });
 
         if (DEBUG) {
@@ -224,7 +223,6 @@ class OpportunityManager {
                 hash,
                 nonce,
                 type: 'direct',
-                gasPrice: `${gasPrice}`
             });
         }
 
@@ -234,6 +232,23 @@ class OpportunityManager {
             'direct',
             opportunity.expectedProfit
         );
+    }
+
+    // Helper function to calculate dynamic gas fees based on expected profit
+    public calculateGasFees(expectedProfit: bigint): { maxFeePerGas: bigint, maxPriorityFeePerGas: bigint } {
+        // Use 90% of expected profit as total gas fee budget
+        const totalGasFee = (expectedProfit * 90n) / 100n;
+        
+        // Calculate maxFeePerGas with (totalGasFee * 1_000_000_000) / gasLimit
+        const maxFeePerGas = (totalGasFee * 1n) /  GAS_LIMIT;
+        
+        // // Use same value for maxPriorityFeePerGas as maxFeePerGas
+        const maxPriorityFeePerGas = maxFeePerGas;
+        
+        return {
+            maxFeePerGas,
+            maxPriorityFeePerGas
+        };
     }
 }
 

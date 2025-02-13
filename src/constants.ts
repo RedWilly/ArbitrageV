@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { parseEther } from "viem";
+import { parseEther, parseGwei } from "viem";
 dotenv.config();
 
 export const CHAIN_ID = 109;
@@ -46,6 +46,10 @@ export const BATCH_SIZE = 200;
 
 // Gas fee settings (in Gwei)
 export const GAS_LIMIT = 3000000n;
+export const BASE_FEE = parseGwei("2.5");
+// export const MAX_FEE = 60;
+// export const MAX_PRIORITY_FEE = 60;
+
 
 // Telegram notification settings
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
