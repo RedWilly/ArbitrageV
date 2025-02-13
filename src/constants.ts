@@ -45,7 +45,7 @@ export const DEBUG = false;
 export const BATCH_SIZE = 200;
 
 // Gas fee settings (in Gwei)
-export const GAS_LIMIT = 900000n;
+export const GAS_LIMIT = 700000n;
 export const BASE_FEE = parseGwei("2.5");
 // export const MAX_FEE = 60;
 // export const MAX_PRIORITY_FEE = 60;
