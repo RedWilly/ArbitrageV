@@ -9,7 +9,7 @@ export type PairInfo = {
     token1: Address;
     reserve0: bigint;
     reserve1: bigint;
-    lastTimestamp: number;  // Last active timestamp
+    lastTimestamp: number;
     factory: string;
     fee: number;
 };

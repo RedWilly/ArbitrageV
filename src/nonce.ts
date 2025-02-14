@@ -6,7 +6,6 @@ export class NonceManager {
     private readonly accountAddress: Address;
 
     constructor(account: Address | { address: Address }) {
-        // Handle both Address string and Account object
         this.accountAddress = typeof account === 'string' ? account : account.address;
     }
 
@@ -48,7 +47,7 @@ export class NonceManager {
         return this.currentNonce;
     }
 
-    // Reset nonce (useful if we need to sync with chain)
+    // Reset nonce
     async reset(client: any): Promise<void> {
         await this.initialize(client);
     }

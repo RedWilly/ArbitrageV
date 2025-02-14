@@ -1,4 +1,3 @@
-// graph.ts
 import { maxHops, MAX_ENTRIES_PER_TOKEN, DEBUG, minProfit, ADDRESSES, NERK } from './constants';
 import { type Address } from 'viem';
 
@@ -33,9 +32,6 @@ interface DPTable {
   };
 }
 
-// const MAX_ENTRIES_PER_TOKEN = 5;
-// const PROFIT_THRESHOLD = 1.005; // Minimum profit multiplier after fees
-
 export class ArbitrageGraph {
   private graph: { [key: Address]: Edge[] } = {};
   private tokens: Set<Address> = new Set();
@@ -51,7 +47,7 @@ export class ArbitrageGraph {
     this.tokens.add(pair.token1);
     this.pairs.set(pair.pairAddress, pair);
 
-    this.updateGraphEdges(pair);  // Use a helper function to update graph edges
+    this.updateGraphEdges(pair); 
   }
 
   // Helper function to update graph edges for a given pair
@@ -127,7 +123,7 @@ export class ArbitrageGraph {
     this.updatePairReservesBatch([{ pairAddress, reserve0, reserve1 }]);
   }
 
-  // New method to handle batch updates efficiently
+  // handle batch updates 
   updatePairReservesBatch(updates: { pairAddress: Address; reserve0: bigint; reserve1: bigint }[]): void {
     const updatedPairs = new Set<PairInfo>();
 
@@ -291,7 +287,7 @@ export class ArbitrageGraph {
       //const { calculateProfit, calculateJacobian } = this.createProfitFunctions(opportunity, pairsInfo);
       const { calculateProfit, calculateJacobian, calculateHessian } = this.createProfitFunctions(opportunity, pairsInfo);
     //Newton's Method
-    let inputAmount = 9e18; // Initial guess (1 ETH)
+    let inputAmount = 9e18; // Initial guess (1 ether)
     const tolerance = 1e-8;
     const maxIterations = 100;
 
@@ -306,7 +302,7 @@ export class ArbitrageGraph {
         // Check if the Hessian is invertible (non-zero determinant).
         if (hessian === 0) {
             // console.warn("Hessian is zero, cannot invert.");
-            break; // Or handle this case differently.
+            break;
         }
 
         const delta = jacobian / hessian;
@@ -392,14 +388,14 @@ export class ArbitrageGraph {
             reserveOut = Number(pair.reserve0);
           }
 
-          // Check if input exceeds reserves (constraint from paper)
+          // Check if input exceeds reserves
           if (amount > reserveIn) {
             return -Infinity;
           }
 
           amount = swap(amount, reserveIn, reserveOut, pair.fee);
         }
-        return amount - inputAmount; // Net profit
+        return amount - inputAmount; // our profit
       } catch {
         return -Infinity;
       }
@@ -424,7 +420,7 @@ export class ArbitrageGraph {
                   reserveOut = Number(pair.reserve0);
               }
                if (amount > reserveIn) {
-                  return 0;  // Or handle infeasibility differently
+                  return 0; // Infeasible
               }
               derivative *= swapDerivative(amount, reserveIn, reserveOut, pair.fee);
               amount = swap(amount, reserveIn, reserveOut, pair.fee);

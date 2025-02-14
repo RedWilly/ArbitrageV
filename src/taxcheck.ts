@@ -5,6 +5,8 @@ import UniswapFlashQueryABI from './ABI/UniswapFlashQuery.json';
 import { initializeNetwork } from './network';
 import fs from 'fs';
 
+//TODO: not working for most pairs- come back to this later/contract
+
 // Special batch size for Woof factory
 const WOOF_RESERVES_BATCH_SIZE = 5;
 const TAX_CHECK_BATCH_SIZE = 2;

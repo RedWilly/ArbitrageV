@@ -158,7 +158,7 @@ export class EventMonitor {
                     reserve1: reserve1.toString()
                 });
 
-                // Add to updates batch
+                
                 updates.push({ pairAddress, reserve0, reserve1 });
             }
 
@@ -212,7 +212,7 @@ export class EventMonitor {
 
     private async checkArbitrageOpportunities() {
         try {
-            // Search for arbitrage opportunities starting from WETH
+            // Search for arbitrage opportunities
             await findAndLogArbitrageOpportunities(this.graph, this.networkConfig);
         } catch (error) {
             console.error('Error checking arbitrage opportunities:', error);
@@ -241,7 +241,7 @@ export class EventMonitor {
 
     private async restart() {
         await this.stop();
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+        await new Promise(resolve => setTimeout(resolve, 5000));
         await this.start();
     }
 
