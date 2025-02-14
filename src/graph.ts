@@ -19,6 +19,9 @@ interface Edge {
   reserveOut: bigint;
 }
 
+// Key for edge lookup, combining source token and pair address
+type EdgeKey = `${string}-${string}`;
+
 interface DPEntry {
   amountOut: number;
   path: Address[];
@@ -27,17 +30,21 @@ interface DPEntry {
 }
 
 interface DPTable {
-  [step: number]: {
-    [token: string]: DPEntry[];
-  };
+  [step: number]: Map<Address, DPEntry[]>;
 }
 
 export class ArbitrageGraph {
-  private graph: { [key: Address]: Edge[] } = {};
+  private graph: Map<Address, Edge[]> = new Map();
   private tokens: Set<Address> = new Set();
   private pairs: Map<Address, PairInfo> = new Map();
+  // Secondary index for O(1) edge lookups
+  private edgeIndex: Map<EdgeKey, Edge> = new Map();
   // Track highest reserve pairs for each token for instant lookup
-  private tokenToHighestReservePair: { [key: Address]: { pairAddress: Address; reserves: bigint; fee: number } } = {};
+  private tokenToHighestReservePair: Map<Address, { pairAddress: Address; reserves: bigint; fee: number }> = new Map();
+
+  private createEdgeKey(fromToken: Address, pairAddress: Address): EdgeKey {
+    return `${fromToken}-${pairAddress}`;
+  }
 
   addPair(pair: PairInfo): void {
     const [res0, res1] = [Number(pair.reserve0), Number(pair.reserve1)];
@@ -56,65 +63,77 @@ export class ArbitrageGraph {
     if (res0 === 0 || res1 === 0) return;
 
     // Update highest reserve tracking for token0
-    const currentBest0 = this.tokenToHighestReservePair[pair.token0];
+    const currentBest0 = this.tokenToHighestReservePair.get(pair.token0);
     if (!currentBest0 || pair.reserve0 > currentBest0.reserves) {
-      this.tokenToHighestReservePair[pair.token0] = {
+      this.tokenToHighestReservePair.set(pair.token0, {
         pairAddress: pair.pairAddress,
         reserves: pair.reserve0,
         fee: pair.fee
-      };
+      });
     }
 
     // Update highest reserve tracking for token1
-    const currentBest1 = this.tokenToHighestReservePair[pair.token1];
+    const currentBest1 = this.tokenToHighestReservePair.get(pair.token1);
     if (!currentBest1 || pair.reserve1 > currentBest1.reserves) {
-      this.tokenToHighestReservePair[pair.token1] = {
+      this.tokenToHighestReservePair.set(pair.token1, {
         pairAddress: pair.pairAddress,
         reserves: pair.reserve1,
         fee: pair.fee
-      };
+      });
     }
 
     // Token0 -> Token1 edge
-    this.graph[pair.token0] = this.graph[pair.token0] || [];
-    const edge0To1 = this.graph[pair.token0].find(
-        edge => edge.to === pair.token1 && edge.pairAddress === pair.pairAddress
-    );
+    const edge0Key = this.createEdgeKey(pair.token0, pair.pairAddress);
+    const edge0To1 = this.edgeIndex.get(edge0Key);
+
     if (edge0To1) {
-        edge0To1.reserveIn = pair.reserve0;
-        edge0To1.reserveOut = pair.reserve1;
-        edge0To1.fee = pair.fee;
+      // Update existing edge
+      edge0To1.reserveIn = pair.reserve0;
+      edge0To1.reserveOut = pair.reserve1;
+      edge0To1.fee = pair.fee;
     } else {
-        this.graph[pair.token0].push({
-            to: pair.token1,
-            pairAddress: pair.pairAddress,
-            direction: 'token0ToToken1',
-            fee: pair.fee,
-            reserveIn: pair.reserve0,
-            reserveOut: pair.reserve1,
-        });
+      // Create new edge
+      const newEdge: Edge = {
+        to: pair.token1,
+        pairAddress: pair.pairAddress,
+        direction: 'token0ToToken1',
+        fee: pair.fee,
+        reserveIn: pair.reserve0,
+        reserveOut: pair.reserve1,
+      };
+      
+      if (!this.graph.has(pair.token0)) {
+        this.graph.set(pair.token0, []);
+      }
+      this.graph.get(pair.token0)!.push(newEdge);
+      this.edgeIndex.set(edge0Key, newEdge);
     }
 
-
     // Token1 -> Token0 edge
-    this.graph[pair.token1] = this.graph[pair.token1] || [];
-    const edge1To0 = this.graph[pair.token1].find(
-        edge => edge.to === pair.token0 && edge.pairAddress === pair.pairAddress
-    );
+    const edge1Key = this.createEdgeKey(pair.token1, pair.pairAddress);
+    const edge1To0 = this.edgeIndex.get(edge1Key);
 
     if (edge1To0) {
-        edge1To0.reserveIn = pair.reserve1;
-        edge1To0.reserveOut = pair.reserve0;
-        edge1To0.fee = pair.fee;
+      // Update existing edge
+      edge1To0.reserveIn = pair.reserve1;
+      edge1To0.reserveOut = pair.reserve0;
+      edge1To0.fee = pair.fee;
     } else {
-        this.graph[pair.token1].push({
-            to: pair.token0,
-            pairAddress: pair.pairAddress,
-            direction: 'token1ToToken0',
-            fee: pair.fee,
-            reserveIn: pair.reserve1,
-            reserveOut: pair.reserve0,
-        });
+      // Create new edge
+      const newEdge: Edge = {
+        to: pair.token0,
+        pairAddress: pair.pairAddress,
+        direction: 'token1ToToken0',
+        fee: pair.fee,
+        reserveIn: pair.reserve1,
+        reserveOut: pair.reserve0,
+      };
+      
+      if (!this.graph.has(pair.token1)) {
+        this.graph.set(pair.token1, []);
+      }
+      this.graph.get(pair.token1)!.push(newEdge);
+      this.edgeIndex.set(edge1Key, newEdge);
     }
   }
 
@@ -162,22 +181,21 @@ export class ArbitrageGraph {
     }> = [];
 
     // Initialize with starting token
-    dp[0] = {
-      [startToken]: [
-        {
-          amountOut: 1.0,
-          path: [startToken],
-          pairs: [],
-          directions: [],
-        },
-      ],
-    };
+    dp[0] = new Map();
+    dp[0].set(startToken, [
+      {
+        amountOut: 1.0,
+        path: [startToken],
+        pairs: [],
+        directions: [],
+      },
+    ]);
 
     for (let step = 1; step <= maxDepth; step++) {
-      dp[step] = {};
+      dp[step] = new Map();
 
-      for (const [currentToken, entries] of Object.entries(dp[step - 1])) {
-        const edges = this.graph[currentToken as Address] || [];
+      for (const [currentToken, entries] of dp[step - 1].entries()) {
+        const edges = this.graph.get(currentToken as Address) || [];
 
         for (const entry of entries) {
           for (const edge of edges) {
@@ -199,14 +217,14 @@ export class ArbitrageGraph {
             };
 
             const targetToken = edge.to;
-            if (!dp[step][targetToken]) {
-              dp[step][targetToken] = [];
+            if (!dp[step].has(targetToken)) {
+              dp[step].set(targetToken, []);
             }
 
             // Keep only top entries per token
-            dp[step][targetToken].push(newEntry);
-            dp[step][targetToken].sort((a, b) => b.amountOut - a.amountOut);
-            dp[step][targetToken] = dp[step][targetToken].slice(0, MAX_ENTRIES_PER_TOKEN);
+            dp[step].get(targetToken)!.push(newEntry);
+            dp[step].get(targetToken)!.sort((a, b) => b.amountOut - a.amountOut);
+            dp[step].get(targetToken)!.splice(MAX_ENTRIES_PER_TOKEN);
 
             // Record opportunities:
             // 1. Always check for circular arbitrage (startToken to startToken)
@@ -497,7 +515,7 @@ export class ArbitrageGraph {
     amountIn: bigint,
     excludePairs: Address[] = []
   ): { pairAddress: Address; fee: number } | null {
-    const bestPair = this.tokenToHighestReservePair[token];
+    const bestPair = this.tokenToHighestReservePair.get(token);
     if (!bestPair) return null;
 
     // Check if pair is excluded
@@ -527,9 +545,10 @@ export class ArbitrageGraph {
   }
 
   clear(): void {
-    this.graph = {};
+    this.graph.clear();
     this.tokens.clear();
     this.pairs.clear();
-    this.tokenToHighestReservePair = {};
+    this.tokenToHighestReservePair.clear();
+    this.edgeIndex.clear();
   }
 }
