@@ -25,14 +25,14 @@ export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string
 
 export const NERK = true;
 
-//factory addresses and fees
-export const FACTORY: { name: string; address: `0x${string}`; fee: number }[] = [
-    { name: "woolfPro", address: "0x5c6C40CAe6f57b782D8Ff445258989aaC73D5074" as `0x${string}`, fee: 10 },
-    { name: "chewy", address: "0xEDedDbde5ffA62545eDF97054edC11013ED72125" as `0x${string}`, fee: 25 },
-    { name: "shiba", address: "0xc2b4218F137e3A5A9B98ab3AE804108F0D312CBC" as `0x${string}`, fee: 30 },
-    { name: "mars", address: "0xBe0223f65813C7c82E195B48F8AAaAcb304FbAe7" as `0x${string}`, fee: 20 },
-    { name: "pumk", address: "0x5640113EA7F369E6DAFbe54cBb1406E5BF153E90" as `0x${string}`, fee: 20 },
-    { name: "woof", address: "0xB9fbdFA27B7ba8BB2d4bB4aB399e4c55F0F7F83a" as `0x${string}`, fee: 20 },
+//factory addresses, fees and volatile( volatile DEX and exclude stable pairs ingetinfo)
+export const FACTORY: { name: string; address: `0x${string}`; fee: number; volatile: boolean }[] = [
+    { name: "woolfPro", address: "0x5c6C40CAe6f57b782D8Ff445258989aaC73D5074" as `0x${string}`, fee: 10, volatile: false },
+    { name: "chewy", address: "0xEDedDbde5ffA62545eDF97054edC11013ED72125" as `0x${string}`, fee: 25, volatile: false },
+    { name: "shiba", address: "0xc2b4218F137e3A5A9B98ab3AE804108F0D312CBC" as `0x${string}`, fee: 30, volatile: false },
+    { name: "mars", address: "0xBe0223f65813C7c82E195B48F8AAaAcb304FbAe7" as `0x${string}`, fee: 20, volatile: false },
+    { name: "pumk", address: "0x5640113EA7F369E6DAFbe54cBb1406E5BF153E90" as `0x${string}`, fee: 20, volatile: false },
+    { name: "woof", address: "0xB9fbdFA27B7ba8BB2d4bB4aB399e4c55F0F7F83a" as `0x${string}`, fee: 20, volatile: true },
 ];
 
 export const minProfit = parseEther("0.003"); //0.1 WETH - minimum profit
@@ -40,7 +40,7 @@ export const maxIterations = 100;
 export const maxHops = 10;
 export const MAX_ENTRIES_PER_TOKEN = 10;
 
-export const DEBUG = false;
+export const DEBUG = true;
 
 export const BATCH_SIZE = 200;
 

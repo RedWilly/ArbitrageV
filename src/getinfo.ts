@@ -225,7 +225,7 @@ async function getReservesWithRetry(
     pairs: PairInfo[]
 ): Promise<PairInfo[]> {
     const result: PairInfo[] = [];
-    const isWoofFactory = pairs[0]?.factory.toLowerCase().includes('woof');
+    const isWoofFactory = FACTORY.find(f => f.name === pairs[0]?.factory)?.volatile ?? false;
     const batchSize = isWoofFactory ? WOOF_RESERVES_BATCH_SIZE : BATCH_SIZE;
 
     for (let i = 0; i < pairs.length; i += batchSize) {
