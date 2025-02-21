@@ -2,6 +2,7 @@ import {  type Address, createPublicClient, parseEther } from 'viem';
 import { BATCH_SIZE, FACTORY, UNISWAP_FLASH_QUERY_CONTRACT, DEBUG, ADDRESSES } from './constants';
 import UniswapFlashQueryABI from './ABI/UniswapFlashQuery.json';
 import bannedTokens from './bannedtax.json';
+import fs from 'fs';
 
 export type PairInfo = {
     pairAddress: Address;
@@ -12,6 +13,8 @@ export type PairInfo = {
     lastTimestamp: number;
     factory: string;
     fee: number;
+    buyFeeBps: number;    // New field for buy fees
+    sellFeeBps: number;   // New field for sell fees
 };
 
 // Special batch size for Woof factory reserves to prevent contract reverts
@@ -20,8 +23,17 @@ const WOOF_RESERVES_BATCH_SIZE = 5;
 // Maximum age for pairs (35 days in seconds)
 const MAX_PAIR_AGE_SECONDS = 90 * 24 * 60 * 60;
 
-
 const MIN_OTHER_TOKENS_LIQUIDITY = parseEther("219202");
+
+// Load taxedp.json data
+let taxedPairsData: { [pairAddress: string]: { buyFeeBps: number; sellFeeBps: number } } = {};
+try {
+    const taxedPairsContent = fs.readFileSync('./taxedp.json', 'utf-8');
+    taxedPairsData = JSON.parse(taxedPairsContent);
+} catch (error) {
+    if (DEBUG) console.error('Error loading taxedp.json:', error);
+    taxedPairsData = {};
+}
 
 /**
  * Check if a pair is active based on its last timestamp
@@ -133,6 +145,8 @@ async function getPairsInRange(
                 lastTimestamp: 0,  // Will be updated when fetching reserves
                 factory: factory.name,
                 fee: factory.fee,
+                buyFeeBps: taxedPairsData[pairAddress]?.buyFeeBps ?? 0,
+                sellFeeBps: taxedPairsData[pairAddress]?.sellFeeBps ?? 0,
             }));
 
         // Build a map of token liquidity pool counts
@@ -145,14 +159,35 @@ async function getPairsInRange(
         });
 
         // Filter out pairs where either token appears in only one liquidity pool
-        const filteredPairs = pairs.filter(pair => 
-            tokenPoolCount[pair.token0] > 1 && 
-            tokenPoolCount[pair.token1] > 1 && 
-            !bannedTokens.some(bannedToken => {
+        const filteredPairs = pairs.filter(pair => {
+            // Check if pair exists in taxedp.json
+            const isInTaxedPairs = pair.pairAddress.toLowerCase() in taxedPairsData;
+            
+            // Check if tokens are banned
+            const hasBannedToken = bannedTokens.some(bannedToken => {
                 const bannedTokenLower = bannedToken.toLowerCase();
-                return pair.token0.toLowerCase() === bannedTokenLower || pair.token1.toLowerCase() === bannedTokenLower;
-            })
-        );
+                return pair.token0.toLowerCase() === bannedTokenLower || 
+                       pair.token1.toLowerCase() === bannedTokenLower;
+            });
+
+            // Keep pair if:
+            // 1. Both tokens have more than one liquidity pool AND
+            // 2. Either:
+            //    a. No banned tokens OR
+            //    b. Has banned token but exists in taxedp.json
+            return tokenPoolCount[pair.token0] > 1 && 
+                   tokenPoolCount[pair.token1] > 1 && 
+                   (!hasBannedToken || isInTaxedPairs);
+        });
+
+        // Update fees for pairs that exist in taxedp.json
+        filteredPairs.forEach(pair => {
+            const taxInfo = taxedPairsData[pair.pairAddress.toLowerCase()];
+            if (taxInfo) {
+                pair.buyFeeBps = taxInfo.buyFeeBps;
+                pair.sellFeeBps = taxInfo.sellFeeBps;
+            }
+        });
 
         return filteredPairs;
     } catch (error) {

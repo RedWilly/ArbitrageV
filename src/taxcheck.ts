@@ -78,6 +78,8 @@ async function getPairsInRange(
     stop: number
 ): Promise<PairData[]> {
     try {
+        console.log(`\n[${factory.name}] Fetching pairs from index ${start} to ${stop}`);
+        
         const pairsData = await client.readContract({
             address: UNISWAP_FLASH_QUERY_CONTRACT as Address,
             abi: UniswapFlashQueryABI,
@@ -85,16 +87,26 @@ async function getPairsInRange(
             args: [factory.address, BigInt(start), BigInt(stop)],
         }) as Address[][];
 
-        return pairsData.map(([token0, token1, pairAddress]) => ({
+        console.log(`[${factory.name}] Found ${pairsData.length} pairs in range`);
+        
+        // Log each pair's details
+        pairsData.forEach(([token0, token1, pairAddress], index) => {
+            console.log(`\n[${factory.name}] Pair ${start + index}:`);
+            console.log(`  Pair Address: ${pairAddress}`);
+            console.log(`  Token0: ${token0}`);
+            console.log(`  Token1: ${token1}`);
+        });
+
+        const pairs = pairsData.map(([token0, token1, pairAddress]) => ({
             pairAddress,
             token0,
             token1,
             factory: factory.name,
         }));
+
+        return pairs;
     } catch (error) {
-        if (DEBUG) {
-            console.error(`Error fetching pairs for factory ${factory.name}:`, error);
-        }
+        console.error(`[${factory.name}] Error fetching pairs in range ${start}-${stop}:`, error);
         return [];
     }
 }
@@ -104,24 +116,31 @@ async function getReservesForPairs(
     pairs: PairData[]
 ): Promise<PairData[]> {
     try {
+        console.log(`\nFetching reserves for pairs...`);
         const reserves = await client.readContract({
             address: UNISWAP_FLASH_QUERY_CONTRACT as Address,
             abi: UniswapFlashQueryABI,
             functionName: 'getReservesByPairs',
             args: [pairs.map(p => p.pairAddress)],
-        }) as bigint[][];
+        }) as [bigint, bigint, number][];
 
-        return pairs.map((pair, i) => ({
-            ...pair,
-            reserve0: reserves[i][0],
-            reserve1: reserves[i][1],
-            lastTimestamp: Number(reserves[i][2])
-        }));
+        return pairs.map((pair, i) => {
+            const [reserve0, reserve1, timestamp] = reserves[i];
+            console.log(`\nReserves for pair ${pair.pairAddress} (${pair.factory}):`);
+            console.log(`  Token0: ${pair.token0}`);
+            console.log(`  Token1: ${pair.token1}`);
+            console.log(`  Reserve0: ${reserve0.toString()}`);
+            console.log(`  Reserve1: ${reserve1.toString()}`);
+            return {
+                ...pair,
+                reserve0,
+                reserve1,
+                lastTimestamp: timestamp,
+            };
+        });
     } catch (error) {
-        if (DEBUG) {
-            console.error('Error fetching reserves:', error);
-        }
-        throw error;
+        console.error('Error in getReservesForPairs:', error);
+        return pairs;
     }
 }
 
@@ -129,27 +148,68 @@ async function getReservesWithRetry(
     client: any,
     pairs: PairData[]
 ): Promise<PairData[]> {
-    const result: PairData[] = [];
-    const isWoofFactory = pairs[0]?.factory.toLowerCase().includes('woof');
-    const batchSize = isWoofFactory ? WOOF_RESERVES_BATCH_SIZE : BATCH_SIZE;
+    try {
+        console.log(`\nGetting reserves for ${pairs.length} pairs`);
+        const pairsWithReserves = await getReservesForPairs(client, pairs);
+        
+        // Log pairs that were filtered out due to reserves
+        const filteredPairs = pairsWithReserves.filter(pair => {
+            if (!pair.reserve0 || !pair.reserve1) {
+                console.log(`\nPair ${pair.pairAddress} filtered out:`);
+                console.log(`  Reason: Missing reserves`);
+                console.log(`  Reserve0: ${pair.reserve0 || 'missing'}`);
+                console.log(`  Reserve1: ${pair.reserve1 || 'missing'}`);
+                return false;
+            }
+            
+            // Check if either token is in ADDRESSES
+            const token0InAddresses = ADDRESSES.some(addr => addr.address.toLowerCase() === pair.token0.toLowerCase());
+            const token1InAddresses = ADDRESSES.some(addr => addr.address.toLowerCase() === pair.token1.toLowerCase());
+            
+            if (token0InAddresses) {
+                const requiredAmount = ADDRESSES.find(addr => addr.address.toLowerCase() === pair.token0.toLowerCase())?.LPAMOUNT;
+                if (!requiredAmount || pair.reserve0 < BigInt(requiredAmount)) {
+                    console.log(`\nPair ${pair.pairAddress} filtered out:`);
+                    console.log(`  Reason: Insufficient token0 reserves`);
+                    console.log(`  Token0: ${pair.token0} (monitored token)`);
+                    console.log(`  Required: ${requiredAmount || 'N/A'}`);
+                    console.log(`  Actual: ${pair.reserve0}`);
+                    return false;
+                }
+            } else if (token1InAddresses) {
+                const requiredAmount = ADDRESSES.find(addr => addr.address.toLowerCase() === pair.token1.toLowerCase())?.LPAMOUNT;
+                if (!requiredAmount || pair.reserve1 < BigInt(requiredAmount)) {
+                    console.log(`\nPair ${pair.pairAddress} filtered out:`);
+                    console.log(`  Reason: Insufficient token1 reserves`);
+                    console.log(`  Token1: ${pair.token1} (monitored token)`);
+                    console.log(`  Required: ${requiredAmount || 'N/A'}`);
+                    console.log(`  Actual: ${pair.reserve1}`);
+                    return false;
+                }
+            } else {
+                if (pair.reserve0 < MIN_LIQUIDITY && pair.reserve1 < MIN_LIQUIDITY) {
+                    console.log(`\nPair ${pair.pairAddress} filtered out:`);
+                    console.log(`  Reason: Both tokens below minimum liquidity`);
+                    console.log(`  Token0: ${pair.token0}, Reserve: ${pair.reserve0}`);
+                    console.log(`  Token1: ${pair.token1}, Reserve: ${pair.reserve1}`);
+                    console.log(`  Required: ${MIN_LIQUIDITY}`);
+                    return false;
+                }
+            }
+            
+            return true;
+        });
 
-    for (let i = 0; i < pairs.length; i += batchSize) {
-        const batch = pairs.slice(i, i + batchSize);
-        try {
-            if (DEBUG) {
-                console.log(`Fetching reserves for ${batch.length} pairs from ${pairs[0].factory} (${i + 1} to ${i + batch.length})`);
-            }
-            const pairsWithReserves = await getReservesForPairs(client, batch);
-            result.push(...pairsWithReserves);
-        } catch (error) {
-            if (DEBUG) {
-                console.error(`Error fetching reserves for batch, skipping...`, error);
-            }
-            continue;
-        }
+        console.log(`\nAfter filtering:`);
+        console.log(`  Original pairs: ${pairs.length}`);
+        console.log(`  Remaining pairs: ${filteredPairs.length}`);
+        console.log(`  Filtered out: ${pairs.length - filteredPairs.length}`);
+
+        return filteredPairs;
+    } catch (error) {
+        console.error('Error in getReservesWithRetry:', error);
+        return [];
     }
-
-    return result;
 }
 
 async function checkTaxBatch(
@@ -168,27 +228,57 @@ async function checkTaxBatch(
             const batchPairs = baseTokens.slice(i, i + TAX_CHECK_BATCH_SIZE);
             const batchFactories = new Array(batchTokens.length).fill(factoryAddress);
             
-            console.log(`Processing tax check batch ${i} to ${i + batchTokens.length} of ${tokens.length}`);
-            console.log('batchValidateAll args:', {
-                pairAddresses: batchPairs,
-                tokens: batchTokens,
-                factories: batchFactories,
-                amountToBorrow: amountToBorrow.toString()
+            console.log(`\n[Tax Check] Processing batch ${Math.floor(i/TAX_CHECK_BATCH_SIZE) + 1}:`);
+            batchTokens.forEach((token, idx) => {
+                console.log(`  Pair ${idx + 1}:`);
+                console.log(`    Token: ${token}`);
+                console.log(`    Pair Address: ${batchPairs[idx]}`);
+                console.log(`    Factory: ${factoryAddress}`);
             });
 
-            const { result } = await client.simulateContract({
-                address: TAX_CHECKER_ADDRESS,
-                abi: CheckTaxABI,
-                functionName: "batchValidateAll",
-                args: [batchPairs, batchTokens, batchFactories, amountToBorrow],
-            }) as { result: TaxCheckResult[] };
+            try {
+                const { result } = await client.simulateContract({
+                    address: TAX_CHECKER_ADDRESS,
+                    abi: CheckTaxABI,
+                    functionName: "batchValidateAll",
+                    args: [batchPairs, batchTokens, batchFactories, amountToBorrow],
+                }) as { result: TaxCheckResult[] };
 
-            results.push(...result);
+                // Log results for each pair in batch
+                result.forEach((res, idx) => {
+                    console.log(`\n[Tax Check] Result for ${batchPairs[idx]}:`);
+                    console.log(`  Token: ${batchTokens[idx]}`);
+                    console.log(`  Buy Fee: ${res.buyFeeBps.toString()} bps`);
+                    console.log(`  Sell Fee: ${res.sellFeeBps.toString()} bps`);
+                    console.log(`  Sell Reverted: ${res.sellReverted}`);
+                    console.log(`  Fee Taken On Transfer: ${res.feeTakenOnTransfer}`);
+                    console.log(`  External Transfer Failed: ${res.externalTransferFailed}`);
+                });
+
+                results.push(...result);
+            } catch (error) {
+                console.error(`[Tax Check] Batch validation failed for batch ${Math.floor(i/TAX_CHECK_BATCH_SIZE) + 1}:`, error);
+                // Log which pairs were in the failed batch
+                console.log('Failed batch contained:');
+                batchPairs.forEach((pair, idx) => {
+                    console.log(`  Pair: ${pair}, Token: ${batchTokens[idx]}`);
+                });
+                
+                // For simulation reverts, we don't want to mark pairs as sellReverted
+                // Instead, we'll skip these pairs by pushing empty results
+                results.push(...new Array(batchTokens.length).fill({
+                    buyFeeBps: 0n,
+                    sellFeeBps: 0n,
+                    feeTakenOnTransfer: false,
+                    externalTransferFailed: false,
+                    sellReverted: false
+                }));
+            }
         }
 
         return results;
     } catch (error) {
-        console.error(`Error checking tax batch:`, error);
+        console.error(`[Tax Check] Error in checkTaxBatch:`, error);
         throw error;
     }
 }
@@ -202,40 +292,17 @@ async function processPairBatch(
 
     try {
         // Get reserves for all pairs first
+        console.log(`\nProcessing batch of ${pairs.length} pairs`);
         const pairsWithReserves = await getReservesWithRetry(client, pairs);
         
-        // Filter out pairs with low liquidity
-        const filteredPairs = pairsWithReserves.filter(pair => {
-            if (!pair.reserve0 || !pair.reserve1) return false;
-            
-            // Check if either token is in ADDRESSES
-            const token0InAddresses = ADDRESSES.some(addr => addr.address.toLowerCase() === pair.token0.toLowerCase());
-            const token1InAddresses = ADDRESSES.some(addr => addr.address.toLowerCase() === pair.token1.toLowerCase());
-            
-            if (token0InAddresses) {
-                // If token0 is monitored token, check its reserve
-                const requiredAmount = ADDRESSES.find(addr => addr.address.toLowerCase() === pair.token0.toLowerCase())?.LPAMOUNT;
-                if (!requiredAmount || pair.reserve0 < BigInt(requiredAmount)) return false;
-            } else if (token1InAddresses) {
-                // If token1 is monitored token, check its reserve
-                const requiredAmount = ADDRESSES.find(addr => addr.address.toLowerCase() === pair.token1.toLowerCase())?.LPAMOUNT;
-                if (!requiredAmount || pair.reserve1 < BigInt(requiredAmount)) return false;
-            } else {
-                // If neither token is monitored, both must meet MIN_LIQUIDITY
-                if (pair.reserve0 < MIN_LIQUIDITY && pair.reserve1 < MIN_LIQUIDITY) return false;
-            }
-            
-            return true;
-        });
-
-        if (DEBUG) {
-            console.log(`Filtered out ${pairsWithReserves.length - filteredPairs.length} pairs with insufficient liquidity`);
-            console.log(`Remaining pairs: ${filteredPairs.length}`);
-        }
-
         // Group remaining pairs by factory
         const pairsByFactory: { [factory: string]: PairData[] } = {};
-        filteredPairs.forEach(pair => {
+        pairsWithReserves.forEach(pair => {
+            console.log(`\nPair ${pair.pairAddress} passed reserve checks:`);
+            console.log(`  Factory: ${pair.factory}`);
+            console.log(`  Token0: ${pair.token0}, Reserve0: ${pair.reserve0}`);
+            console.log(`  Token1: ${pair.token1}, Reserve1: ${pair.reserve1}`);
+            
             if (!pairsByFactory[pair.factory]) {
                 pairsByFactory[pair.factory] = [];
             }
@@ -244,12 +311,25 @@ async function processPairBatch(
 
         // Process each factory's pairs
         for (const [factoryName, factoryPairs] of Object.entries(pairsByFactory)) {
+            console.log(`\nProcessing ${factoryPairs.length} pairs for factory ${factoryName}`);
             const factoryAddress = FACTORY.find(f => f.name === factoryName)?.address as Address;
-            if (!factoryAddress) continue;
+            if (!factoryAddress) {
+                console.log(`Factory address not found for ${factoryName}, skipping`);
+                continue;
+            }
 
-            const tokens = factoryPairs.map(p => p.token0);
+            const SPECIAL_TOKEN = ADDRESSES[0].address;
+            const tokens = factoryPairs.map(p => {
+                // If token0 is the special token, use token1 instead
+                if (p.token0.toLowerCase() === SPECIAL_TOKEN.toLowerCase()) {
+                    console.log(`Found special token ${SPECIAL_TOKEN} as token0, using token1 ${p.token1} instead`);
+                    return p.token1;
+                }
+                return p.token0;
+            });
             const pairs = factoryPairs.map(p => p.pairAddress);
 
+            console.log(`Checking taxes for ${pairs.length} pairs in ${factoryName}`);
             const taxResults = await checkTaxBatch(
                 client,
                 factoryAddress,
@@ -261,24 +341,34 @@ async function processPairBatch(
             // Process and save results according to new rules
             taxResults.forEach((result, index) => {
                 const pairAddress = pairs[index];
+                const pair = factoryPairs[index];
+                
+                console.log(`\nTax check result for pair ${pairAddress}:`);
+                console.log(`  Token0: ${pair.token0}`);
+                console.log(`  Token1: ${pair.token1}`);
+                console.log(`  Buy Fee: ${result.buyFeeBps.toString()}`);
+                console.log(`  Sell Fee: ${result.sellFeeBps.toString()}`);
+                console.log(`  Sell Reverted: ${result.sellReverted}`);
                 
                 // Save if either fee is > 0 OR if sellReverted is true
                 if (result.buyFeeBps > 0n || result.sellFeeBps > 0n || result.sellReverted) {
+                    console.log(`  Status: Saving to taxedp.json`);
                     taxInfo[pairAddress] = {
-                        // If sellReverted is true and both fees are 0, save as 0
-                        // Otherwise add 5% to non-zero fees
                         buyFeeBps: result.sellReverted && result.buyFeeBps === 0n ? 0 : addFivePercent(result.buyFeeBps),
                         sellFeeBps: result.sellReverted && result.sellFeeBps === 0n ? 0 : addFivePercent(result.sellFeeBps),
                         sellReverted: result.sellReverted
                     };
+                } else {
+                    console.log(`  Status: Skipped (no fees and no revert)`);
                 }
             });
         }
-    } catch (error) {
-        console.error(`Error processing pair batch:`, error);
-    }
 
-    return taxInfo;
+        return taxInfo;
+    } catch (error) {
+        console.error('Error in processPairBatch:', error);
+        return taxInfo;
+    }
 }
 
 async function main() {
