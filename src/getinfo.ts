@@ -13,8 +13,9 @@ export type PairInfo = {
     lastTimestamp: number;
     factory: string;
     fee: number;
-    buyFeeBps: number;    // New field for buy fees
-    sellFeeBps: number;   // New field for sell fees
+    buyFeeBps: number;    
+    sellFeeBps: number;   
+    isToken0: boolean;    // true if token0 is base currency, false if token1 is base currency
 };
 
 // Special batch size for Woof factory reserves to prevent contract reverts
@@ -26,7 +27,7 @@ const MAX_PAIR_AGE_SECONDS = 90 * 24 * 60 * 60;
 const MIN_OTHER_TOKENS_LIQUIDITY = parseEther("219202");
 
 // Load taxedp.json data
-let taxedPairsData: { [pairAddress: string]: { buyFeeBps: number; sellFeeBps: number } } = {};
+let taxedPairsData: { [pairAddress: string]: { buyFeeBps: number; sellFeeBps: number; isToken0: boolean } } = {};
 try {
     const taxedPairsContent = fs.readFileSync('./taxedp.json', 'utf-8');
     taxedPairsData = JSON.parse(taxedPairsContent);
@@ -147,6 +148,12 @@ async function getPairsInRange(
                 fee: factory.fee,
                 buyFeeBps: taxedPairsData[pairAddress]?.buyFeeBps ?? 0,
                 sellFeeBps: taxedPairsData[pairAddress]?.sellFeeBps ?? 0,
+                isToken0: taxedPairsData[pairAddress]?.isToken0 ?? false,
+            /**
+             * reason why i hard code this as false to 
+             * non taxed token is that we dont care about the order 
+             * and wont affect our calculations in the graph
+             */
             }));
 
         // Build a map of token liquidity pool counts
@@ -186,6 +193,7 @@ async function getPairsInRange(
             if (taxInfo) {
                 pair.buyFeeBps = taxInfo.buyFeeBps;
                 pair.sellFeeBps = taxInfo.sellFeeBps;
+                pair.isToken0 = taxInfo.isToken0;
             }
         });
 
