@@ -9,7 +9,7 @@ import fs from 'fs';
 
 // Special batch size for Woof factory
 const WOOF_RESERVES_BATCH_SIZE = 5;
-const TAX_CHECK_BATCH_SIZE = 2;
+const TAX_CHECK_BATCH_SIZE = 3;
 const MIN_LIQUIDITY = parseEther("50");
 
 interface TaxCheckResult {
@@ -24,6 +24,7 @@ interface TaxInfo {
     [pairAddress: string]: {
         buyFeeBps: number;
         sellFeeBps: number;
+        sellReverted: boolean;
     }
 }
 
@@ -35,6 +36,13 @@ interface PairData {
     reserve0?: bigint;
     reserve1?: bigint;
     lastTimestamp?: number;
+}
+
+// Helper function to add 5% to non-zero fees and round up
+function addFivePercent(fee: bigint): number {
+    if (fee === 0n) return 0;
+    const feeNumber = Number(fee);
+    return Math.ceil(feeNumber + (feeNumber * 0.05)); // Add 5% and round up
 }
 
 async function getPairsLength(
@@ -154,26 +162,25 @@ async function checkTaxBatch(
     try {
         const results: TaxCheckResult[] = [];
         
-        // Process in batches of 50
+        // Process in batches of 3
         for (let i = 0; i < tokens.length; i += TAX_CHECK_BATCH_SIZE) {
             const batchTokens = tokens.slice(i, i + TAX_CHECK_BATCH_SIZE);
-            const batchBaseTokens = baseTokens.slice(i, i + TAX_CHECK_BATCH_SIZE);
+            const batchPairs = baseTokens.slice(i, i + TAX_CHECK_BATCH_SIZE);
+            const batchFactories = new Array(batchTokens.length).fill(factoryAddress);
             
             console.log(`Processing tax check batch ${i} to ${i + batchTokens.length} of ${tokens.length}`);
-            console.log('batchValidateOne args:', {
-                factoryAddress,
-                tokensCount: batchTokens.length,
+            console.log('batchValidateAll args:', {
+                pairAddresses: batchPairs,
                 tokens: batchTokens,
-                baseTokensCount: batchBaseTokens.length,
-                baseTokens: batchBaseTokens,
+                factories: batchFactories,
                 amountToBorrow: amountToBorrow.toString()
             });
 
             const { result } = await client.simulateContract({
                 address: TAX_CHECKER_ADDRESS,
                 abi: CheckTaxABI,
-                functionName: "batchValidateOne",
-                args: [factoryAddress, batchTokens, batchBaseTokens, amountToBorrow],
+                functionName: "batchValidateAll",
+                args: [batchPairs, batchTokens, batchFactories, amountToBorrow],
             }) as { result: TaxCheckResult[] };
 
             results.push(...result);
@@ -191,7 +198,7 @@ async function processPairBatch(
     pairs: PairData[]
 ): Promise<TaxInfo> {
     const taxInfo: TaxInfo = {};
-    const amountToBorrow = 1000000n; // 1000000 wei as specified
+    const amountToBorrow = 10000000n;
 
     try {
         // Get reserves for all pairs first
@@ -240,47 +247,30 @@ async function processPairBatch(
             const factoryAddress = FACTORY.find(f => f.name === factoryName)?.address as Address;
             if (!factoryAddress) continue;
 
-            const tokens: Address[] = [];
-            const baseTokens: Address[] = [];
-            const pairMap: { [key: string]: PairData } = {};
+            const tokens = factoryPairs.map(p => p.token0);
+            const pairs = factoryPairs.map(p => p.pairAddress);
 
-            // Prepare batch arrays
-            factoryPairs.forEach(pair => {
-                const token0InAddresses = ADDRESSES.some(addr => addr.address.toLowerCase() === pair.token0.toLowerCase());
-                const token1InAddresses = ADDRESSES.some(addr => addr.address.toLowerCase() === pair.token1.toLowerCase());
+            const taxResults = await checkTaxBatch(
+                client,
+                factoryAddress,
+                tokens,
+                pairs,
+                amountToBorrow
+            );
 
-                if (token0InAddresses || token1InAddresses) {
-                    // One token is in ADDRESSES, use it as base token
-                    const [token, baseToken] = token0InAddresses ? [pair.token1, pair.token0] : [pair.token0, pair.token1];
-                    tokens.push(token);
-                    baseTokens.push(baseToken);
-                    pairMap[`${token}_${baseToken}`] = pair;
-                } else {
-                    // Check both directions
-                    tokens.push(pair.token0, pair.token1);
-                    baseTokens.push(pair.token1, pair.token0);
-                    pairMap[`${pair.token0}_${pair.token1}`] = pair;
-                    pairMap[`${pair.token1}_${pair.token0}`] = pair;
-                }
-            });
-
-            if (tokens.length === 0) continue;
-
-            // Batch check taxes
-            const results = await checkTaxBatch(client, factoryAddress, tokens, baseTokens, amountToBorrow);
-
-            // Process results
-            results.forEach((result, index) => {
-                if (Number(result.buyFeeBps) > 0 || Number(result.sellFeeBps) > 0) {
-                    const token = tokens[index];
-                    const baseToken = baseTokens[index];
-                    const pair = pairMap[`${token}_${baseToken}`];
-                    if (pair) {
-                        taxInfo[pair.pairAddress] = {
-                            buyFeeBps: Number(result.buyFeeBps),
-                            sellFeeBps: Number(result.sellFeeBps)
-                        };
-                    }
+            // Process and save results according to new rules
+            taxResults.forEach((result, index) => {
+                const pairAddress = pairs[index];
+                
+                // Save if either fee is > 0 OR if sellReverted is true
+                if (result.buyFeeBps > 0n || result.sellFeeBps > 0n || result.sellReverted) {
+                    taxInfo[pairAddress] = {
+                        // If sellReverted is true and both fees are 0, save as 0
+                        // Otherwise add 5% to non-zero fees
+                        buyFeeBps: result.sellReverted && result.buyFeeBps === 0n ? 0 : addFivePercent(result.buyFeeBps),
+                        sellFeeBps: result.sellReverted && result.sellFeeBps === 0n ? 0 : addFivePercent(result.sellFeeBps),
+                        sellReverted: result.sellReverted
+                    };
                 }
             });
         }

@@ -1,0 +1,312 @@
+{
+  "0xB0ec4098B522C1344c7262D1Be84229574B6439A": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": false
+  },
+  "0x715F605613bA572C3322f458dfafd34E8A26aEfD": {
+    "buyFeeBps": 525,
+    "sellFeeBps": 525,
+    "sellReverted": false
+  },
+  "0x14B858a98df79a3C7a3a82c69fc6593EE7027104": {
+    "buyFeeBps": 525,
+    "sellFeeBps": 525,
+    "sellReverted": false
+  },
+  "0xfE18797Fc6CFDf671FB667E30DDd696228C299D0": {
+    "buyFeeBps": 2520,
+    "sellFeeBps": 2520,
+    "sellReverted": true
+  },
+  "0xCC8340997C93927cc62f7FDe98Dd490BB12B71a4": {
+    "buyFeeBps": 525,
+    "sellFeeBps": 525,
+    "sellReverted": true
+  },
+  "0x9a5b2f7b749a1e81EF0C6394564230a9ca40fF65": {
+    "buyFeeBps": 630,
+    "sellFeeBps": 630,
+    "sellReverted": true
+  },
+  "0xA4198A325A7d4236c03720c9a50d5B334CBd2519": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0x18da641361250942Ef13987f381BF9185C968a55": {
+    "buyFeeBps": 0,
+    "sellFeeBps": 53,
+    "sellReverted": false
+  },
+  "0x8C68216B96cd89a38b693DDf566C59214CE52898": {
+    "buyFeeBps": 0,
+    "sellFeeBps": 525,
+    "sellReverted": false
+  },
+  "0xAddf412446beff75530c6F6eC8CA5ee3DEC7e841": {
+    "buyFeeBps": 263,
+    "sellFeeBps": 263,
+    "sellReverted": false
+  },
+  "0x4e5879e3E81719E8F8A458038ccFF36F8E2ab86F": {
+    "buyFeeBps": 525,
+    "sellFeeBps": 525,
+    "sellReverted": true
+  },
+  "0x62D0d0E7F0C038305D8EeF3074438A04ad4f648f": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": true
+  },
+  "0xA3D2873eD267090A95EDc09ab08C28531f998881": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": true
+  },
+  "0xdc88FCE72ed3A3D440FEa08bbD9807962Cd0cD3C": {
+    "buyFeeBps": 210,
+    "sellFeeBps": 210,
+    "sellReverted": false
+  },
+  "0xD5F142A51C37bBa438543F7440Bc3558753Fe1D9": {
+    "buyFeeBps": 210,
+    "sellFeeBps": 210,
+    "sellReverted": false
+  },
+  "0x86b781e14955775435A7201da7B7e5402536e66d": {
+    "buyFeeBps": 210,
+    "sellFeeBps": 210,
+    "sellReverted": false
+  },
+  "0xe2435a61F907e1f24231bb2c79821532509c71Bf": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xfADAc7c663e405DA80E5Cc94939B85508675F41D": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": true
+  },
+  "0xE344C689EaF3a8f89dfeda5375785d9f208c7B4D": {
+    "buyFeeBps": 422,
+    "sellFeeBps": 422,
+    "sellReverted": true
+  },
+  "0xdd129E4E99904802e11d877F420261224792f5fE": {
+    "buyFeeBps": 840,
+    "sellFeeBps": 840,
+    "sellReverted": false
+  },
+  "0x1241d1C7C0419c84F40F9463084eAA19F4D42a6E": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": true
+  },
+  "0x1743293af3E56414F43Bd8A49C560E56D2d9eC7f": {
+    "buyFeeBps": 210,
+    "sellFeeBps": 210,
+    "sellReverted": false
+  },
+  "0x845a42001AbF496E5cB6742D8e48A72005D7dA88": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": true
+  },
+  "0xEBdac7931040E46e2cD62A7e856671c666160cBB": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": true
+  },
+  "0xF3452bCdEcaDa5E08ce56EC3D2BF8e35ECFFFF91": {
+    "buyFeeBps": 0,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0x397A16DcfcA6a7dF857B157FFfFdD9Ea2A97b8a6": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": true
+  },
+  "0x1e8D0A96AcEe2900EC4c3690Cf91386f10471719": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0x1b08B8D2FdBd93c3d6Cb25E34E589221fa6a280e": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": false
+  },
+  "0x39177031bEC38536Fe2F47d6978d2F7fE2953F4a": {
+    "buyFeeBps": 525,
+    "sellFeeBps": 525,
+    "sellReverted": false
+  },
+  "0x493a4e305E3ae95cc7a33c6Fdb240868C8c00CD5": {
+    "buyFeeBps": 0,
+    "sellFeeBps": 53,
+    "sellReverted": false
+  },
+  "0x85a5a95CCDA0D569aFd3ef89fD9e01B191Eff9Aa": {
+    "buyFeeBps": 725,
+    "sellFeeBps": 725,
+    "sellReverted": false
+  },
+  "0xBeB316135311a472200148762905dDA3Dcde59C3": {
+    "buyFeeBps": 725,
+    "sellFeeBps": 725,
+    "sellReverted": false
+  },
+  "0xCE80C415BE46594020610833FE7c861468401C53": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": false
+  },
+  "0xaffe4C24e55c4030230C7F195BF9B9d359E3eC8d": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xd3974a3E2bfef9e05e6d2c7a787082c4E0cdC734": {
+    "buyFeeBps": 525,
+    "sellFeeBps": 525,
+    "sellReverted": true
+  },
+  "0x4A0A199688Cd322Bc1DfC781a1B653f93f5A033a": {
+    "buyFeeBps": 525,
+    "sellFeeBps": 525,
+    "sellReverted": false
+  },
+  "0x2b6e3f6a491Ed7908e4FC591EA0fa8c544d7A059": {
+    "buyFeeBps": 525,
+    "sellFeeBps": 525,
+    "sellReverted": false
+  },
+  "0x93a6625aEdFA255cb73970E6AFE7D6741d5434dd": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": false
+  },
+  "0xb7B3332F4eec418bf88A5167A3d29520B3e5dF84": {
+    "buyFeeBps": 945,
+    "sellFeeBps": 945,
+    "sellReverted": false
+  },
+  "0x919a23B3541b986F15c2D885826452E2Af7Fb30E": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": true
+  },
+  "0x0e700AD145424e7B0a3A9B855F3A37D4F184BAD6": {
+    "buyFeeBps": 11,
+    "sellFeeBps": 11,
+    "sellReverted": false
+  },
+  "0x5A4810fE3CC3119667e308343391bD38e743B450": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xe1B60f559b583F9b31d9c2bb2cdB61d21050c83e": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xbfABA013FF3eE00f10889fDE8F2ecda3e21270eB": {
+    "buyFeeBps": 263,
+    "sellFeeBps": 263,
+    "sellReverted": false
+  },
+  "0x8DA36f9f66a08E1f42389C48911ddB3d452b6ce0": {
+    "buyFeeBps": 263,
+    "sellFeeBps": 263,
+    "sellReverted": true
+  },
+  "0x133cab5c4A3E0687711a8f45105b607b46A27317": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xe8434fa0AE1DDf1DF2062f400E84e1c870A42B1a": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": true
+  },
+  "0x2F98EA6B2497072154E9543e35c90D905F5f874d": {
+    "buyFeeBps": 0,
+    "sellFeeBps": 0,
+    "sellReverted": true
+  },
+  "0x5D276cB6Eb1939A56947C7CF39676D8828CA71EF": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xda596fF62E2B238cA14c0F32432D48CAC6883C06": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": true
+  },
+  "0x8a09CD740d896613C485676994EBc24AA48fdc6d": {
+    "buyFeeBps": 0,
+    "sellFeeBps": 53,
+    "sellReverted": false
+  },
+  "0x0b4CEce1F9D4Bc6A8e2EF26937a914E6181390CE": {
+    "buyFeeBps": 0,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xC3C392ea725Fc80DC7692d0a7484e0e3b055bF31": {
+    "buyFeeBps": 725,
+    "sellFeeBps": 725,
+    "sellReverted": false
+  },
+  "0xaced79E04aB14c02348a83FB19AB16F130e0596c": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 525,
+    "sellReverted": false
+  },
+  "0xA95D26f89090f6E1ddd8621FA3Cd0EAD0D398042": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xA72E26df887Cc6Fb4769907670b251360E598Dad": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": false
+  },
+  "0xb5370992f80E4329613acbf45d0E0A3a8d600509": {
+    "buyFeeBps": 315,
+    "sellFeeBps": 315,
+    "sellReverted": false
+  },
+  "0xB841695a9297b31c7D39E172F689904719487808": {
+    "buyFeeBps": 11,
+    "sellFeeBps": 11,
+    "sellReverted": false
+  },
+  "0xFACFE3445C746ce2Ab8e609697Aa673Af1De664F": {
+    "buyFeeBps": 210,
+    "sellFeeBps": 210,
+    "sellReverted": false
+  },
+  "0x9C00feC7D610B78a0a2311bACAfFC7cD2995bdE3": {
+    "buyFeeBps": 11,
+    "sellFeeBps": 11,
+    "sellReverted": false
+  },
+  "0x75449F0857d848D0AEbc429302911BEbBB944413": {
+    "buyFeeBps": 420,
+    "sellFeeBps": 420,
+    "sellReverted": false
+  },
+  "0x7166510B4771f3d0ceAA7216777a7020C049300A": {
+    "buyFeeBps": 2,
+    "sellFeeBps": 2,
+    "sellReverted": false
+  }
+}
