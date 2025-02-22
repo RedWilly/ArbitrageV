@@ -27,13 +27,13 @@ export function findAndLogArbitrageOpportunities(graph: ArbitrageGraph, networkC
             expectedProfit: BigInt(opportunities.profits[index])
         }));
 
-        // Create manager and process opportunities
-        const manager = createOpportunityManager(networkConfig);
-        manager.processOpportunities(graph, formattedOpps).catch(error => {
-            if (DEBUG) {
-                console.error('Error processing opportunities:', error);
-            }
-        });
+        // Create manager and process opportunities -- currently commented out execute function just to test this code for now
+        // const manager = createOpportunityManager(networkConfig);
+        // manager.processOpportunities(graph, formattedOpps).catch(error => {
+        //     if (DEBUG) {
+        //         console.error('Error processing opportunities:', error);
+        //     }
+        // });
     }
 
     return opportunities;

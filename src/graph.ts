@@ -8,6 +8,9 @@ export type PairInfo = {
   reserve0: bigint;
   reserve1: bigint;
   fee: number;
+  buyFeeBps: number;
+  sellFeeBps: number;
+  isToken0: boolean;
 };
 
 interface Edge {
@@ -19,7 +22,6 @@ interface Edge {
   reserveOut: bigint;
 }
 
-// Key for edge lookup, combining source token and pair address
 type EdgeKey = `${string}-${string}`;
 
 interface DPEntry {
@@ -54,50 +56,60 @@ export class ArbitrageGraph {
     this.tokens.add(pair.token1);
     this.pairs.set(pair.pairAddress, pair);
 
-    this.updateGraphEdges(pair); 
+    this.updateGraphEdges(pair);
   }
 
-  // Helper function to update graph edges for a given pair
   private updateGraphEdges(pair: PairInfo): void {
     const [res0, res1] = [Number(pair.reserve0), Number(pair.reserve1)];
     if (res0 === 0 || res1 === 0) return;
 
-    // Update highest reserve tracking for token0
-    const currentBest0 = this.tokenToHighestReservePair.get(pair.token0);
-    if (!currentBest0 || pair.reserve0 > currentBest0.reserves) {
-      this.tokenToHighestReservePair.set(pair.token0, {
-        pairAddress: pair.pairAddress,
-        reserves: pair.reserve0,
-        fee: pair.fee
-      });
-    }
+    // Update highest reserve tracking
+    const updateHighestReserve = (token: Address, reserve: bigint) => {
+      const currentBest = this.tokenToHighestReservePair.get(token);
+      if (!currentBest || reserve > currentBest.reserves) {
+        this.tokenToHighestReservePair.set(token, {
+          pairAddress: pair.pairAddress,
+          reserves: reserve,
+          fee: pair.fee,
+        });
+      }
+    };
 
-    // Update highest reserve tracking for token1
-    const currentBest1 = this.tokenToHighestReservePair.get(pair.token1);
-    if (!currentBest1 || pair.reserve1 > currentBest1.reserves) {
-      this.tokenToHighestReservePair.set(pair.token1, {
-        pairAddress: pair.pairAddress,
-        reserves: pair.reserve1,
-        fee: pair.fee
-      });
-    }
+    updateHighestReserve(pair.token0, pair.reserve0);
+    updateHighestReserve(pair.token1, pair.reserve1);
 
-    // Token0 -> Token1 edge
+    // Helper to calculate effective fee
+    const calculateEffectiveFee = (
+      direction: 'token0ToToken1' | 'token1ToToken0',
+      pair: PairInfo
+    ): number => {
+      const isToken0Taxed = pair.isToken0;
+      const isSellingTaxedToken = 
+        (isToken0Taxed && direction === 'token0ToToken1') ||
+        (!isToken0Taxed && direction === 'token1ToToken0');
+
+      if (isSellingTaxedToken) {
+        return pair.fee + pair.sellFeeBps;
+      } else {
+        return pair.fee + pair.buyFeeBps;
+      }
+    };
+
+    // Update token0 -> token1 edge
     const edge0Key = this.createEdgeKey(pair.token0, pair.pairAddress);
     const edge0To1 = this.edgeIndex.get(edge0Key);
+    const effectiveFee0 = calculateEffectiveFee('token0ToToken1', pair);
 
     if (edge0To1) {
-      // Update existing edge
+      edge0To1.fee = effectiveFee0;
       edge0To1.reserveIn = pair.reserve0;
       edge0To1.reserveOut = pair.reserve1;
-      edge0To1.fee = pair.fee;
     } else {
-      // Create new edge
       const newEdge: Edge = {
         to: pair.token1,
         pairAddress: pair.pairAddress,
         direction: 'token0ToToken1',
-        fee: pair.fee,
+        fee: effectiveFee0,
         reserveIn: pair.reserve0,
         reserveOut: pair.reserve1,
       };
@@ -109,22 +121,21 @@ export class ArbitrageGraph {
       this.edgeIndex.set(edge0Key, newEdge);
     }
 
-    // Token1 -> Token0 edge
+    // Update token1 -> token0 edge
     const edge1Key = this.createEdgeKey(pair.token1, pair.pairAddress);
     const edge1To0 = this.edgeIndex.get(edge1Key);
+    const effectiveFee1 = calculateEffectiveFee('token1ToToken0', pair);
 
     if (edge1To0) {
-      // Update existing edge
+      edge1To0.fee = effectiveFee1;
       edge1To0.reserveIn = pair.reserve1;
       edge1To0.reserveOut = pair.reserve0;
-      edge1To0.fee = pair.fee;
     } else {
-      // Create new edge
       const newEdge: Edge = {
         to: pair.token0,
         pairAddress: pair.pairAddress,
         direction: 'token1ToToken0',
-        fee: pair.fee,
+        fee: effectiveFee1,
         reserveIn: pair.reserve1,
         reserveOut: pair.reserve0,
       };
@@ -180,16 +191,13 @@ export class ArbitrageGraph {
       directions: ('token0ToToken1' | 'token1ToToken0')[];
     }> = [];
 
-    // Initialize with starting token
     dp[0] = new Map();
-    dp[0].set(startToken, [
-      {
-        amountOut: 1.0,
-        path: [startToken],
-        pairs: [],
-        directions: [],
-      },
-    ]);
+    dp[0].set(startToken, [{
+      amountOut: 1.0,
+      path: [startToken],
+      pairs: [],
+      directions: [],
+    }]);
 
     for (let step = 1; step <= maxDepth; step++) {
       dp[step] = new Map();
@@ -205,8 +213,7 @@ export class ArbitrageGraph {
             // Calculate output using actual swap formula
             const feeMultiplier = 1 - edge.fee / 10000;
             const amountInAfterFee = entry.amountOut * feeMultiplier;
-            const newAmountOut =
-              (amountInAfterFee * Number(edge.reserveOut)) /
+            const newAmountOut = (amountInAfterFee * Number(edge.reserveOut)) / 
               (Number(edge.reserveIn) + amountInAfterFee);
 
             const newEntry: DPEntry = {
@@ -217,21 +224,12 @@ export class ArbitrageGraph {
             };
 
             const targetToken = edge.to;
-            if (!dp[step].has(targetToken)) {
-              dp[step].set(targetToken, []);
-            }
+            const entries = dp[step].get(targetToken) || [];
+            entries.push(newEntry);
+            entries.sort((a, b) => b.amountOut - a.amountOut);
+            entries.splice(MAX_ENTRIES_PER_TOKEN);
+            dp[step].set(targetToken, entries);
 
-            // Keep only top entries per token
-            dp[step].get(targetToken)!.push(newEntry);
-            dp[step].get(targetToken)!.sort((a, b) => b.amountOut - a.amountOut);
-            dp[step].get(targetToken)!.splice(MAX_ENTRIES_PER_TOKEN);
-
-            // Record opportunities:
-            // 1. Always check for circular arbitrage (startToken to startToken)
-            // 2. If NERK is true:
-            //    a. Check direct arbitrage (startToken to NERK token)
-            //    b. Check reverse arbitrage (NERK token to startToken)
-            //    c. Check NERK circular arbitrage (NERK token to NERK token)
             if (step >= 2) {
             //if (targetToken === startToken || (NERK && targetToken === ADDRESSES[1].address)) {
               if (targetToken === startToken) {
@@ -272,7 +270,7 @@ export class ArbitrageGraph {
         const { maxProfit, optimalInput } = this.calculateMaxProfit(opp);
         return { ...opp, profit: maxProfit, optimalInput };
       })
-      .filter(opp => opp.profit > Number(minProfit))  // Filter based on minProfit threshold
+      .filter(opp => opp.profit > Number(minProfit))
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 20);
 
@@ -296,48 +294,37 @@ export class ArbitrageGraph {
     pairs: Address[];
     directions: ('token0ToToken1' | 'token1ToToken0')[];
   }): { maxProfit: number; optimalInput: number } {
-      const pairsInfo = opportunity.pairs.map(pairAddress => {
-          const pair = this.pairs.get(pairAddress);
-          if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
-          return pair;
-      });
+    const pairsInfo = opportunity.pairs.map(pairAddress => {
+      const pair = this.pairs.get(pairAddress);
+      if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
+      return pair;
+    });
 
-      //const { calculateProfit, calculateJacobian } = this.createProfitFunctions(opportunity, pairsInfo);
-      const { calculateProfit, calculateJacobian, calculateHessian } = this.createProfitFunctions(opportunity, pairsInfo);
-    //Newton's Method
-    let inputAmount = 9e18; // Initial guess (1 ether)
+    const { calculateProfit, calculateJacobian, calculateHessian } = 
+      this.createProfitFunctions(opportunity, pairsInfo);
+
+    let inputAmount = 9e18;
     const tolerance = 1e-8;
     const maxIterations = 100;
-
     let maxProfit = -Infinity;
     let optimalInput = 0;
 
     for (let i = 0; i < maxIterations; i++) {
-        const profit = calculateProfit(inputAmount);
-        const jacobian = calculateJacobian(inputAmount);
-        const hessian = calculateHessian(inputAmount);
+      const profit = calculateProfit(inputAmount);
+      const jacobian = calculateJacobian(inputAmount);
+      const hessian = calculateHessian(inputAmount);
 
-        // Check if the Hessian is invertible (non-zero determinant).
-        if (hessian === 0) {
-            // console.warn("Hessian is zero, cannot invert.");
-            break;
-        }
+      if (hessian === 0) break;
+      const delta = jacobian / hessian;
+      const newInputAmount = inputAmount - delta;
 
-        const delta = jacobian / hessian;
-        const newInputAmount = inputAmount - delta;
+      if (Math.abs(newInputAmount - inputAmount) < tolerance) break;
+      inputAmount = Math.max(0, newInputAmount);
 
-
-          // Check for convergence
-          if (Math.abs(newInputAmount - inputAmount) < tolerance) {
-            break;
-        }
-        inputAmount = Math.max(0, newInputAmount);
-
-        if (profit > maxProfit) {
-            maxProfit = profit;
-            optimalInput = inputAmount;
-        }
-
+      if (profit > maxProfit) {
+        maxProfit = profit;
+        optimalInput = inputAmount;
+      }
     }
 
     return { maxProfit, optimalInput };
@@ -351,160 +338,105 @@ export class ArbitrageGraph {
     },
     pairsInfo: PairInfo[]
   ): {
-      calculateProfit: (inputAmount: number) => number;
-      calculateJacobian: (inputAmount: number) => number;
-      calculateHessian: (inputAmount: number) => number;
+    calculateProfit: (inputAmount: number) => number;
+    calculateJacobian: (inputAmount: number) => number;
+    calculateHessian: (inputAmount: number) => number;
   } {
-    // Swap function (CPMM formula)
-    const swap = (
-      amountIn: number,
-      reserveIn: number,
-      reserveOut: number,
-      fee: number
-    ): number => {
-      const feeMultiplier = 1 - fee / 10000;
+    const effectiveFees: number[] = [];
+    const reserveIns: number[] = [];
+    const reserveOuts: number[] = [];
+
+    for (let i = 0; i < pairsInfo.length; i++) {
+      const pair = pairsInfo[i];
+      const direction = opportunity.directions[i];
+      let reserveIn, reserveOut, effectiveFee;
+
+      if (direction === 'token0ToToken1') {
+        reserveIn = Number(pair.reserve0);
+        reserveOut = Number(pair.reserve1);
+        effectiveFee = pair.isToken0 ? pair.fee + pair.sellFeeBps : pair.fee + pair.buyFeeBps;
+      } else {
+        reserveIn = Number(pair.reserve1);
+        reserveOut = Number(pair.reserve0);
+        effectiveFee = pair.isToken0 ? pair.fee + pair.buyFeeBps : pair.fee + pair.sellFeeBps;
+      }
+
+      effectiveFees.push(effectiveFee);
+      reserveIns.push(reserveIn);
+      reserveOuts.push(reserveOut);
+    }
+
+    const swap = (amountIn: number, step: number): number => {
+      const feeMultiplier = 1 - effectiveFees[step] / 10000;
       const amountInAfterFee = amountIn * feeMultiplier;
-      return (amountInAfterFee * reserveOut) / (reserveIn + amountInAfterFee);
+      return (amountInAfterFee * reserveOuts[step]) / (reserveIns[step] + amountInAfterFee);
     };
 
-      // Derivative of swap function
-      const swapDerivative = (
-          amountIn: number,
-          reserveIn: number,
-          reserveOut: number,
-          fee: number
-      ): number => {
-          const feeMultiplier = 1 - fee / 10000;
-          return (feeMultiplier * reserveIn * reserveOut) / ((reserveIn + feeMultiplier * amountIn) ** 2);
-      };
+    const swapDerivative = (amountIn: number, step: number): number => {
+      const feeMultiplier = 1 - effectiveFees[step] / 10000;
+      return (feeMultiplier * reserveIns[step] * reserveOuts[step]) /
+        ((reserveIns[step] + feeMultiplier * amountIn) ** 2);
+    };
 
-       // Second derivative of swap function
-       const swapSecondDerivative = (
-          amountIn: number,
-          reserveIn: number,
-          reserveOut: number,
-          fee: number
-      ): number => {
-          const feeMultiplier = 1 - fee / 10000;
-          return (-2 * feeMultiplier ** 2 * reserveIn * reserveOut) / ((reserveIn + feeMultiplier * amountIn) ** 3);
-      };
+    const swapSecondDerivative = (amountIn: number, step: number): number => {
+      const feeMultiplier = 1 - effectiveFees[step] / 10000;
+      return (-2 * (feeMultiplier ** 2) * reserveIns[step] * reserveOuts[step]) /
+        ((reserveIns[step] + feeMultiplier * amountIn) ** 3);
+    };
 
-    // Calculate profit for the entire arbitrage loop
     const calculateProfit = (inputAmount: number): number => {
       try {
         let amount = inputAmount;
-        for (let i = 0; i < opportunity.pairs.length; i++) {
-          const pair = pairsInfo[i];
-          const direction = opportunity.directions[i];
-          
-          let reserveIn, reserveOut;
-          if (direction === 'token0ToToken1') {
-            reserveIn = Number(pair.reserve0);
-            reserveOut = Number(pair.reserve1);
-          } else {
-            reserveIn = Number(pair.reserve1);
-            reserveOut = Number(pair.reserve0);
-          }
-
-          // Check if input exceeds reserves
-          if (amount > reserveIn) {
-            return -Infinity;
-          }
-
-          amount = swap(amount, reserveIn, reserveOut, pair.fee);
+        for (let i = 0; i < effectiveFees.length; i++) {
+          if (amount > reserveIns[i]) return -Infinity;
+          amount = swap(amount, i);
         }
-        return amount - inputAmount; // our profit
+        return amount - inputAmount;
       } catch {
         return -Infinity;
       }
     };
 
-      // Calculate Jacobian of the profit function (first derivative)
-      const calculateJacobian = (inputAmount: number): number => {
-          let derivative = 1.0; // Start with 1.0 (derivative of input)
+    const calculateJacobian = (inputAmount: number): number => {
+      let derivative = 1.0;
+      let amount = inputAmount;
+      for (let i = 0; i < effectiveFees.length; i++) {
+        if (amount > reserveIns[i]) return 0;
+        derivative *= swapDerivative(amount, i);
+        amount = swap(amount, i);
+      }
+      return derivative - 1;
+    };
 
-          let amount = inputAmount;
+    const calculateHessian = (inputAmount: number): number => {
+      let hessian = 0;
+      let amount = inputAmount;
+      const derivatives: number[] = [];
+      const secondDerivatives: number[] = [];
 
-          for (let i = 0; i < opportunity.pairs.length; i++) {
-              const pair = pairsInfo[i];
-              const direction = opportunity.directions[i];
+      // Precompute derivatives and second derivatives
+      for (let i = 0; i < effectiveFees.length; i++) {
+        if (amount > reserveIns[i]) return 0;
+        derivatives.push(swapDerivative(amount, i));
+        secondDerivatives.push(swapSecondDerivative(amount, i));
+        amount = swap(amount, i);
+      }
 
-              let reserveIn, reserveOut;
-              if (direction === 'token0ToToken1') {
-                  reserveIn = Number(pair.reserve0);
-                  reserveOut = Number(pair.reserve1);
-              } else {
-                  reserveIn = Number(pair.reserve1);
-                  reserveOut = Number(pair.reserve0);
-              }
-               if (amount > reserveIn) {
-                  return 0; // Infeasible
-              }
-              derivative *= swapDerivative(amount, reserveIn, reserveOut, pair.fee);
-              amount = swap(amount, reserveIn, reserveOut, pair.fee);
-          }
-          return derivative - 1; // Subtract 1 (derivative of initial input amount)
-      };
+      amount = inputAmount;
+      for (let i = 0; i < effectiveFees.length; i++) {
+        if (amount > reserveIns[i]) return 0;
+        
+        let term = secondDerivatives[i];
+        for (let j = 0; j < effectiveFees.length; j++) {
+          if (i !== j) term *= derivatives[j];
+        }
+        hessian += term;
 
-      // Calculate Hessian of the profit function (second derivative)
-      const calculateHessian = (inputAmount: number): number => {
-          let hessian = 0;
-          let amount = inputAmount;
+        amount = swap(amount, i);
+      }
 
-          // First derivative for each swap
-          const swapDerivatives = pairsInfo.map((pair, i) => {
-              const direction = opportunity.directions[i];
-              let reserveIn, reserveOut;
-              if (direction === 'token0ToToken1') {
-                  reserveIn = Number(pair.reserve0);
-                  reserveOut = Number(pair.reserve1);
-              } else {
-                  reserveIn = Number(pair.reserve1);
-                  reserveOut = Number(pair.reserve0);
-              }
-              return swapDerivative(amount, reserveIn, reserveOut, pair.fee);
-          });
-
-          // Second derivative for each swap
-          const swapSecondDerivatives = pairsInfo.map((pair, i) => {
-              const direction = opportunity.directions[i];
-              let reserveIn, reserveOut;
-              if (direction === 'token0ToToken1') {
-                  reserveIn = Number(pair.reserve0);
-                  reserveOut = Number(pair.reserve1);
-              } else {
-                  reserveIn = Number(pair.reserve1);
-                  reserveOut = Number(pair.reserve0);
-              }
-              return swapSecondDerivative(amount, reserveIn, reserveOut, pair.fee);
-          });
-          for (let i = 0; i < opportunity.pairs.length; i++) {
-              const pair = pairsInfo[i];
-              const direction = opportunity.directions[i];
-
-              let reserveIn, reserveOut;
-              if (direction === 'token0ToToken1') {
-                  reserveIn = Number(pair.reserve0);
-                  reserveOut = Number(pair.reserve1);
-              } else {
-                  reserveIn = Number(pair.reserve1);
-                  reserveOut = Number(pair.reserve0);
-              }
-               if (amount > reserveIn) {
-                 return 0;  // Or handle infeasibility differently
-                }
-              let term = swapSecondDerivatives[i];
-              for (let j = 0; j < opportunity.pairs.length; j++) {
-                if (i !== j) {
-                  term *= swapDerivatives[j]
-                }
-              }
-              hessian += term
-               amount = swap(amount, reserveIn, reserveOut, pair.fee);
-
-          }
-           return hessian;
-      };
+      return hessian;
+    };
 
     return { calculateProfit, calculateJacobian, calculateHessian };
   }
@@ -523,11 +455,7 @@ export class ArbitrageGraph {
 
     // Check if reserves are sufficient (3x amountIn)
     if (bestPair.reserves < amountIn * BigInt(3)) return null;
-
-    return {
-      pairAddress: bestPair.pairAddress,
-      fee: bestPair.fee
-    };
+    return { pairAddress: bestPair.pairAddress, fee: bestPair.fee };
   }
 
   getTokens(): Address[] {

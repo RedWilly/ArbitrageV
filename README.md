@@ -151,17 +151,21 @@ Where δ accounts for transaction fees and slippage
 
 This implementation achieves 92.4% accuracy in live trading environments with latency <15ms per cycle detection.
 
-### 
-When checking taxes for a pair, we need to know which token to check the tax on. 
-Looking at lines 319-327:
-By default, the system tries to check tax on token0, unless it's a special token (like WETH/WBONE).
+### Mooore - inprogress
 
-So the isToken0 flag tells us which token was actually used for the tax check:
+When checking taxes for a pair, we need to know which token to check the tax on. 
+By default, we try to check tax on token0, unless it's a special token (like WETH/WBONE).
+
+So the isToken0 flag tells us which token is been actually used for the tax check:
 
 0. true means we checked tax on token0
 0. false means we checked tax on token1
 
-This is important because:
+This is important because=>
 
 1. For taxed tokens, we need to know which token has the tax to properly calculate fees in the right direction
 2. For non-taxed tokens, we don't care about the order since there are no fees to consider in the calculations
+
+Thus will make life easy to implement this our graph structure.
+
+commit version to used ( which has no tax support )=> "671e62e7afeb96f9a08b1c93211a70a4e39077d7"

@@ -153,6 +153,49 @@ async function getReservesForPairs(
     }
 }
 
+/**
+ * Check if pairs are volatile (non-stable) pairs using Hermes filter
+ * Only applies to pairs from factories marked as volatile
+ */
+async function filterVolatilePairs(
+    client: any,
+    pairs: PairData[]
+): Promise<boolean[]> {
+    try {
+        // First check if any pairs are from volatile factories
+        const hasVolatilePairs = pairs.some(pair => {
+            const factory = FACTORY.find(f => f.name === pair.factory);
+            return factory?.volatile ?? false;
+        });
+
+        // If no volatile factories, return all as true (no filtering needed)
+        if (!hasVolatilePairs) {
+            return pairs.map(() => true);
+        }
+
+        const isVolatile = await client.readContract({
+            address: UNISWAP_FLASH_QUERY_CONTRACT as Address,
+            abi: UniswapFlashQueryABI,
+            functionName: 'filterVolatileHermesPairs',
+            args: [pairs.map(p => p.pairAddress)],
+        }) as boolean[];
+
+        // Only apply volatile filter to pairs from volatile factories
+        return pairs.map((pair, index) => {
+            const factory = FACTORY.find(f => f.name === pair.factory);
+            // If factory is not volatile, return true (keep the pair)
+            // Otherwise use the volatile check result
+            return factory?.volatile ? isVolatile[index] : true;
+        });
+    } catch (error) {
+        if (DEBUG) {
+            console.error('Error checking volatile pairs:', error);
+        }
+        // In case of error, return all pairs as volatile to be conservative
+        return pairs.map(() => true);
+    }
+}
+
 async function getReservesWithRetry(
     client: any,
     pairs: PairData[]
@@ -162,7 +205,7 @@ async function getReservesWithRetry(
         const pairsWithReserves = await getReservesForPairs(client, pairs);
         
         // Log pairs that were filtered out due to reserves
-        const filteredPairs = pairsWithReserves.filter(pair => {
+        let filteredPairs = pairsWithReserves.filter(pair => {
             if (!pair.reserve0 || !pair.reserve1) {
                 if (DEBUG) {
                     console.log(`\nPair ${pair.pairAddress} filtered out:`);
@@ -202,12 +245,13 @@ async function getReservesWithRetry(
                     return false;
                 }
             } else {
-                if (pair.reserve0 < MIN_LIQUIDITY && pair.reserve1 < MIN_LIQUIDITY) {
+                // If neither token is in ADDRESSES, check minimum liquidity
+                if (pair.reserve0 < MIN_LIQUIDITY || pair.reserve1 < MIN_LIQUIDITY) {
                     if (DEBUG) {
                         console.log(`\nPair ${pair.pairAddress} filtered out:`);
-                        console.log(`  Reason: Both tokens below minimum liquidity`);
-                        console.log(`  Token0: ${pair.token0}, Reserve: ${pair.reserve0}`);
-                        console.log(`  Token1: ${pair.token1}, Reserve: ${pair.reserve1}`);
+                        console.log(`  Reason: Insufficient liquidity`);
+                        console.log(`  Reserve0: ${pair.reserve0}`);
+                        console.log(`  Reserve1: ${pair.reserve1}`);
                         console.log(`  Required: ${MIN_LIQUIDITY}`);
                     }
                     return false;
@@ -217,11 +261,35 @@ async function getReservesWithRetry(
             return true;
         });
 
-        if (DEBUG) {
-            console.log(`\nAfter filtering:`);
-            console.log(`  Original pairs: ${pairs.length}`);
-            console.log(`  Remaining pairs: ${filteredPairs.length}`);
-            console.log(`  Filtered out: ${pairs.length - filteredPairs.length}`);
+        // Filter out stable pairs only for volatile factories
+        if (filteredPairs.length > 0) {
+            // Check if any pairs are from volatile factories
+            const hasVolatilePairs = filteredPairs.some(pair => {
+                const factory = FACTORY.find(f => f.name === pair.factory);
+                return factory?.volatile ?? false;
+            });
+
+            if (hasVolatilePairs) {
+                if (DEBUG) console.log(`\nChecking for stable pairs among ${filteredPairs.length} pairs...`);
+                const volatileFlags = await filterVolatilePairs(client, filteredPairs);
+                filteredPairs = filteredPairs.filter((pair, index) => {
+                    const isVolatile = volatileFlags[index];
+                    const factory = FACTORY.find(f => f.name === pair.factory);
+                    
+                    // Only filter if factory is marked as volatile
+                    if (factory?.volatile && !isVolatile) {
+                        if (DEBUG) {
+                            console.log(`\nPair ${pair.pairAddress} filtered out:`);
+                            console.log(`  Reason: Stable pair detected`);
+                            console.log(`  Factory: ${pair.factory} (volatile: true)`);
+                            console.log(`  Token0: ${pair.token0}`);
+                            console.log(`  Token1: ${pair.token1}`);
+                        }
+                        return false;
+                    }
+                    return true;
+                });
+            }
         }
 
         return filteredPairs;

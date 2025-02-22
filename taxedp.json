@@ -1,10 +1,4 @@
 {
-  "0xB0ec4098B522C1344c7262D1Be84229574B6439A": {
-    "buyFeeBps": 420,
-    "sellFeeBps": 420,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x715F605613bA572C3322f458dfafd34E8A26aEfD": {
     "buyFeeBps": 525,
     "sellFeeBps": 525,
@@ -59,12 +53,6 @@
     "sellReverted": true,
     "isToken0": false
   },
-  "0xA4198A325A7d4236c03720c9a50d5B334CBd2519": {
-    "buyFeeBps": 315,
-    "sellFeeBps": 315,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x18da641361250942Ef13987f381BF9185C968a55": {
     "buyFeeBps": 0,
     "sellFeeBps": 53,
@@ -89,12 +77,6 @@
     "sellReverted": false,
     "isToken0": false
   },
-  "0x8D1deCa3Fa43C2D53bd05EF5346a67298b8b762b": {
-    "buyFeeBps": 725,
-    "sellFeeBps": 725,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0xb002aB763E386982EC6644a288e2d31610c3Bfd2": {
     "buyFeeBps": 315,
     "sellFeeBps": 315,
@@ -106,42 +88,6 @@
     "sellFeeBps": 11,
     "sellReverted": false,
     "isToken0": false
-  },
-  "0x67c6dD94339e34F19597D6d2beFCBBaaaa93AE9F": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xEE6992b6287a2BD6B7b3f6d855227d4733EAF35C": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x254d3819e5c6DB0E997eD89ea8De55D006d90Af1": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xe82D16Ca6661FaeCDF0f6C4cB962CC6bA9d33b58": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x3ACf8D689dEb441B3367931e2C7d277fa7627fC4": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xCbAd56cF5177bFA0Ae20C175F82897DBD89Ca5Ad": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
   },
   "0xb945408F948b09A53e81fa821f20B2a3318FD20A": {
     "buyFeeBps": 945,
@@ -164,25 +110,13 @@
   "0x81Dd2eC67bA1E06f40Da1E797666d698170fB675": {
     "buyFeeBps": 525,
     "sellFeeBps": 525,
-    "sellReverted": false,
+    "sellReverted": true,
     "isToken0": true
   },
   "0xEAC00e83D0654DE2590959d8c65e3b5026d3F030": {
     "buyFeeBps": 630,
     "sellFeeBps": 630,
     "sellReverted": true,
-    "isToken0": true
-  },
-  "0x2cf3d2d087b8a3752E85245266C17190d7bA2647": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xaB0223dcC7692166e5c3D9EFc269d8BCED23f4a1": {
-    "buyFeeBps": 315,
-    "sellFeeBps": 315,
-    "sellReverted": false,
     "isToken0": true
   },
   "0x59572f2F076b044eF3130B32E1E891a9C0F9E7c4": {
@@ -209,19 +143,7 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0x61dD0Fa6B5c65f4A0029e8Bf568f500D0FAAED49": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x57d1ac09F42F51978ff5311fED5fE63294A58489": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xE042fD4741975C630a268224d88674379cBC2dE7": {
     "buyFeeBps": 945,
     "sellFeeBps": 945,
     "sellReverted": false,
@@ -257,27 +179,15 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0xf783e2Db10D6fd4b0F51b1E1eEC48952776169A4": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x1d9F49AB1542C827699be6e14E2f11bF34023E5b": {
     "buyFeeBps": 210,
     "sellFeeBps": 210,
     "sellReverted": false,
     "isToken0": true
   },
-  "0x3302Cd7b1A882cC0a5d6b5Bb5C4f1260C12B285B": {
+  "0x10617Ceae4db83668ADd70cF4046E8411C7D29D7": {
     "buyFeeBps": 945,
     "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x3Fb77527ffb38eB4ba3E9891cBbCcdc16bf41401": {
-    "buyFeeBps": 840,
-    "sellFeeBps": 840,
     "sellReverted": false,
     "isToken0": true
   },
@@ -293,39 +203,9 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0x5109019117A4dB6e955Fd43bbe65eaAC560f80ee": {
-    "buyFeeBps": 840,
-    "sellFeeBps": 840,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x7E009E79aeE42988a509675489a3890D27298AfD": {
-    "buyFeeBps": 840,
-    "sellFeeBps": 840,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xF9268271C9b2Bf736E6d30fa0BCaC6e72c879ABb": {
-    "buyFeeBps": 840,
-    "sellFeeBps": 840,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xF882148E2FE47eF473Ee54e157a16D7DC21345A0": {
-    "buyFeeBps": 630,
-    "sellFeeBps": 630,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0xA5B2D1F72d0952b4C4823818FB0e0EdB155EDc96": {
     "buyFeeBps": 840,
     "sellFeeBps": 840,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xdD9Be9E8523CD56f2394585265324172a939Cd83": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
     "sellReverted": false,
     "isToken0": true
   },
@@ -359,30 +239,6 @@
     "sellReverted": true,
     "isToken0": true
   },
-  "0x900E624d5123a0e3FC0982d2Ab45f1BD77183A50": {
-    "buyFeeBps": 840,
-    "sellFeeBps": 840,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xa7FAA27cDBCC9552D2c612439E33E7051B107685": {
-    "buyFeeBps": 840,
-    "sellFeeBps": 840,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x9A54A5Fbdf2607E8C669b5c60a5fda6b4fabFe05": {
-    "buyFeeBps": 840,
-    "sellFeeBps": 840,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x1de7f53a3792A887e42A24E993553E963053A4fc": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x0748F1A0C803362e75Afa8Df9AD3481ba280Bc1E": {
     "buyFeeBps": 210,
     "sellFeeBps": 210,
@@ -390,84 +246,6 @@
     "isToken0": true
   },
   "0x0a3cC9919AAcCCbB9453ef4C0c6B2a55Cce3BA75": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x153384f5275D6e25fBFFCabEEC677bCaC7ccd10d": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x0cc51073DAC077E1c0eA835afdC2893DC4D7Cc94": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x7f484a61da1ed1C54a7b399d8cFE5Fb03AAdC6e4": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x11C3a11199ED893BB6aaC6A48d92f4bBe108d7FA": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x888a65a675bE00C0D601c524BD888d00C4C7EF47": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x41F296cb62C8a664A95fe1F9Fd3f6E66eE5A7753": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xBF4A1A80E81f415553554435D1Cc90F0CaB64c26": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x0066726E405eFc5F02C988F889032889339Bc32B": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x89E9238D64382509872DAbe305584630e96cA136": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x9F93cd28C2431df449d3184C00d9f5e2ae717872": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x7a650Bf71CCa32cF3F8b2b3D0D747a9A328d0866": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x66fcAC3d0873624569b3BB6F9a755A3F3eBf012b": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x22a40F6E097021eB96eBE96cB639387699Bf92A3": {
     "buyFeeBps": 210,
     "sellFeeBps": 210,
     "sellReverted": false,
@@ -485,12 +263,6 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0xb31917C7a01dc17F68342D3f106EA2fC4278B9E4": {
-    "buyFeeBps": 840,
-    "sellFeeBps": 840,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x25E06BE2Db72e21299948436FAfd81c5d1736B67": {
     "buyFeeBps": 840,
     "sellFeeBps": 840,
@@ -503,12 +275,6 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0xC035DC84C99A8Af6309828F65B63E047c8aC1326": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x220Fc1d2c1322447706cf769acB6322EFea6e66A": {
     "buyFeeBps": 210,
     "sellFeeBps": 210,
@@ -516,12 +282,6 @@
     "isToken0": true
   },
   "0x47cF5A4654F0133a51319fcAE51D4F43581caa00": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xA1e2dBcf370745a3F01ED26a8B7EcA894ad23013": {
     "buyFeeBps": 210,
     "sellFeeBps": 210,
     "sellReverted": false,
@@ -563,24 +323,6 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0xD5F142A51C37bBa438543F7440Bc3558753Fe1D9": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x86b781e14955775435A7201da7B7e5402536e66d": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xe2435a61F907e1f24231bb2c79821532509c71Bf": {
-    "buyFeeBps": 315,
-    "sellFeeBps": 315,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x8633ac3a8E925bB028d38101000723F5bDd22d18": {
     "buyFeeBps": 315,
     "sellFeeBps": 315,
@@ -609,12 +351,6 @@
     "buyFeeBps": 420,
     "sellFeeBps": 420,
     "sellReverted": true,
-    "isToken0": true
-  },
-  "0x1743293af3E56414F43Bd8A49C560E56D2d9eC7f": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
     "isToken0": true
   },
   "0x845a42001AbF496E5cB6742D8e48A72005D7dA88": {
@@ -665,24 +401,6 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0x85a5a95CCDA0D569aFd3ef89fD9e01B191Eff9Aa": {
-    "buyFeeBps": 725,
-    "sellFeeBps": 725,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xBeB316135311a472200148762905dDA3Dcde59C3": {
-    "buyFeeBps": 725,
-    "sellFeeBps": 725,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0xCE80C415BE46594020610833FE7c861468401C53": {
-    "buyFeeBps": 420,
-    "sellFeeBps": 420,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0xaffe4C24e55c4030230C7F195BF9B9d359E3eC8d": {
     "buyFeeBps": 315,
     "sellFeeBps": 315,
@@ -696,12 +414,6 @@
     "isToken0": true
   },
   "0x4A0A199688Cd322Bc1DfC781a1B653f93f5A033a": {
-    "buyFeeBps": 525,
-    "sellFeeBps": 525,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x2b6e3f6a491Ed7908e4FC591EA0fa8c544d7A059": {
     "buyFeeBps": 525,
     "sellFeeBps": 525,
     "sellReverted": false,
@@ -731,6 +443,12 @@
     "sellReverted": false,
     "isToken0": true
   },
+  "0xABc3Cc7772C3B409783eA32ca1b6ee5Fe634bc7c": {
+    "buyFeeBps": 945,
+    "sellFeeBps": 945,
+    "sellReverted": false,
+    "isToken0": true
+  },
   "0x2627B1cC30B60F27f087283cd347090590bb51f4": {
     "buyFeeBps": 326,
     "sellFeeBps": 326,
@@ -749,24 +467,6 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0x050723f5b16f501c761cAD320EB52Fe3429266ED": {
-    "buyFeeBps": 725,
-    "sellFeeBps": 725,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x161AeB77FB42C315F1fCd48cc36a3bfF178afd49": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x6123b5D4fb8c5768FDb823a32c912DA8e371C628": {
-    "buyFeeBps": 945,
-    "sellFeeBps": 945,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0x7Ce1292b2a1c0dC92E5106E2Ce2BbD49AC75f903": {
     "buyFeeBps": 0,
     "sellFeeBps": 0,
@@ -779,10 +479,16 @@
     "sellReverted": false,
     "isToken0": true
   },
+  "0x84587C0C39e7C9EC6c6D07D4B04250f4e7F1e623": {
+    "buyFeeBps": 945,
+    "sellFeeBps": 945,
+    "sellReverted": false,
+    "isToken0": true
+  },
   "0xBa970f41F2C365A2D18E6E85a650d3D187693c79": {
     "buyFeeBps": 0,
-    "sellFeeBps": 515,
-    "sellReverted": false,
+    "sellFeeBps": 0,
+    "sellReverted": true,
     "isToken0": false
   },
   "0x0d8190166a0E86183174F79e37AB282a1205A588": {
@@ -917,12 +623,6 @@
     "sellReverted": false,
     "isToken0": true
   },
-  "0xC3C392ea725Fc80DC7692d0a7484e0e3b055bF31": {
-    "buyFeeBps": 725,
-    "sellFeeBps": 725,
-    "sellReverted": false,
-    "isToken0": true
-  },
   "0xaced79E04aB14c02348a83FB19AB16F130e0596c": {
     "buyFeeBps": 315,
     "sellFeeBps": 525,
@@ -969,36 +669,6 @@
     "buyFeeBps": 10500,
     "sellFeeBps": 10500,
     "sellReverted": true,
-    "isToken0": true
-  },
-  "0xFACFE3445C746ce2Ab8e609697Aa673Af1De664F": {
-    "buyFeeBps": 210,
-    "sellFeeBps": 210,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x9C00feC7D610B78a0a2311bACAfFC7cD2995bdE3": {
-    "buyFeeBps": 11,
-    "sellFeeBps": 11,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x75449F0857d848D0AEbc429302911BEbBB944413": {
-    "buyFeeBps": 420,
-    "sellFeeBps": 420,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x7166510B4771f3d0ceAA7216777a7020C049300A": {
-    "buyFeeBps": 2,
-    "sellFeeBps": 2,
-    "sellReverted": false,
-    "isToken0": true
-  },
-  "0x2ad0609070f15D67134c92005e225C2322bB9dF6": {
-    "buyFeeBps": 2,
-    "sellFeeBps": 2,
-    "sellReverted": false,
     "isToken0": true
   }
 }
