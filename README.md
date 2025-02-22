@@ -168,4 +168,8 @@ This is important because=>
 
 Thus will make life easy to implement this our graph structure.
 
-commit version to used ( which has no tax support )=> "671e62e7afeb96f9a08b1c93211a70a4e39077d7"
+commit version to used ( which has no tax support )=> which to main branch
+
+this branch will not be worked on for now - since i need to figured out a way to call the pair address with the proper paramether - when executing 
+
+when using the router swapExactTokensForETHSupportingFeeOnTransferTokens handle this very well but since we are dealing with pair address directly i need to find a way around this - i will create a seperate branch to have this taxed code while keeping the main branch for non taxed
