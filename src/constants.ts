@@ -13,8 +13,6 @@ export const ARB_CONTRACT = process.env.ARB_CONTRACT_ADDRESS;
 export const UNISWAP_FLASH_QUERY_CONTRACT =
     process.env.UNISWAP_FLASH_QUERY_CONTRACT_ADDRESS;
 
-export const TAX_CHECKER_ADDRESS= process.env.TAX_CHECKER_ADDRESS;
-
 export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string }[] = [
     { name: "WETH", address: "0xC76F4c819D820369Fb2d7C1531aB3Bb18e6fE8d8" as `0x${string}`, LPAMOUNT: parseEther("50").toString() },
     { name: "WETH2", address: "0x839FdB6cc98342B428E074C1573ADF6D48CA3bFd" as `0x${string}`, LPAMOUNT: parseEther("50").toString() },
