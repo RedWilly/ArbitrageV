@@ -8,10 +8,13 @@ const SYNC_EVENT_ABI = [
     parseAbiItem('event Sync(uint112 reserve0, uint112 reserve1)'),
     parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)')
 ];
+//dunno if am to add the v3 sync abi to the sync event yet
+// event Swap(address,address,int256,int256,uint160,uint128,int24)
 
 // Sync event topics
 const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1';
 const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4917f982149848a';
+const SYNC_TOPIC_V3 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 
 type ReserveUpdate = {
     pairAddress: Address;
