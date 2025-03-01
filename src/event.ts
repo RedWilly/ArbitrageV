@@ -1,6 +1,6 @@
-import { type Address, createPublicClient, http, parseAbiItem, formatUnits, decodeEventLog } from 'viem';
+import { type Address, createPublicClient, http, parseAbiItem, formatUnits, decodeEventLog, type PublicClient } from 'viem';
 import { ArbitrageGraph } from './graph';
-import { DEBUG, ADDRESSES } from './constants';
+import { DEBUG, ADDRESSES, WSS_ENABLED } from './constants';
 import { findAndLogArbitrageOpportunities } from "./opp";
 
 // ABI for both types of Sync events
@@ -23,18 +23,29 @@ type ReserveUpdate = {
 };
 
 export class EventMonitor {
-    private client;
+    private client: PublicClient;
+    private wsClient?: PublicClient; // WebSocket client
     private graph: ArbitrageGraph;
     private isRunning: boolean = false;
     private isCheckingArbitrage: boolean = false;
     private unwatchFn: any;
     private pendingUpdates: ReserveUpdate[] = [];
     private networkConfig: any;
+    private usingWebSocket: boolean = false;
 
     constructor(graph: ArbitrageGraph, networkConfig: any) {
         this.graph = graph;
         this.networkConfig = networkConfig;
         this.client = networkConfig.client;
+        
+        // Use WebSocket client if available
+        if (WSS_ENABLED && networkConfig.wsClient) {
+            this.wsClient = networkConfig.wsClient;
+            this.usingWebSocket = true;
+            console.log('EventMonitor will use WebSocket for real-time events');
+        } else {
+            console.log('EventMonitor will use HTTP polling for events');
+        }
     }
 
     async start() {
@@ -54,10 +65,19 @@ export class EventMonitor {
         }
 
         try {
+            // Determine which client to use for event monitoring
+            const eventClient = this.usingWebSocket && this.wsClient ? this.wsClient : this.client;
+            
+            if (this.usingWebSocket) {
+                console.log('Using WebSocket for event monitoring');
+            } else {
+                console.log('Using HTTP polling for event monitoring');
+            }
+            
             // Watch for both types of Sync events, but only for pairs in our graph
-            const unwatch = await this.client.watchContractEvent({
+            const unwatch = await eventClient.watchContractEvent({
                 address: pairAddresses,
-                events: SYNC_EVENT_ABI,
+                abi: SYNC_EVENT_ABI,
                 onLogs: this.handleSyncEvents.bind(this),
                 onError: this.onError.bind(this),
                 strict: true
@@ -69,6 +89,15 @@ export class EventMonitor {
             this.unwatchFn = unwatch;
         } catch (error) {
             console.error('Failed to start event monitoring:', error);
+            
+            // If WebSocket failed, try falling back to HTTP
+            if (this.usingWebSocket) {
+                console.log('Falling back to HTTP polling for events');
+                this.usingWebSocket = false;
+                await this.start(); // Retry with HTTP
+                return;
+            }
+            
             this.isRunning = false;
         }
     }
@@ -126,12 +155,10 @@ export class EventMonitor {
             const updates: ReserveUpdate[] = [];
             
             for (const log of logs) {
-                // Custom logging to handle BigInt values
-                const logForDisplay = {
-                    ...log,
-                    blockNumber: log.blockNumber?.toString(),
-                    logIndex: log.logIndex?.toString()
-                };
+                // Custom logging to handle BigInt values - convert all BigInt to strings
+                const logForDisplay = JSON.parse(JSON.stringify(log, (key, value) => 
+                    typeof value === 'bigint' ? value.toString() : value
+                ));
                 
                 // Check if this pair is in our graph before proceeding
                 const lowercaseAddress = log.address?.toLowerCase();
@@ -238,12 +265,33 @@ export class EventMonitor {
             }
         }
         
+        // Clean up WebSocket connection if it was being used
+        if (this.usingWebSocket && this.wsClient) {
+            try {
+                // The viem WebSocket transport automatically handles cleanup
+                // when the client is no longer referenced, but we can log it
+                console.log('Cleaning up WebSocket connection');
+                // Set to undefined to allow garbage collection
+                this.wsClient = undefined;
+            } catch (error) {
+                console.error('Error cleaning up WebSocket connection:', error);
+            }
+        }
+        
         // Clear any pending updates
         this.pendingUpdates = [];
     }
 
     private async restart() {
         await this.stop();
+        
+        // Reset WebSocket status to try again with the original configuration
+        if (WSS_ENABLED && this.networkConfig.wsClient) {
+            this.wsClient = this.networkConfig.wsClient;
+            this.usingWebSocket = true;
+            console.log('Resetting WebSocket client for restart');
+        }
+        
         await new Promise(resolve => setTimeout(resolve, 5000));
         await this.start();
     }
@@ -256,6 +304,19 @@ export class EventMonitor {
         // Check if it's a filter-related error
         const errorMessage = error.message?.toLowerCase() || '';
         const errorDetails = error.details?.toLowerCase() || '';
+        
+        // Handle WebSocket-specific errors
+        if (this.usingWebSocket && (
+            errorMessage.includes('websocket') || 
+            errorDetails.includes('websocket') ||
+            errorMessage.includes('connection') || 
+            errorDetails.includes('connection')
+        )) {
+            console.log('WebSocket connection error detected, falling back to HTTP...');
+            this.usingWebSocket = false;
+            await this.restart();
+            return;
+        }
         
         if (errorMessage.includes('filter not found') || 
             errorDetails.includes('filter not found') ||

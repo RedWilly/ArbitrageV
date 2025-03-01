@@ -5,6 +5,7 @@ dotenv.config();
 export const CHAIN_ID = 109;
 
 export const RPC_URL = process.env.RPC_URL;
+export const WSS_URL = process.env.WSS_URL;
 
 export const PRIVATE_KEY = process.env.PRIVATE_KEY;
 
@@ -57,15 +58,13 @@ export const maxHops = 10;
 export const MAX_ENTRIES_PER_TOKEN = 10;
 
 export const DEBUG = true;
+export const WSS_ENABLED = true; //enable this only when you are on a chain with wss support or better wss
 
 export const BATCH_SIZE = 200;
 
 // Gas fee settings (in Gwei)
 export const GAS_LIMIT = 700000n;
 export const BASE_FEE = parseGwei("2.5");
-// export const MAX_FEE = 60;
-// export const MAX_PRIORITY_FEE = 60;
-
 
 // Telegram notification settings
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
