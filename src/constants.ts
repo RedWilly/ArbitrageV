@@ -58,7 +58,7 @@ export const maxHops = 10;
 export const MAX_ENTRIES_PER_TOKEN = 10;
 
 export const DEBUG = true;
-export const WSS_ENABLED = true; //enable this only when you are on a chain with wss support or better wss
+export const WSS_ENABLED = false; //enable this only when you are on a chain with wss support or better wss
 
 export const BATCH_SIZE = 200;
 
