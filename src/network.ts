@@ -1,6 +1,6 @@
 import { createPublicClient, http, webSocket, createWalletClient, type Account, type Transport } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { shibarium } from 'viem/chains';
+import { cronos } from 'viem/chains';
 import { RPC_URL, WSS_URL, PRIVATE_KEY, CHAIN_ID, WSS_ENABLED } from './constants';
 
 // Network configuration type
@@ -26,7 +26,7 @@ export async function initializeNetwork(): Promise<NetworkConfig> {
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
 
   const chainConfig = {
-    ...shibarium,
+    ...cronos,
     id: CHAIN_ID as number,
   };
 

@@ -16,6 +16,9 @@ const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e06
 const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4917f982149848a';
 const SYNC_TOPIC_V3 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 
+// Maximum WebSocket reconnection attempts before falling back to HTTP
+const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 3;
+
 type ReserveUpdate = {
     pairAddress: Address;
     reserve0: bigint;
@@ -32,6 +35,8 @@ export class EventMonitor {
     private pendingUpdates: ReserveUpdate[] = [];
     private networkConfig: any;
     private usingWebSocket: boolean = false;
+    private wsReconnectAttempts: number = 0;
+    private reconnecting: boolean = false;
 
     constructor(graph: ArbitrageGraph, networkConfig: any) {
         this.graph = graph;
@@ -87,18 +92,46 @@ export class EventMonitor {
             
             // Store unwatch function for cleanup
             this.unwatchFn = unwatch;
+            
+            // Reset reconnect attempts counter on successful connection
+            if (this.usingWebSocket) {
+                this.wsReconnectAttempts = 0;
+            }
         } catch (error) {
             console.error('Failed to start event monitoring:', error);
             
-            // If WebSocket failed, try falling back to HTTP
+            // If WebSocket failed, try reconnecting or fall back to HTTP
             if (this.usingWebSocket) {
-                console.log('Falling back to HTTP polling for events');
-                this.usingWebSocket = false;
-                await this.start(); // Retry with HTTP
-                return;
+                await this.handleWebSocketFailure(error);
+            } else {
+                this.isRunning = false;
             }
+        }
+    }
+
+    private async handleWebSocketFailure(error: any) {
+        // Increment reconnect attempts
+        this.wsReconnectAttempts++;
+        
+        if (this.wsReconnectAttempts <= MAX_WEBSOCKET_RECONNECT_ATTEMPTS) {
+            console.log(`WebSocket connection failed. Reconnection attempt ${this.wsReconnectAttempts}/${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}...`);
             
+            // Wait before reconnecting (increasing delay with each attempt)
+            const reconnectDelay = this.wsReconnectAttempts * 2000; // 2s, 4s, 6s
+            console.log(`Waiting ${reconnectDelay/1000} seconds before reconnecting...`);
+            await new Promise(resolve => setTimeout(resolve, reconnectDelay));
+            
+            // Try to restart with WebSocket
             this.isRunning = false;
+            await this.start();
+        } else {
+            console.log(`Maximum WebSocket reconnection attempts (${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}) reached. Falling back to HTTP polling.`);
+            this.usingWebSocket = false;
+            this.wsReconnectAttempts = 0;
+            
+            // Restart with HTTP
+            this.isRunning = false;
+            await this.start();
         }
     }
 
@@ -283,17 +316,27 @@ export class EventMonitor {
     }
 
     private async restart() {
-        await this.stop();
-        
-        // Reset WebSocket status to try again with the original configuration
-        if (WSS_ENABLED && this.networkConfig.wsClient) {
-            this.wsClient = this.networkConfig.wsClient;
-            this.usingWebSocket = true;
-            console.log('Resetting WebSocket client for restart');
+        if (this.reconnecting) {
+            if (DEBUG) console.log('Already in the process of reconnecting, skipping duplicate restart');
+            return;
         }
         
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        await this.start();
+        this.reconnecting = true;
+        
+        try {
+            await this.stop();
+            
+            // Reset WebSocket status to try again with the original configuration
+            if (WSS_ENABLED && this.networkConfig.wsClient && this.usingWebSocket) {
+                this.wsClient = this.networkConfig.wsClient;
+                console.log('Resetting WebSocket client for restart');
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            await this.start();
+        } finally {
+            this.reconnecting = false;
+        }
     }
 
     private async onError(error: any) {
@@ -301,23 +344,47 @@ export class EventMonitor {
             console.error('Error in event monitoring:', error);
         }
 
-        // Check if it's a filter-related error
+        // Check if it's a WebSocket-related error
         const errorMessage = error.message?.toLowerCase() || '';
         const errorDetails = error.details?.toLowerCase() || '';
         
         // Handle WebSocket-specific errors
-        if (this.usingWebSocket && (
+        const isWebSocketError = this.usingWebSocket && (
             errorMessage.includes('websocket') || 
             errorDetails.includes('websocket') ||
             errorMessage.includes('connection') || 
-            errorDetails.includes('connection')
-        )) {
-            console.log('WebSocket connection error detected, falling back to HTTP...');
-            this.usingWebSocket = false;
-            await this.restart();
+            errorDetails.includes('connection') ||
+            errorMessage.includes('socket') ||
+            errorDetails.includes('socket') ||
+            errorMessage.includes('closed') ||
+            errorDetails.includes('closed')
+        );
+        
+        if (isWebSocketError) {
+            console.log('WebSocket connection error detected');
+            
+            // Increment reconnect attempts
+            this.wsReconnectAttempts++;
+            
+            if (this.wsReconnectAttempts <= MAX_WEBSOCKET_RECONNECT_ATTEMPTS) {
+                console.log(`Attempting WebSocket reconnection ${this.wsReconnectAttempts}/${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}...`);
+                
+                // Wait before reconnecting (increasing delay with each attempt)
+                const reconnectDelay = this.wsReconnectAttempts * 2000; // 2s, 4s, 6s
+                console.log(`Waiting ${reconnectDelay/1000} seconds before reconnecting...`);
+                await new Promise(resolve => setTimeout(resolve, reconnectDelay));
+                
+                await this.restart();
+            } else {
+                console.log(`Maximum WebSocket reconnection attempts (${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}) reached. Falling back to HTTP polling.`);
+                this.usingWebSocket = false;
+                this.wsReconnectAttempts = 0;
+                await this.restart();
+            }
             return;
         }
         
+        // Handle other RPC errors
         if (errorMessage.includes('filter not found') || 
             errorDetails.includes('filter not found') ||
             errorMessage.includes('invalid parameters') ||

@@ -1,4 +1,4 @@
-import { maxHops, MAX_ENTRIES_PER_TOKEN, DEBUG, minProfit, ADDRESSES, NERK } from './constants';
+import { maxHops, MAX_ENTRIES_PER_TOKEN, DEBUG, minProfit, maxIterations, minProfits, ADDRESSES, NERK } from './constants';
 import { type Address } from 'viem';
 
 export type PairInfo = {
@@ -272,7 +272,150 @@ export class ArbitrageGraph {
         const { maxProfit, optimalInput } = this.calculateMaxProfit(opp);
         return { ...opp, profit: maxProfit, optimalInput };
       })
-      .filter(opp => opp.profit > Number(minProfit))  // Filter based on minProfit threshold
+      .filter(opp => {
+        // Find the index of the starting token in ADDRESSES
+        const tokenIndex = ADDRESSES.findIndex(addr => addr.address === startToken);
+        
+        // Throw an error if no specific profit threshold is defined for this token
+        if (tokenIndex < 0 || tokenIndex >= minProfits.length) {
+          const tokenName = tokenIndex >= 0 ? ADDRESSES[tokenIndex].name : startToken;
+          throw new Error(`No minimum profit threshold defined for token ${tokenName}. Please update the minProfits array in constants.ts.`);
+        }
+        
+        const tokenMinProfit = minProfits[tokenIndex];
+        return opp.profit > Number(tokenMinProfit);
+      })
+      .sort((a, b) => b.profit - a.profit)
+      .slice(0, 20);
+
+    return {
+      paths: validated.map(opp => opp.path),
+      pairs: validated.map(opp => opp.pairs),
+      profits: validated.map(opp => opp.profit),
+      optimalAmounts: validated.map(opp => opp.optimalInput),
+      fees: validated.map(opp => 
+        opp.pairs.map(pairAddress => {
+          const pair = this.pairs.get(pairAddress);
+          if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
+          return pair.fee;
+        })
+      ),
+    };
+  }
+
+  findMultiTokenArbitrageOpportunities(
+    startTokens: Address[],
+    maxDepth: number = maxHops
+  ): { paths: Address[][]; pairs: Address[][]; profits: number[]; optimalAmounts: number[]; fees: number[][] } {
+    // Initialize a result object with empty arrays
+    const result = {
+      paths: [] as Address[][],
+      pairs: [] as Address[][],
+      profits: [] as number[],
+      optimalAmounts: [] as number[],
+      fees: [] as number[][],
+    };
+
+    // Use a single DP table for all start tokens
+    const dp: DPTable = {};
+    const rawOpportunities: Array<{
+      path: Address[];
+      pairs: Address[];
+      directions: ('token0ToToken1' | 'token1ToToken0')[];
+    }> = [];
+
+    // Initialize with starting tokens
+    dp[0] = new Map();
+    
+    // Add all starting tokens to the initial step of the DP table
+    for (const startToken of startTokens) {
+      dp[0].set(startToken, [
+        {
+          amountOut: 1.0,
+          path: [startToken],
+          pairs: [],
+          directions: [],
+        },
+      ]);
+    }
+
+    // Process all steps of the DP table just once
+    for (let step = 1; step <= maxDepth; step++) {
+      dp[step] = new Map();
+
+      for (const [currentToken, entries] of dp[step - 1].entries()) {
+        const edges = this.graph.get(currentToken as Address) || [];
+
+        for (const entry of entries) {
+          for (const edge of edges) {
+            // Avoid immediate loops and revisit same pair
+            if (entry.pairs.includes(edge.pairAddress)) continue;
+
+            // Calculate output using actual swap formula
+            const feeMultiplier = 1 - edge.fee / 10000;
+            const amountInAfterFee = entry.amountOut * feeMultiplier;
+            const newAmountOut =
+              (amountInAfterFee * Number(edge.reserveOut)) /
+              (Number(edge.reserveIn) + amountInAfterFee);
+
+            const newEntry: DPEntry = {
+              amountOut: newAmountOut,
+              path: [...entry.path, edge.to],
+              pairs: [...entry.pairs, edge.pairAddress],
+              directions: [...entry.directions, edge.direction],
+            };
+
+            const targetToken = edge.to;
+            if (!dp[step].has(targetToken)) {
+              dp[step].set(targetToken, []);
+            }
+
+            // Keep only top entries per token
+            dp[step].get(targetToken)!.push(newEntry);
+            dp[step].get(targetToken)!.sort((a, b) => b.amountOut - a.amountOut);
+            dp[step].get(targetToken)!.splice(MAX_ENTRIES_PER_TOKEN);
+
+            // Check for arbitrage opportunities with all starting tokens
+            if (step >= 2) {
+              // Check if this is a circular arbitrage back to any starting token
+              if (startTokens.includes(targetToken)) {
+                rawOpportunities.push({
+                  path: newEntry.path,
+                  pairs: newEntry.pairs,
+                  directions: newEntry.directions,
+                });
+              } else if (NERK) {
+                const nerkToken = ADDRESSES[1].address;
+                const originToken = entry.path[0]; // The actual starting token for this path
+                
+                if (
+                  // Case 2a: Direct arbitrage (non-NERK token to NERK)
+                  (originToken !== nerkToken && targetToken === nerkToken) ||
+                  // Case 2b: Reverse arbitrage (NERK to non-NERK token)
+                  (originToken === nerkToken && targetToken !== nerkToken) ||
+                  // Case 2c: NERK circular arbitrage (NERK to NERK)
+                  (originToken === nerkToken && targetToken === nerkToken)
+                ) {
+                  rawOpportunities.push({
+                    path: newEntry.path,
+                    pairs: newEntry.pairs,
+                    directions: newEntry.directions,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Validate opportunities with actual swap simulation
+    const validated = rawOpportunities
+      .map(opp => {
+        const { maxProfit, optimalInput } = this.calculateMaxProfit(opp);
+        return { ...opp, profit: maxProfit, optimalInput };
+      })
+      .filter(opp => opp.profit > Number(minProfit))
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 20);
 
@@ -307,7 +450,7 @@ export class ArbitrageGraph {
     //Newton's Method
     let inputAmount = 9e18; // Initial guess (1 ether)
     const tolerance = 1e-8;
-    const maxIterations = 100;
+    // const maxIterations = 100;
 
     let maxProfit = -Infinity;
     let optimalInput = 0;
