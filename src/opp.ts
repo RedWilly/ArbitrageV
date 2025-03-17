@@ -1,5 +1,5 @@
 import { formatUnits, type Address } from 'viem';
-import { DEBUG, ADDRESSES } from './constants';
+import { DEBUG, ADDRESSES, TOP_TOKENS_FOR_ARBITRAGE } from './constants';
 import { ArbitrageGraph } from './graph';
 import { createOpportunityManager } from './execute';
 import { type NetworkConfig } from './network';
@@ -13,7 +13,21 @@ export interface ArbitrageOpportunities {
 }
 
 export function findAndLogArbitrageOpportunities(graph: ArbitrageGraph, networkConfig: NetworkConfig) {
-    const opportunities = graph.findArbitrageOpportunities(ADDRESSES[0].address);
+    // Get the top tokens to consider for arbitrage
+    const startTokens = ADDRESSES
+        .slice(0, Math.min(TOP_TOKENS_FOR_ARBITRAGE, ADDRESSES.length))
+        .map(addr => addr.address);
+    
+    if (DEBUG) {
+        console.log(`Searching for arbitrage opportunities using ${startTokens.length} tokens simultaneously`);
+        startTokens.forEach((token, i) => {
+            console.log(`Token ${i+1}: ${ADDRESSES[i].name} (${token})`);
+        });
+    }
+    
+    // Use the new method that processes multiple tokens in a single traversal
+    const opportunities = graph.findMultiTokenArbitrageOpportunities(startTokens);
+    
     logArbitrageOpportunities(opportunities);
 
     // Only process opportunities if there are any found

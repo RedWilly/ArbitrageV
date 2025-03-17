@@ -1,6 +1,6 @@
-import { type Address, createPublicClient, http, parseAbiItem, formatUnits, decodeEventLog } from 'viem';
+import { type Address, createPublicClient, http, parseAbiItem, formatUnits, decodeEventLog, type PublicClient } from 'viem';
 import { ArbitrageGraph } from './graph';
-import { DEBUG, ADDRESSES } from './constants';
+import { DEBUG, ADDRESSES, WSS_ENABLED } from './constants';
 import { findAndLogArbitrageOpportunities } from "./opp";
 
 // ABI for both types of Sync events
@@ -8,10 +8,16 @@ const SYNC_EVENT_ABI = [
     parseAbiItem('event Sync(uint112 reserve0, uint112 reserve1)'),
     parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)')
 ];
+//dunno if am to add the v3 sync abi to the sync event yet
+// event Swap(address,address,int256,int256,uint160,uint128,int24)
 
 // Sync event topics
 const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1';
 const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4917f982149848a';
+const SYNC_TOPIC_V3 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
+
+// Maximum WebSocket reconnection attempts before falling back to HTTP
+const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 3;
 
 type ReserveUpdate = {
     pairAddress: Address;
@@ -20,18 +26,31 @@ type ReserveUpdate = {
 };
 
 export class EventMonitor {
-    private client;
+    private client: PublicClient;
+    private wsClient?: PublicClient; // WebSocket client
     private graph: ArbitrageGraph;
     private isRunning: boolean = false;
     private isCheckingArbitrage: boolean = false;
     private unwatchFn: any;
     private pendingUpdates: ReserveUpdate[] = [];
     private networkConfig: any;
+    private usingWebSocket: boolean = false;
+    private wsReconnectAttempts: number = 0;
+    private reconnecting: boolean = false;
 
     constructor(graph: ArbitrageGraph, networkConfig: any) {
         this.graph = graph;
         this.networkConfig = networkConfig;
         this.client = networkConfig.client;
+        
+        // Use WebSocket client if available
+        if (WSS_ENABLED && networkConfig.wsClient) {
+            this.wsClient = networkConfig.wsClient;
+            this.usingWebSocket = true;
+            console.log('EventMonitor will use WebSocket for real-time events');
+        } else {
+            console.log('EventMonitor will use HTTP polling for events');
+        }
     }
 
     async start() {
@@ -51,10 +70,19 @@ export class EventMonitor {
         }
 
         try {
+            // Determine which client to use for event monitoring
+            const eventClient = this.usingWebSocket && this.wsClient ? this.wsClient : this.client;
+            
+            if (this.usingWebSocket) {
+                console.log('Using WebSocket for event monitoring');
+            } else {
+                console.log('Using HTTP polling for event monitoring');
+            }
+            
             // Watch for both types of Sync events, but only for pairs in our graph
-            const unwatch = await this.client.watchContractEvent({
+            const unwatch = await eventClient.watchContractEvent({
                 address: pairAddresses,
-                events: SYNC_EVENT_ABI,
+                abi: SYNC_EVENT_ABI,
                 onLogs: this.handleSyncEvents.bind(this),
                 onError: this.onError.bind(this),
                 strict: true
@@ -64,9 +92,46 @@ export class EventMonitor {
             
             // Store unwatch function for cleanup
             this.unwatchFn = unwatch;
+            
+            // Reset reconnect attempts counter on successful connection
+            if (this.usingWebSocket) {
+                this.wsReconnectAttempts = 0;
+            }
         } catch (error) {
             console.error('Failed to start event monitoring:', error);
+            
+            // If WebSocket failed, try reconnecting or fall back to HTTP
+            if (this.usingWebSocket) {
+                await this.handleWebSocketFailure(error);
+            } else {
+                this.isRunning = false;
+            }
+        }
+    }
+
+    private async handleWebSocketFailure(error: any) {
+        // Increment reconnect attempts
+        this.wsReconnectAttempts++;
+        
+        if (this.wsReconnectAttempts <= MAX_WEBSOCKET_RECONNECT_ATTEMPTS) {
+            console.log(`WebSocket connection failed. Reconnection attempt ${this.wsReconnectAttempts}/${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}...`);
+            
+            // Wait before reconnecting (increasing delay with each attempt)
+            const reconnectDelay = this.wsReconnectAttempts * 2000; // 2s, 4s, 6s
+            console.log(`Waiting ${reconnectDelay/1000} seconds before reconnecting...`);
+            await new Promise(resolve => setTimeout(resolve, reconnectDelay));
+            
+            // Try to restart with WebSocket
             this.isRunning = false;
+            await this.start();
+        } else {
+            console.log(`Maximum WebSocket reconnection attempts (${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}) reached. Falling back to HTTP polling.`);
+            this.usingWebSocket = false;
+            this.wsReconnectAttempts = 0;
+            
+            // Restart with HTTP
+            this.isRunning = false;
+            await this.start();
         }
     }
 
@@ -123,12 +188,10 @@ export class EventMonitor {
             const updates: ReserveUpdate[] = [];
             
             for (const log of logs) {
-                // Custom logging to handle BigInt values
-                const logForDisplay = {
-                    ...log,
-                    blockNumber: log.blockNumber?.toString(),
-                    logIndex: log.logIndex?.toString()
-                };
+                // Custom logging to handle BigInt values - convert all BigInt to strings
+                const logForDisplay = JSON.parse(JSON.stringify(log, (key, value) => 
+                    typeof value === 'bigint' ? value.toString() : value
+                ));
                 
                 // Check if this pair is in our graph before proceeding
                 const lowercaseAddress = log.address?.toLowerCase();
@@ -235,14 +298,45 @@ export class EventMonitor {
             }
         }
         
+        // Clean up WebSocket connection if it was being used
+        if (this.usingWebSocket && this.wsClient) {
+            try {
+                // The viem WebSocket transport automatically handles cleanup
+                // when the client is no longer referenced, but we can log it
+                console.log('Cleaning up WebSocket connection');
+                // Set to undefined to allow garbage collection
+                this.wsClient = undefined;
+            } catch (error) {
+                console.error('Error cleaning up WebSocket connection:', error);
+            }
+        }
+        
         // Clear any pending updates
         this.pendingUpdates = [];
     }
 
     private async restart() {
-        await this.stop();
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        await this.start();
+        if (this.reconnecting) {
+            if (DEBUG) console.log('Already in the process of reconnecting, skipping duplicate restart');
+            return;
+        }
+        
+        this.reconnecting = true;
+        
+        try {
+            await this.stop();
+            
+            // Reset WebSocket status to try again with the original configuration
+            if (WSS_ENABLED && this.networkConfig.wsClient && this.usingWebSocket) {
+                this.wsClient = this.networkConfig.wsClient;
+                console.log('Resetting WebSocket client for restart');
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            await this.start();
+        } finally {
+            this.reconnecting = false;
+        }
     }
 
     private async onError(error: any) {
@@ -250,10 +344,47 @@ export class EventMonitor {
             console.error('Error in event monitoring:', error);
         }
 
-        // Check if it's a filter-related error
+        // Check if it's a WebSocket-related error
         const errorMessage = error.message?.toLowerCase() || '';
         const errorDetails = error.details?.toLowerCase() || '';
         
+        // Handle WebSocket-specific errors
+        const isWebSocketError = this.usingWebSocket && (
+            errorMessage.includes('websocket') || 
+            errorDetails.includes('websocket') ||
+            errorMessage.includes('connection') || 
+            errorDetails.includes('connection') ||
+            errorMessage.includes('socket') ||
+            errorDetails.includes('socket') ||
+            errorMessage.includes('closed') ||
+            errorDetails.includes('closed')
+        );
+        
+        if (isWebSocketError) {
+            console.log('WebSocket connection error detected');
+            
+            // Increment reconnect attempts
+            this.wsReconnectAttempts++;
+            
+            if (this.wsReconnectAttempts <= MAX_WEBSOCKET_RECONNECT_ATTEMPTS) {
+                console.log(`Attempting WebSocket reconnection ${this.wsReconnectAttempts}/${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}...`);
+                
+                // Wait before reconnecting (increasing delay with each attempt)
+                const reconnectDelay = this.wsReconnectAttempts * 2000; // 2s, 4s, 6s
+                console.log(`Waiting ${reconnectDelay/1000} seconds before reconnecting...`);
+                await new Promise(resolve => setTimeout(resolve, reconnectDelay));
+                
+                await this.restart();
+            } else {
+                console.log(`Maximum WebSocket reconnection attempts (${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}) reached. Falling back to HTTP polling.`);
+                this.usingWebSocket = false;
+                this.wsReconnectAttempts = 0;
+                await this.restart();
+            }
+            return;
+        }
+        
+        // Handle other RPC errors
         if (errorMessage.includes('filter not found') || 
             errorDetails.includes('filter not found') ||
             errorMessage.includes('invalid parameters') ||

@@ -1,11 +1,12 @@
-import { createPublicClient, http, createWalletClient, type Account } from 'viem';
+import { createPublicClient, http, webSocket, createWalletClient, type Account, type Transport } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { shibarium } from 'viem/chains';
-import { RPC_URL, PRIVATE_KEY, CHAIN_ID } from './constants';
+import { cronos } from 'viem/chains';
+import { RPC_URL, WSS_URL, PRIVATE_KEY, CHAIN_ID, WSS_ENABLED } from './constants';
 
 // Network configuration type
 export type NetworkConfig = {
   client: ReturnType<typeof createPublicClient>;
+  wsClient?: ReturnType<typeof createPublicClient>; // Optional WebSocket client
   walletClient: ReturnType<typeof createWalletClient>;
   account: Account;
 };
@@ -25,7 +26,7 @@ export async function initializeNetwork(): Promise<NetworkConfig> {
   const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
 
   const chainConfig = {
-    ...shibarium,
+    ...cronos,
     id: CHAIN_ID as number,
   };
 
@@ -42,8 +43,25 @@ export async function initializeNetwork(): Promise<NetworkConfig> {
     account,
   });
 
+  // Create WebSocket client if enabled and WSS_URL is available
+  let wsClient: ReturnType<typeof createPublicClient> | undefined;
+  
+  if (WSS_ENABLED && WSS_URL) {
+    try {
+      wsClient = createPublicClient({
+        chain: chainConfig,
+        transport: webSocket(WSS_URL),
+      });
+      console.log('WebSocket client initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize WebSocket client:', error);
+      console.warn('Falling back to HTTP client for events');
+    }
+  }
+
   return {
     client,
+    wsClient,
     walletClient,
     account,
   };
