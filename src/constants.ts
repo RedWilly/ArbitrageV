@@ -95,14 +95,14 @@ export const minProfits = [
     parseEther("0.00006365"),     
     parseUnits("0.04", 24),     
     parseEther("1.38"),  
-    // parseUnits("0.000001211", 8)  
+    parseUnits("0.000001211", 8)  
 ];
 
 // Legacy minProfit for backward compatibility - findArbitrageOpportunities
 export const minProfit = parseEther("3");
 
 export const maxIterations = 100;
-export const maxHops = 3;
+export const maxHops = 10;
 export const MAX_ENTRIES_PER_TOKEN = 10;
 
 /**
@@ -111,7 +111,7 @@ export const MAX_ENTRIES_PER_TOKEN = 10;
  * If you increase this number, make sure to add corresponding entries to the minProfits array.
  * NOTE - the more token you add - it increase the speed +100ms when searching(e.g if 3 means 300ms total)
  */
-export const TOP_TOKENS_FOR_ARBITRAGE = 3;
+export const TOP_TOKENS_FOR_ARBITRAGE = 4;
 
 export const DEBUG = true;
 export const WSS_ENABLED = false; //enable this only when you are on a chain with wss support or better wss

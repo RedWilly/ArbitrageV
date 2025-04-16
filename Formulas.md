@@ -1,224 +1,113 @@
----
+# Formulas & Algorithmic Overview
 
-### **Building the Graph for Arbitrage Detection in AMM DEXs**  
-*A Step-by-Step Guide with Formulas and Fees*
+This document describes the math and algorithmic details of ArbitrageV's implementation, matching the codebase in `src/graph.ts`. It covers data structures, graph construction, CPMM swap formulas, dynamic programming arbitrage detection, and profit optimization.
 
----
+## 1. Data Structures
 
-## **1. Graph Structure**  
-In an AMM DEX, liquidity pools (e.g., Uniswap pairs) are modeled as a **directed graph** where:  
-- **Nodes**: Tokens (e.g., `USDC`, `ETH`, `BTC`).  
-- **Edges**: Directed swaps between tokens via a liquidity pool.  
-- **Edge Weights**: Derived from pool reserves and fees (explained below).  
-
----
-
-## **2. Input Data Structure**  
-Assume the following `PairInfo` format for each liquidity pool:  
 ```typescript
-type PairInfo = {
-    pairAddress: Address;  // Pool contract address
-    token0: Address;       // Token A in the pool
-    token1: Address;       // Token B in the pool
-    reserve0: bigint;      // Reserve of token0
-    reserve1: bigint;      // Reserve of token1
-    fee: number;           // Swap fee (e.g., 0.003 = 0.3%)
+export type PairInfo = {
+  pairAddress: Address;  // AMM pool contract address
+  token0: Address;       // Address of token0
+  token1: Address;       // Address of token1
+  reserve0: bigint;      // Liquidity reserve of token0
+  reserve1: bigint;      // Liquidity reserve of token1
+  fee: number;           // Trading fee in basis points (e.g., 30 for 0.3%)
 };
-```
 
----
-
-## **3. Graph Construction Formula**  
-
-### **3.1 Edge Representation**  
-For each `PairInfo`, create **two directed edges** (one for each swap direction):  
-1. **Edge 1**: Swap `token0 → token1`.  
-2. **Edge 2**: Swap `token1 → token0`.  
-
-### **3.2 Edge Weight Calculation**  
-The weight of an edge represents the **logarithmic exchange rate adjusted for fees**.  
-
-#### **For Edge \( \text{token}_A \rightarrow \text{token}_B \):**  
-- **Reserves**: \( R_A \) (reserve of tokenA), \( R_B \) (reserve of tokenB).  
-- **Fee**: \( f \) (e.g., 0.3% fee → \( f = 0.003 \)).  
-
-The effective exchange rate after fees is:  
-\[
-\text{Effective Rate} = \frac{R_B}{R_A} \cdot (1 - f)
-\]  
-
-The edge weight \( w_{AB} \) is:  
-\[
-w_{AB} = -\ln(\text{Effective Rate}) = -\ln\left(\frac{R_B}{R_A} \cdot (1 - f)\right)
-\]  
-
-#### **Example**:  
-For a `USDC/ETH` pool with:  
-- \( R_{\text{USDC}} = 1000 \), \( R_{\text{ETH}} = 5 \), \( f = 0.003 \):  
-\[
-w_{\text{USDC→ETH}} = -\ln\left(\frac{5}{1000} \cdot 0.997\right) \approx 5.30
-\]  
-
----
-
-### **3.3 Edge Data Structure**  
-Each edge stores:  
-- `inputToken`: The token being sold (e.g., `token0`).  
-- `outputToken`: The token being bought (e.g., `token1`).  
-- `pairAddress`: The liquidity pool address.  
-- `weight`: Calculated as above.  
-
-```typescript
-type Edge = {
-    inputToken: Address;
-    outputToken: Address;
-    pairAddress: Address;
-    weight: number;
-};
-```
-
----
-
-## **4. Step-by-Step Graph Construction**  
-
-### **Step 1: Initialize an Empty Graph**  
-Create a map where each key is a token, and the value is a list of edges originating from that token:  
-```typescript
-const graph = new Map<Address, Edge[]>();
-```
-
-### **Step 2: Process Each `PairInfo`**  
-For each liquidity pool:  
-1. **Edge 1**: Add \( \text{token}_0 \rightarrow \text{token}_1 \).  
-2. **Edge 2**: Add \( \text{token}_1 \rightarrow \text{token}_0 \).  
-
-```typescript
-function buildGraph(pairs: PairInfo[]): Map<Address, Edge[]> {
-    const graph = new Map<Address, Edge[]>();
-
-    for (const pair of pairs) {
-        // Edge: token0 → token1
-        const edge0to1: Edge = {
-            inputToken: pair.token0,
-            outputToken: pair.token1,
-            pairAddress: pair.pairAddress,
-            weight: calculateEdgeWeight(pair.reserve0, pair.reserve1, pair.fee),
-        };
-
-        // Edge: token1 → token0
-        const edge1to0: Edge = {
-            inputToken: pair.token1,
-            outputToken: pair.token0,
-            pairAddress: pair.pairAddress,
-            weight: calculateEdgeWeight(pair.reserve1, pair.reserve0, pair.fee),
-        };
-
-        // Add edges to the graph
-        addEdgeToGraph(graph, edge0to1);
-        addEdgeToGraph(graph, edge1to0);
-    }
-
-    return graph;
-}
-
-function addEdgeToGraph(graph: Map<Address, Edge[]>, edge: Edge) {
-    if (!graph.has(edge.inputToken)) {
-        graph.set(edge.inputToken, []);
-    }
-    graph.get(edge.inputToken)!.push(edge);
+interface Edge {
+  to: Address;        // Destination token
+  pairAddress: Address;
+  direction: 'token0ToToken1' | 'token1ToToken0';
+  fee: number;
+  reserveIn: bigint;
+  reserveOut: bigint;
 }
 ```
 
-### **Step 3: Edge Weight Calculation Function**  
-Implement the formula \( w_{AB} = -\ln\left(\frac{R_B}{R_A} \cdot (1 - f)\right) \):  
-```typescript
-function calculateEdgeWeight(
-    inputReserve: bigint,
-    outputReserve: bigint,
-    fee: number
-): number {
-    const rate = Number(outputReserve) / Number(inputReserve);
-    const rateAfterFee = rate * (1 - fee);
-    return -Math.log(rateAfterFee);
-}
-```
+## 2. Graph Construction
 
----
+ArbitrageV maintains a directed graph of AMM pools:
 
-## **5. Example: Building a Simple Graph**  
+- For each `PairInfo`, two edges are added:
+  - `token0 → token1`
+  - `token1 → token0`
 
-### **Input Data**  
-```typescript
-const pairs: PairInfo[] = [
-    {
-        pairAddress: "0x123",
-        token0: "USDC",
-        token1: "ETH",
-        reserve0: BigInt(1000),
-        reserve1: BigInt(5),
-        fee: 0.003,
-    },
-    {
-        pairAddress: "0x456",
-        token0: "ETH",
-        token1: "BTC",
-        reserve0: BigInt(10),
-        reserve1: BigInt(1),
-        fee: 0.003,
-    },
-];
-```
+Each edge stores the current reserves and fee for computing swap outputs.
 
-### **Resulting Graph**  
-- **Edges from `USDC`**:  
-  ```typescript
-  {
-    inputToken: "USDC",
-    outputToken: "ETH",
-    pairAddress: "0x123",
-    weight: 5.30,
-  }
-  ```
-- **Edges from `ETH`**:  
-  ```typescript
-  {
-    inputToken: "ETH",
-    outputToken: "USDC",
-    pairAddress: "0x123",
-    weight: -Math.log((1000/5) * 0.997) ≈ -5.30,
-  },
-  {
-    inputToken: "ETH",
-    outputToken: "BTC",
-    pairAddress: "0x456",
-    weight: -Math.log((1/10) * 0.997) ≈ 2.31,
-  }
-  ```
-- **Edges from `BTC`**:  
-  ```typescript
-  {
-    inputToken: "BTC",
-    outputToken: "ETH",
-    pairAddress: "0x456",
-    weight: -Math.log((10/1) * 0.997) ≈ -2.30,
-  }
-  ```
+## 3. Graph Maintenance & Updates
 
----
+### 3.1 updateGraphEdges
+The `updateGraphEdges` method dynamically adds or updates edges for a given `PairInfo`:
+- Converts reserves to numbers and skips zero-liquidity pools.
+- Tracks highest-reserve pair for each token using `tokenToHighestReservePair`.
+- Maintains `edgeIndex` (Map<`${token}-${pairAddress}`, Edge>) for O(1) updates.
+- Updates existing edges’ `reserveIn`, `reserveOut`, and `fee`, or creates new `Edge` instances.
 
-## **6. Path Reconstruction with Pair Addresses**  
-When detecting a negative cycle (arbitrage), backtrack using the `pairAddress` stored in each edge:  
-```typescript
-// Example cycle: USDC → ETH → BTC → USDC
-const path = ["USDC", "ETH", "BTC", "USDC"];
-const pairs = ["0x123", "0x456", "0x789"];  // Pool addresses used
-```
+### 3.2 updatePairReservesBatch
+The `updatePairReservesBatch` method processes multiple reserve updates efficiently:
+- Accepts an array of `{ pairAddress, reserve0, reserve1 }` updates.
+- Updates stored `PairInfo` objects and logs missing pairs.
+- Collects unique updated pairs and invokes `updateGraphEdges` per pair to refresh the graph.
 
----
+## 4. CPMM Swap Formula
 
-## **7. Key Takeaways**  
-1. **Graph Structure**: Tokens are nodes; swaps are edges with weights derived from reserves and fees.  
-2. **Negative Cycle Detection**: A cycle with total weight \( < 0 \) implies arbitrage.  
-3. **Efficiency**: The algorithm runs in \( O(K_{\text{max}} \cdot |E|) \), suitable for real-time use.  
+For a given input amount `amountIn`, reserves `reserveIn`, `reserveOut`, and fee `f` (basis points):
 
-This graph structure is the foundation for detecting arbitrage in AMM DEXs. Let me know if you need further clarification!
+1. Convert fee to multiplier:  
+   `feeMultiplier = 1 - f / 10000`
+
+2. Amount after fee:  
+   `amountInAfterFee = amountIn * feeMultiplier`
+
+3. Output amount (constant-product formula):  
+   `amountOut = (amountInAfterFee * reserveOut) / (reserveIn + amountInAfterFee)`
+
+## 5. Dynamic Programming Arbitrage Detection
+
+Arbitrage cycles are found via a DP-based method in `findArbitrageOpportunities`:
+
+1. **DP Table**: `dp[step]` maps each token to up to `MAX_ENTRIES_PER_TOKEN` best entries (`DPEntry`), where each entry has:
+   - `amountOut`: maximum output after `step` swaps starting from input 1
+   - `path`, `pairs`, `directions`: tracking the route
+
+2. **Initialization**:  
+   `dp[0].set(startToken, [{ amountOut: 1.0, path: [startToken], pairs: [], directions: [] }])`
+
+3. **Relaxation**: For `step = 1..maxHops`:
+   - For each token in `dp[step-1]`, and each outgoing edge:
+     - Skip if same pair used
+     - Compute new `amountOut` via CPMM formula
+     - Insert into `dp[step][edge.to]`, keep top entries by `amountOut`
+
+4. **Recording Opportunities**:  
+   - Whenever `step ≥ 2` and `edge.to === startToken`, record a circular arbitrage route.
+   - The `findMultiTokenArbitrageOpportunities` method generalizes this approach by seeding `dp[0]` with multiple `startTokens`, tracking each entry’s origin (`entry.path[0]`), and recording cycles that return to their respective origin.
+
+## 6. Profit Optimization
+
+After raw cycles are found, each is validated and optimized:
+
+1. **Profit Function**: `calculateProfit(inputAmount)` simulates swaps along the cycle.
+
+2. **Derivatives**:
+   - `calculateJacobian`: first derivative of profit w.r.t. input
+   - `calculateHessian`: second derivative
+
+3. **Optimal Input**: A Newton–Raphson iteration finds `inputAmount` maximizing profit.
+
+4. **Profit Condition**: Only cycles with `profit > minProfit` are kept.
+
+## 7. Path Reconstruction
+
+For each validated opportunity, we return:
+- `path`: array of token addresses
+- `pairs`: array of pool addresses
+- `directions`: swap directions
+- `optimalInput`: computed input amount
+- `profit`: max profit amount
+
+## 8. References
+
+- `src/graph.ts`: `findArbitrageOpportunities`, `createProfitFunctions`
+- CPMM constant-product invariant: `x * y = k`
+- DP pruning and maximum hops settings in `constants.ts`
