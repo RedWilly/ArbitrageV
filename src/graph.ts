@@ -286,7 +286,7 @@ export class ArbitrageGraph {
         return opp.profit > Number(tokenMinProfit);
       })
       .sort((a, b) => b.profit - a.profit)
-      .slice(0, 20);
+      .slice(0, 30);
 
     return {
       paths: validated.map(opp => opp.path),
@@ -377,17 +377,20 @@ export class ArbitrageGraph {
 
             // Check for arbitrage opportunities with all starting tokens
             if (step >= 2) {
-              // Check if this is a circular arbitrage back to any starting token
-              if (startTokens.includes(targetToken)) {
-                rawOpportunities.push({
-                  path: newEntry.path,
-                  pairs: newEntry.pairs,
-                  directions: newEntry.directions,
-                });
-              } else if (NERK) {
+              const originToken = entry.path[0]; // The actual starting token for this path
+              
+              // When NERK is false, only accept circular arbitrage back to the original token
+              if (!NERK) {
+                if (targetToken === originToken) {
+                  rawOpportunities.push({
+                    path: newEntry.path,
+                    pairs: newEntry.pairs,
+                    directions: newEntry.directions,
+                  });
+                }
+              } else {
+                // NERK-specific logic remains unchanged
                 const nerkToken = ADDRESSES[1].address;
-                const originToken = entry.path[0]; // The actual starting token for this path
-                
                 if (
                   // Case 2a: Direct arbitrage (non-NERK token to NERK)
                   (originToken !== nerkToken && targetToken === nerkToken) ||
@@ -448,7 +451,7 @@ export class ArbitrageGraph {
       //const { calculateProfit, calculateJacobian } = this.createProfitFunctions(opportunity, pairsInfo);
       const { calculateProfit, calculateJacobian, calculateHessian } = this.createProfitFunctions(opportunity, pairsInfo);
     //Newton's Method
-    let inputAmount = 9e18; // Initial guess (1 ether)
+    let inputAmount = 1e18; // Initial guess (1 ether)
     const tolerance = 1e-8;
     // const maxIterations = 100;
 
