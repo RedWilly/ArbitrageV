@@ -26,15 +26,16 @@ export const UNISWAP_FLASH_QUERY_CONTRACT =
  * - name: A human-readable name for the token
  * - address: The token's contract address
  * - LPAMOUNT: The amount to use when calculating liquidity
+ * - decimal: The number of decimals for the token
  */
-export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string }[] = [
-    { name: "BWETH", address: "0xC9BdeEd33CD01541e1eeD10f90519d2C06Fe3feB" as `0x${string}`, LPAMOUNT: parseEther("0.05737").toString() },
-    { name: "WNEAR", address: "0xC42C30aC6Cc15faC9bD938618BcaA1a1FaE8501d" as `0x${string}`, LPAMOUNT: parseUnits("42", 24).toString() },
-    { name: "AURORA", address: "0x8BEc47865aDe3B172A928df8f990Bc7f2A3b9f79" as `0x${string}`, LPAMOUNT: parseEther("1200").toString() },
-    { name: "WBTC", address: "0xF4eB217Ba2454613b15dBdea6e5f22276410e89e" as `0x${string}`, LPAMOUNT: parseUnits("0.001120", 8).toString() }, //shib
-    { name: "USDC.e", address: "0xB12BFcA5A55806AaF64E99521918A4bf0fC40802" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString()}, // weth
-    { name: "USTC", address: "0x5ce9F0B6AFb36135b5ddBF11705cEB65E634A9dC" as `0x${string}`, LPAMOUNT: parseEther("90").toString() }, //damn
-    { name: "USDTE", address: "0x4988a896b1227218e4A686fdE5EabdcAbd91571f" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString() },
+export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string; decimal: number }[] = [
+    { name: "BWETH", address: "0xC9BdeEd33CD01541e1eeD10f90519d2C06Fe3feB" as `0x${string}`, LPAMOUNT: parseEther("0.05737").toString(), decimal: 18 },
+    { name: "WNEAR", address: "0xC42C30aC6Cc15faC9bD938618BcaA1a1FaE8501d" as `0x${string}`, LPAMOUNT: parseUnits("42", 24).toString(), decimal: 24 },
+    { name: "AURORA", address: "0x8BEc47865aDe3B172A928df8f990Bc7f2A3b9f79" as `0x${string}`, LPAMOUNT: parseEther("1200").toString(), decimal: 18 },
+    { name: "WBTC", address: "0xF4eB217Ba2454613b15dBdea6e5f22276410e89e" as `0x${string}`, LPAMOUNT: parseUnits("0.001120", 8).toString(), decimal: 8 }, //shib
+    { name: "USDC.e", address: "0xB12BFcA5A55806AaF64E99521918A4bf0fC40802" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 }, // weth
+    { name: "USTC", address: "0x5ce9F0B6AFb36135b5ddBF11705cEB65E634A9dC" as `0x${string}`, LPAMOUNT: parseEther("90").toString(), decimal: 18 }, //damn
+    { name: "USDTE", address: "0x4988a896b1227218e4A686fdE5EabdcAbd91571f" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 },
     // { name: "CDCETH", address: "0x7a7c9db510aB29A2FC362a4c34260BEcB5cE3446" as `0x${string}`, LPAMOUNT: parseEther("0.05").toString() },
     // { name: "BCRO", address: "0xeBAceB7F193955b946cC5dd8f8724a80671a1F2F" as `0x${string}`, LPAMOUNT: parseEther("1200").toString() },
     // { name: "VVS", address: "0x2D03bECE6747ADC00E1a131BBA1469C15fD11e03" as `0x${string}`, LPAMOUNT: parseEther("48100000").toString() },

@@ -67,8 +67,12 @@ function logArbitrageOpportunities(opportunities: ArbitrageOpportunities) {
             if (DEBUG) {
                 console.log(`\nOpportunity #${index + 1}:`);
                 console.log(`Path: ${path.join(' -> ')}`);
-                console.log(`Expected profit: ${formatUnits(BigInt(profit), 18)} ETH`);
-                console.log(`Optimal input amount: ${optimalAmount} wei || ${formatUnits(BigInt(optimalAmount), 18)} ETH`);
+                const startToken = path[0];
+                const tokenInfo = ADDRESSES.find(addr => addr.address === startToken);
+                if (!tokenInfo) throw new Error(`Token info not found for ${startToken}`);
+                
+                console.log(`Expected profit: ${formatUnits(BigInt(profit), tokenInfo.decimal)} ${tokenInfo.name}`);
+                console.log(`Optimal input amount: ${optimalAmount} wei || ${formatUnits(BigInt(optimalAmount), tokenInfo.decimal)} ${tokenInfo.name}`);
                 console.log(`Profit percentage: ${profitPercentage.toFixed(2)}%`);
                 console.log(`Pairs used: ${pairs.join(', ')}`);
                 console.log(`Fees: ${fees.map(fee => fee.toString()).join(', ')}`);

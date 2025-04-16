@@ -442,22 +442,26 @@ export class ArbitrageGraph {
     pairs: Address[];
     directions: ('token0ToToken1' | 'token1ToToken0')[];
   }): { maxProfit: number; optimalInput: number } {
-      const pairsInfo = opportunity.pairs.map(pairAddress => {
-          const pair = this.pairs.get(pairAddress);
-          if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
-          return pair;
-      });
+    // Get starting token's decimal from ADDRESSES
+    const startToken = opportunity.path[0];
+    const tokenInfo = ADDRESSES.find(addr => addr.address === startToken);
+    if (!tokenInfo) throw new Error(`Token info not found for ${startToken}`);
+    
+    const pairsInfo = opportunity.pairs.map(pairAddress => {
+        const pair = this.pairs.get(pairAddress);
+        if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
+        return pair;
+    });
 
-      //const { calculateProfit, calculateJacobian } = this.createProfitFunctions(opportunity, pairsInfo);
-      const { calculateProfit, calculateJacobian, calculateHessian } = this.createProfitFunctions(opportunity, pairsInfo);
-    //Newton's Method
-    let inputAmount = 1e18; // Initial guess (1 ether)
+    const { calculateProfit, calculateJacobian, calculateHessian } = this.createProfitFunctions(opportunity, pairsInfo);
+    
+    // Adjust initial guess based on token decimals
+    let inputAmount = 10 ** tokenInfo.decimal; // Use token's decimal places
     const tolerance = 1e-8;
-    // const maxIterations = 100;
-
     let maxProfit = -Infinity;
     let optimalInput = 0;
 
+    //Newton's Method
     for (let i = 0; i < maxIterations; i++) {
         const profit = calculateProfit(inputAmount);
         const jacobian = calculateJacobian(inputAmount);
@@ -472,9 +476,8 @@ export class ArbitrageGraph {
         const delta = jacobian / hessian;
         const newInputAmount = inputAmount - delta;
 
-
-          // Check for convergence
-          if (Math.abs(newInputAmount - inputAmount) < tolerance) {
+        // Check for convergence
+        if (Math.abs(newInputAmount - inputAmount) < tolerance) {
             break;
         }
         inputAmount = Math.max(0, newInputAmount);
@@ -483,7 +486,6 @@ export class ArbitrageGraph {
             maxProfit = profit;
             optimalInput = inputAmount;
         }
-
     }
 
     return { maxProfit, optimalInput };
