@@ -95,8 +95,7 @@ export const minProfits = [
     parseEther("0.00006365"),     
     parseUnits("0.04", 24),     
     parseEther("1.38"),  
-    parseUnits("0.000001211", 8)  
-    // Add more thresholds if TOP_TOKENS_FOR_ARBITRAGE is increased
+    // parseUnits("0.000001211", 8)  
 ];
 
 // Legacy minProfit for backward compatibility - findArbitrageOpportunities
@@ -115,7 +114,7 @@ export const MAX_ENTRIES_PER_TOKEN = 10;
 export const TOP_TOKENS_FOR_ARBITRAGE = 3;
 
 export const DEBUG = true;
-export const WSS_ENABLED = true; //enable this only when you are on a chain with wss support or better wss
+export const WSS_ENABLED = false; //enable this only when you are on a chain with wss support or better wss
 export const NERK = false;
 
 

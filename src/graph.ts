@@ -272,21 +272,9 @@ export class ArbitrageGraph {
         const { maxProfit, optimalInput } = this.calculateMaxProfit(opp);
         return { ...opp, profit: maxProfit, optimalInput };
       })
-      .filter(opp => {
-        // Find the index of the starting token in ADDRESSES
-        const tokenIndex = ADDRESSES.findIndex(addr => addr.address === startToken);
-        
-        // Throw an error if no specific profit threshold is defined for this token
-        if (tokenIndex < 0 || tokenIndex >= minProfits.length) {
-          const tokenName = tokenIndex >= 0 ? ADDRESSES[tokenIndex].name : startToken;
-          throw new Error(`No minimum profit threshold defined for token ${tokenName}. Please update the minProfits array in constants.ts.`);
-        }
-        
-        const tokenMinProfit = minProfits[tokenIndex];
-        return opp.profit > Number(tokenMinProfit);
-      })
+      .filter(opp => opp.profit > Number(minProfit))
       .sort((a, b) => b.profit - a.profit)
-      .slice(0, 30);
+      .slice(0, 20);
 
     return {
       paths: validated.map(opp => opp.path),
@@ -418,7 +406,20 @@ export class ArbitrageGraph {
         const { maxProfit, optimalInput } = this.calculateMaxProfit(opp);
         return { ...opp, profit: maxProfit, optimalInput };
       })
-      .filter(opp => opp.profit > Number(minProfit))
+      .filter(opp => {
+        // Find the index of the starting token in ADDRESSES
+        const originToken = opp.path[0];
+        const tokenIndex = ADDRESSES.findIndex(addr => addr.address === originToken);
+        
+        // Throw an error if no specific profit threshold is defined for this token
+        if (tokenIndex < 0 || tokenIndex >= minProfits.length) {
+          const tokenName = tokenIndex >= 0 ? ADDRESSES[tokenIndex].name : originToken;
+          throw new Error(`No minimum profit threshold defined for token ${tokenName}. Please update the minProfits array in constants.ts.`);
+        }
+        
+        const tokenMinProfit = minProfits[tokenIndex];
+        return opp.profit > Number(tokenMinProfit);
+      })
       .sort((a, b) => b.profit - a.profit)
       .slice(0, 20);
 
