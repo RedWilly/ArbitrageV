@@ -18,7 +18,7 @@ export type PairInfo = {
 const WOOF_RESERVES_BATCH_SIZE = 5;
 
 // Maximum age for pairs (35 days in seconds)
-const MAX_PAIR_AGE_SECONDS = 90 * 24 * 60 * 60;
+const MAX_PAIR_AGE_SECONDS = 300 * 24 * 60 * 60;
 
 
 const MIN_OTHER_TOKENS_LIQUIDITY = parseEther("11000");

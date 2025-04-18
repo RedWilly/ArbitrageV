@@ -1,6 +1,6 @@
 import { type Address, createPublicClient, http, parseAbiItem, formatUnits, parseGwei } from 'viem';
 import { ArbitrageGraph } from './graph';
-import { ARB_CONTRACT, DEBUG, GAS_LIMIT } from './constants';
+import { ARB_CONTRACT, DEBUG, GAS_LIMIT, LEGACY, BASE_FEE } from './constants';
 import ArbABI from './ABI/Arb.json';
 import { type NetworkConfig } from './network';
 import { NonceManager, createNonceManager } from './nonce';
@@ -157,10 +157,10 @@ export class OpportunityManager {
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
-            maxFeePerGas,
-            maxPriorityFeePerGas,
             gas: GAS_LIMIT,
-            type: 'eip1559' as const
+            ...(LEGACY
+                ? { gasPrice: BASE_FEE, type: 'legacy' as const }
+                : { maxFeePerGas, maxPriorityFeePerGas, type: 'eip1559' as const }),
         });
         
         if (DEBUG) {
@@ -212,10 +212,10 @@ export class OpportunityManager {
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
-            maxFeePerGas,
-            maxPriorityFeePerGas,
             gas: GAS_LIMIT,
-            type: 'eip1559' as const
+            ...(LEGACY
+                ? { gasPrice: BASE_FEE, type: 'legacy' as const }
+                : { maxFeePerGas, maxPriorityFeePerGas, type: 'eip1559' as const }),
         });
 
         if (DEBUG) {

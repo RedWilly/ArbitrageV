@@ -85,6 +85,8 @@ TELEGRAM_BOT_TOKEN=123456:ABC...
 TELEGRAM_CHAT_ID=987654321
 ```  
 Modify `src/constants.ts` if you need custom thresholds, factory list, or TOP_TOKENS_FOR_ARBITRAGE.
+- EIP-1559 gas fee budget: modify the 90% allocation in `OpportunityManager.calculateGasFees` (in `src/execute.ts` around lines 238–239). By default it uses 90% of expected profit; adjust this value to suit your strategy.
+- Legacy transactions: set `LEGACY` to `true` in `src/constants.ts` to use legacy gas pricing, and update the `BASE_FEE` constant there to control the `gasPrice` for legacy txns.
 
 ## Usage
 

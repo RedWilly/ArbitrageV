@@ -32,10 +32,10 @@ export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string
     { name: "BWETH", address: "0xC9BdeEd33CD01541e1eeD10f90519d2C06Fe3feB" as `0x${string}`, LPAMOUNT: parseEther("0.05737").toString(), decimal: 18 },
     { name: "WNEAR", address: "0xC42C30aC6Cc15faC9bD938618BcaA1a1FaE8501d" as `0x${string}`, LPAMOUNT: parseUnits("42", 24).toString(), decimal: 24 },
     { name: "AURORA", address: "0x8BEc47865aDe3B172A928df8f990Bc7f2A3b9f79" as `0x${string}`, LPAMOUNT: parseEther("1200").toString(), decimal: 18 },
-    { name: "WBTC", address: "0xF4eB217Ba2454613b15dBdea6e5f22276410e89e" as `0x${string}`, LPAMOUNT: parseUnits("0.001120", 8).toString(), decimal: 8 }, //shib
+    { name: "WBTC", address: "0xF4eB217Ba2454613b15dBdea6e5f22276410e89e" as `0x${string}`, LPAMOUNT: parseUnits("0.001120", 8).toString(), decimal: 8 },
+    { name: "USDTE", address: "0x4988a896b1227218e4A686fdE5EabdcAbd91571f" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 },
     { name: "USDC.e", address: "0xB12BFcA5A55806AaF64E99521918A4bf0fC40802" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 }, // weth
     { name: "USTC", address: "0x5ce9F0B6AFb36135b5ddBF11705cEB65E634A9dC" as `0x${string}`, LPAMOUNT: parseEther("90").toString(), decimal: 18 }, //damn
-    { name: "USDTE", address: "0x4988a896b1227218e4A686fdE5EabdcAbd91571f" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 },
     // { name: "CDCETH", address: "0x7a7c9db510aB29A2FC362a4c34260BEcB5cE3446" as `0x${string}`, LPAMOUNT: parseEther("0.05").toString() },
     // { name: "BCRO", address: "0xeBAceB7F193955b946cC5dd8f8724a80671a1F2F" as `0x${string}`, LPAMOUNT: parseEther("1200").toString() },
     // { name: "VVS", address: "0x2D03bECE6747ADC00E1a131BBA1469C15fD11e03" as `0x${string}`, LPAMOUNT: parseEther("48100000").toString() },
@@ -68,13 +68,6 @@ export const FACTORY: { name: string; address: `0x${string}`; fee: number; volat
     { name: "WannaSwap", address: "0x7928D4FeA7b2c90C732c10aFF59cf403f0C38246" as `0x${string}`, fee: 20, volatile: false },
     { name: "NearPad", address: "0x34484b4E416f5d4B45D4Add0B6eF6Ca08FcED8f1" as `0x${string}`, fee: 30, volatile: false },
     { name: "Amaterasu", address: "0x34696b6cE48051048f07f4cAfa39e3381242c3eD" as `0x${string}`, fee: 30, volatile: false },
-    // { name: "Crodex", address: "0xe9c29cB475C0ADe80bE0319B74AD112F1e80058F" as `0x${string}`, fee: 30, volatile: false },
-    // { name: "Photon", address: "0x462C98Cae5AffEED576c98A55dAA922604e2D875" as `0x${string}`, fee: 30, volatile: false },
-    // { name: "Duckfi", address: "0x796E38Bb00f39a3D39ab75297D8d6202505f52e2" as `0x${string}`, fee: 30, volatile: false },
-    // { name: "Obsidian", address: "0xCd2E5cC83681d62BEb066Ad0a2ec94Bf301570C9" as `0x${string}`, fee: 30, volatile: false },
-    // { name: "Cougar", address: "0x1CE8f3c99835eA3AaA888Df682d33F7E6eA0B3F4" as `0x${string}`, fee: 20, volatile: false },
-    // { name: "Cyborg", address: "0x6C50Ee65CFcfC59B09C570e55D76daa7c67D6da5" as `0x${string}`, fee: 20, volatile: false },
-    // { name: "Anne", address: "0xFb6FE7d66E55831b7e108B77D11b8e4d479c2986" as `0x${string}`, fee: 20, volatile: false },
 ];
 
 /**
@@ -93,9 +86,10 @@ export const FACTORY: { name: string; address: `0x${string}`; fee: number; volat
  */
 export const minProfits = [
     parseEther("0.00006365"),     
-    parseUnits("0.04", 24),     
-    parseEther("1.38"),  
-    parseUnits("0.000001211", 8)  
+    parseUnits("0.019", 24),     
+    parseEther("0.4228"),  
+    parseUnits("0.000001211", 8),
+    parseUnits("0.03832", 6)  
 ];
 
 // Legacy minProfit for backward compatibility - findArbitrageOpportunities
@@ -111,7 +105,7 @@ export const MAX_ENTRIES_PER_TOKEN = 10;
  * If you increase this number, make sure to add corresponding entries to the minProfits array.
  * NOTE - the more token you add - it increase the speed +100ms when searching(e.g if 3 means 300ms total)
  */
-export const TOP_TOKENS_FOR_ARBITRAGE = 4;
+export const TOP_TOKENS_FOR_ARBITRAGE = 5;
 
 export const DEBUG = true;
 export const WSS_ENABLED = false; //enable this only when you are on a chain with wss support or better wss
@@ -122,7 +116,8 @@ export const BATCH_SIZE = 200;
 
 // Gas fee settings (in Gwei)
 export const GAS_LIMIT = 500000n;
-export const BASE_FEE = parseGwei("3750");
+export const BASE_FEE = parseGwei("0.07");
+export const LEGACY = true;
 
 // Telegram notification settings
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
