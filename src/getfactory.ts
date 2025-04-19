@@ -1,12 +1,12 @@
 import { createPublicClient, http } from 'viem';
-import { shibarium } from 'viem/chains';
+import { chiliz } from 'viem/chains';
 
 const client = createPublicClient({
-  chain: shibarium,
+  chain: chiliz,
   transport: http(),
 });
 
-const ROUTER_ADDRESS = '0x9b176...';
+const ROUTER_ADDRESS = '0xbeedc90b22f26fd5847f6b15a2d4956aed802dba';
 const ROUTER_ABI = [
   {
     "inputs": [],

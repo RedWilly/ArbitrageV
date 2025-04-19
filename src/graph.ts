@@ -377,16 +377,8 @@ export class ArbitrageGraph {
                   });
                 }
               } else {
-                // NERK-specific logic remains unchanged
-                const nerkToken = ADDRESSES[1].address;
-                if (
-                  // Case 2a: Direct arbitrage (non-NERK token to NERK)
-                  (originToken !== nerkToken && targetToken === nerkToken) ||
-                  // Case 2b: Reverse arbitrage (NERK to non-NERK token)
-                  (originToken === nerkToken && targetToken !== nerkToken) ||
-                  // Case 2c: NERK circular arbitrage (NERK to NERK)
-                  (originToken === nerkToken && targetToken === nerkToken)
-                ) {
+                // If NERK is true, include any arbitrage where origin and target tokens are both in the startTokens list
+                if (startTokens.includes(originToken) && startTokens.includes(targetToken)) {
                   rawOpportunities.push({
                     path: newEntry.path,
                     pairs: newEntry.pairs,
