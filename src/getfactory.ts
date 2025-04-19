@@ -1,8 +1,8 @@
 import { createPublicClient, http } from 'viem';
-import { chiliz } from 'viem/chains';
+import { cronos } from 'viem/chains';
 
 const client = createPublicClient({
-  chain: chiliz,
+  chain: cronos,
   transport: http(),
 });
 

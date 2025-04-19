@@ -256,3 +256,4 @@ export class OpportunityManager {
 export function createOpportunityManager(networkConfig: NetworkConfig): OpportunityManager {
     return new OpportunityManager(networkConfig);
 }
+

@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import { parseEther, parseGwei, parseUnits } from "viem";
 dotenv.config();
 
-export const CHAIN_ID = 1313161554;
+export const CHAIN_ID = 25;
 
 export const RPC_URL = process.env.RPC_URL;
 export const WSS_URL = process.env.WSS_URL;
@@ -29,23 +29,24 @@ export const UNISWAP_FLASH_QUERY_CONTRACT =
  * - decimal: The number of decimals for the token
  */
 export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string; decimal: number }[] = [
-    { name: "WCHLIZ", address: "0x677F7e16C7Dd57be1D4C8aD1244883214953DC47" as `0x${string}`, LPAMOUNT: parseEther("2461").toString(), decimal: 18 },
-    { name: "WCHILIZ-2", address: "0x721EF6871f1c4Efe730Dce047D40D1743B886946" as `0x${string}`, LPAMOUNT: parseEther("2461").toString(), decimal: 18 },
-    { name: "PEPPER", address: "0x60f397acbcfb8f4e3234c659a3e10867e6fa6b67" as `0x${string}`, LPAMOUNT: parseEther("80000000000").toString(), decimal: 18 },
-    { name: "KAYEN", address: "0x8c0b6ea89daba6516df9437a60ca481501781606" as `0x${string}`, LPAMOUNT: parseEther("4200").toString(), decimal: 18 },
-    // { name: "USDTE", address: "0x4988a896b1227218e4A686fdE5EabdcAbd91571f" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 },
-    // { name: "USDC.e", address: "0xB12BFcA5A55806AaF64E99521918A4bf0fC40802" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 }, // weth
-    // { name: "USTC", address: "0x5ce9F0B6AFb36135b5ddBF11705cEB65E634A9dC" as `0x${string}`, LPAMOUNT: parseEther("90").toString(), decimal: 18 }, //damn
-    // { name: "CDCETH", address: "0x7a7c9db510aB29A2FC362a4c34260BEcB5cE3446" as `0x${string}`, LPAMOUNT: parseEther("0.05").toString() },
-    // { name: "BCRO", address: "0xeBAceB7F193955b946cC5dd8f8724a80671a1F2F" as `0x${string}`, LPAMOUNT: parseEther("1200").toString() },
-    // { name: "VVS", address: "0x2D03bECE6747ADC00E1a131BBA1469C15fD11e03" as `0x${string}`, LPAMOUNT: parseEther("48100000").toString() },
-    // { name: "LION", address: "0x9D8c68F185A04314DDC8B8216732455e8dbb7E45" as `0x${string}`, LPAMOUNT: parseEther("11000").toString() },
-    // { name: "XRP", address: "0xb9Ce0dd29C91E02d4620F57a66700Fc5e41d6D15" as `0x${string}`, LPAMOUNT: parseUnits("42", 6).toString() },
-    // { name: "LCRO", address: "0x9Fae23A2700FEeCd5b93e43fDBc03c76AA7C08A6" as `0x${string}`, LPAMOUNT: parseEther("1100").toString() },
-    // { name: "CROID", address: "0xCbF0ADeA24fd5f32c6e7f0474f0d1b94Ace4E2e7" as `0x${string}`, LPAMOUNT: parseEther("2800").toString() },
-    // { name: "AGENTAI", address: "0x96733708C4157218B6E6889eb9E16B1df7873061" as `0x${string}`, LPAMOUNT: parseEther("54").toString() },
-    // { name: "CROB", address: "0x63eD0a82cAC237667C89Cd6AC5BFa2317186FdAa" as `0x${string}`, LPAMOUNT: parseEther("7000").toString() },
-    // { name: "DAI", address: "0xF2001B145b43032AAF5Ee2884e456CCd805F677D" as `0x${string}`, LPAMOUNT: parseEther("100").toString() },
+    { name: "WCRO", address: "0x5C7F8A570d578ED84E63fdFA7b1eE72dEae1AE23" as `0x${string}`, LPAMOUNT: parseEther("1000").toString(), decimal: 18 },
+    { name: "LION", address: "0x9D8c68F185A04314DDC8B8216732455e8dbb7E45" as `0x${string}`, LPAMOUNT: parseEther("4000").toString(), decimal: 18 },
+    { name: "USDC", address: "0xc21223249CA28397B4B6541dfFaEcC539BfF0c59" as `0x${string}`, LPAMOUNT: parseUnits("100", 6).toString(), decimal: 6 },
+    { name: "USDT", address: "0x66e428c3f67a68878562e79A0234c1F83c208770" as `0x${string}`, LPAMOUNT: parseUnits("100", 6).toString(), decimal: 6 }, 
+    { name: "WBTC", address: "0x062E66477Faf219F25D27dCED647BF57C3107d52" as `0x${string}`, LPAMOUNT: parseUnits("100", 8).toString(), decimal: 8 }, 
+    { name: "WETH", address: "0xe44Fd7fCb2b1581822D0c862B68222998a0c299a" as `0x${string}`, LPAMOUNT: parseEther("0.05").toString(), decimal: 18 },
+    { name: "USC", address: "0xD42E078ceA2bE8D03cd9dFEcC1f0d28915Edea78" as `0x${string}`, LPAMOUNT: parseEther("100").toString(), decimal: 18 },
+    { name: "CDCBTC", address: "0x2e53c5586e12a99d4CAE366E9Fc5C14fE9c6495d" as `0x${string}`, LPAMOUNT: parseUnits("100", 8).toString(), decimal: 8 },
+    { name: "CDCETH", address: "0x7a7c9db510aB29A2FC362a4c34260BEcB5cE3446" as `0x${string}`, LPAMOUNT: parseEther("0.05").toString(), decimal: 18 },
+    { name: "BCRO", address: "0xeBAceB7F193955b946cC5dd8f8724a80671a1F2F" as `0x${string}`, LPAMOUNT: parseEther("1200").toString(), decimal: 18 },
+    { name: "VVS", address: "0x2D03bECE6747ADC00E1a131BBA1469C15fD11e03" as `0x${string}`, LPAMOUNT: parseEther("48100000").toString(), decimal: 18 },
+    { name: "XRP", address: "0xb9Ce0dd29C91E02d4620F57a66700Fc5e41d6D15" as `0x${string}`, LPAMOUNT: parseUnits("42", 6).toString(), decimal: 6 },
+    { name: "LCRO", address: "0x9Fae23A2700FEeCd5b93e43fDBc03c76AA7C08A6" as `0x${string}`, LPAMOUNT: parseEther("1100").toString(), decimal: 18 },
+    { name: "CROID", address: "0xCbF0ADeA24fd5f32c6e7f0474f0d1b94Ace4E2e7" as `0x${string}`, LPAMOUNT: parseEther("2800").toString(), decimal: 18 },
+    { name: "AGENTAI", address: "0x96733708C4157218B6E6889eb9E16B1df7873061" as `0x${string}`, LPAMOUNT: parseEther("54").toString(), decimal: 18 },
+    { name: "CROB", address: "0x63eD0a82cAC237667C89Cd6AC5BFa2317186FdAa" as `0x${string}`, LPAMOUNT: parseEther("7000").toString(), decimal: 18 },
+    { name: "DAI", address: "0xF2001B145b43032AAF5Ee2884e456CCd805F677D" as `0x${string}`, LPAMOUNT: parseEther("100").toString(), decimal: 18 },
+
 ];
         
 /**
@@ -63,10 +64,18 @@ export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string
  * The bot will search for arbitrage opportunities across all these exchanges.
  */
 export const FACTORY: { name: string; address: `0x${string}`; fee: number; volatile: boolean }[] = [
-    { name: "KEYAN", address: "0xE2918AA38088878546c1A18F2F9b1BC83297fdD3" as `0x${string}`, fee: 30, volatile: false },
-    { name: "KEWL", address: "0xA0BB8f9865f732C277d0C162249A4F6c157ae9D0" as `0x${string}`, fee: 30, volatile: false },
-    { name: "CLIZSWAP", address: "0xcF4A2be8Fe92fEe8e350AD8D876274749Ae0CBb1" as `0x${string}`, fee: 30, volatile: false },
-    { name: "DSWAP", address: "0xBDd9c322Ecf401E09C9D2Dca3be46a7E45d48BB1" as `0x${string}`, fee: 30, volatile: false },
+    { name: "VVS", address: "0x3B44B2a187a7b3824131F8db5a74194D0a42Fc15" as `0x${string}`, fee: 30, volatile: false },
+    { name: "MMF", address: "0xd590cC180601AEcD6eeADD9B7f2B7611519544f4" as `0x${string}`, fee: 17, volatile: false }, //swapfee
+    { name: "Ebisu", address: "0x5f1D751F447236f486F4268b883782897A902379" as `0x${string}`, fee: 15, volatile: false }, // swap fee
+    { name: "Crona", address: "0x73A48f8f521EB31c55c0e1274dB0898dE599Cb11" as `0x${string}`, fee: 25, volatile: false },
+    { name: "Candy", address: "0x84343b84EEd78228CCFB65EAdEe7659F246023bf" as `0x${string}`, fee: 15, volatile: false },
+    { name: "Crodex", address: "0xe9c29cB475C0ADe80bE0319B74AD112F1e80058F" as `0x${string}`, fee: 30, volatile: false },
+    { name: "Photon", address: "0x462C98Cae5AffEED576c98A55dAA922604e2D875" as `0x${string}`, fee: 30, volatile: false },
+    { name: "Duckfi", address: "0x796E38Bb00f39a3D39ab75297D8d6202505f52e2" as `0x${string}`, fee: 30, volatile: false },
+    { name: "Obsidian", address: "0xCd2E5cC83681d62BEb066Ad0a2ec94Bf301570C9" as `0x${string}`, fee: 30, volatile: false },
+    { name: "Cougar", address: "0x1CE8f3c99835eA3AaA888Df682d33F7E6eA0B3F4" as `0x${string}`, fee: 20, volatile: false },
+    { name: "Cyborg", address: "0x6C50Ee65CFcfC59B09C570e55D76daa7c67D6da5" as `0x${string}`, fee: 20, volatile: false },
+    { name: "Anne", address: "0xFb6FE7d66E55831b7e108B77D11b8e4d479c2986" as `0x${string}`, fee: 20, volatile: false },
 ];
 
 /**
@@ -77,24 +86,24 @@ export const FACTORY: { name: string; address: `0x${string}`; fee: number; volat
  * 
  * For example:
  * - minProfits[0] is the min profit for ADDRESSES[0] (WCRO)
- * - minProfits[1] is the min profit for ADDRESSES[1] (USDC)
+ * - minProfits[1] is the min profit for ADDRESSES[1] (LION)
  * - etc.
  * 
  * The system will throw an error if it tries to use a token that doesn't have
  * a corresponding minimum profit threshold defined here.
  */
 export const minProfits = [
-    parseEther("2.5"),     
-    parseEther("2.5"),     
-    parseEther("99000000"),  
-    parseEther("4.5"),
+    parseEther("3"),     
+    parseEther("6"),     
+    parseUnits("0.3", 6),  
+    parseUnits("0.3", 6),
 ];
 
 // Legacy minProfit for backward compatibility - findArbitrageOpportunities
 export const minProfit = parseEther("3");
 
 export const maxIterations = 100;
-export const maxHops = 3;
+export const maxHops = 20;
 export const MAX_ENTRIES_PER_TOKEN = 10;
 
 /**
@@ -103,18 +112,18 @@ export const MAX_ENTRIES_PER_TOKEN = 10;
  * If you increase this number, make sure to add corresponding entries to the minProfits array.
  * NOTE - the more token you add - it increase the speed +100ms when searching(e.g if 3 means 300ms total)
  */
-export const TOP_TOKENS_FOR_ARBITRAGE = 2;
+export const TOP_TOKENS_FOR_ARBITRAGE = 4;
 
 export const DEBUG = true;
-export const WSS_ENABLED = false; //enable this only when you are on a chain with wss support or better wss
+export const WSS_ENABLED = true; //enable this only when you are on a chain with wss support or better wss
 export const NERK = false;
 
 
 export const BATCH_SIZE = 200;
 
 // Gas fee settings (in Gwei)
-export const GAS_LIMIT = 500000n;
-export const BASE_FEE = parseGwei("552");
+export const GAS_LIMIT = 300000n;
+export const BASE_FEE = parseGwei("21060");
 export const LEGACY = true;
 
 // Telegram notification settings
