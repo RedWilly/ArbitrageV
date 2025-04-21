@@ -116,6 +116,16 @@ export const TOP_TOKENS_FOR_ARBITRAGE = 7;
 export const DEBUG = true;
 export const WSS_ENABLED = true; //enable this only when you are on a chain with wss support or better wss
 export const NERK = false;
+export const LEGACY = true;
+
+/**
+ * enable this when you when the bot to also include v3 pools in the arbitrage search
+ * ( that means it will support the current V2→V2)
+ * and also V2→V3, V3→V2 & V3→V3
+ * 
+ * BUT if false it will stick with the current V2→V2 only
+ *  */ 
+export const V3 = true; 
 
 
 export const BATCH_SIZE = 200;
@@ -123,7 +133,6 @@ export const BATCH_SIZE = 200;
 // Gas fee settings (in Gwei)
 export const GAS_LIMIT = 300000n;
 export const BASE_FEE = parseGwei("21060");
-export const LEGACY = true;
 
 // Telegram notification settings
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';

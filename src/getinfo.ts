@@ -1,5 +1,5 @@
 import {  type Address, createPublicClient, parseEther } from 'viem';
-import { BATCH_SIZE, FACTORY, UNISWAP_FLASH_QUERY_CONTRACT, DEBUG, ADDRESSES } from './constants';
+import { BATCH_SIZE, FACTORY, UNISWAP_FLASH_QUERY_CONTRACT, DEBUG, ADDRESSES, V3_Pools } from './constants';
 import UniswapFlashQueryABI from './ABI/UniswapFlashQuery.json';
 import bannedTokens from './bannedtax.json';
 
@@ -286,6 +286,7 @@ async function getReservesWithRetry(
 
 /**
  * Fetches all pairs and their reserves from all factories
+ * FOR V2 DEXES
  */
 export async function getAllPairsInfo(
     client: ReturnType<typeof createPublicClient>
@@ -345,4 +346,54 @@ export async function getAllPairsInfo(
         }
         return [];
     }
+}
+
+/**
+ * V3 pool info
+ * -and here we dont need to filter anything
+ * -since the v3 pools were manual added in the constants
+ */
+export type V3PoolInfo = {
+    poolAddress: Address;
+    token0: Address;
+    token1: Address;
+    tick: number;
+    liquidity: bigint;
+    sqrtPriceX96: bigint;
+    fee: number;
+};
+
+export async function getV3PoolsInfo(
+    client: ReturnType<typeof createPublicClient>
+): Promise<V3PoolInfo[]> {
+    const poolAddresses = V3_Pools.map(p => p.address);
+    const results: V3PoolInfo[] = [];
+    for (let i = 0; i < poolAddresses.length; i += BATCH_SIZE) {
+        const slice = poolAddresses.slice(i, i + BATCH_SIZE);
+        const tokenPairs = await client.readContract({
+            address: UNISWAP_FLASH_QUERY_CONTRACT as Address,
+            abi: UniswapFlashQueryABI,
+            functionName: 'getPools0or1',
+            args: [slice],
+        }) as [Address, Address][];
+        const [ticks, liquidities, sqrtPrices] = await client.readContract({
+            address: UNISWAP_FLASH_QUERY_CONTRACT as Address,
+            abi: UniswapFlashQueryABI,
+            functionName: 'getReservesByV3Pools',
+            args: [slice],
+        }) as [bigint[], bigint[], bigint[]];
+        for (let j = 0; j < slice.length; j++) {
+            const idx = i + j;
+            results.push({
+                poolAddress: slice[j],
+                token0: tokenPairs[j][0],
+                token1: tokenPairs[j][1],
+                tick: Number(ticks[j]),
+                liquidity: liquidities[j],
+                sqrtPriceX96: sqrtPrices[j],
+                fee: V3_Pools[idx].fee,
+            });
+        }
+    }
+    return results;
 }

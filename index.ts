@@ -1,6 +1,6 @@
 import { formatUnits } from 'viem';
 import { initializeNetwork } from './src/network';
-import { getAllPairsInfo, type PairInfo } from './src/getinfo';
+import { getAllPairsInfo, getV3PoolsInfo, type PairInfo } from './src/getinfo';
 import { ArbitrageGraph } from './src/graph';
 import { DEBUG, ADDRESSES } from './src/constants';
 import { EventMonitor } from './src/event';
@@ -18,11 +18,16 @@ async function main() {
         const nonceManager = createNonceManager(network.account);
         await nonceManager.initialize(network.client);
 
-        console.log("Fetching pairs information...");
+        console.log("Fetching V2 pairs information...");
         const pairs = await getAllPairsInfo(network.client);
-
         if (DEBUG) {
-            console.log(`Found ${pairs.length} pairs`);
+            console.log(`Found V2 ${pairs.length} pairs`);
+        }
+
+        console.log("fetching specified v3 pool info");
+        const v3Pairs = await getV3PoolsInfo(network.client);
+        if (DEBUG) {
+            console.log(`Successfully fetched V3 ${v3Pairs.length} pools`);
         }
 
         // Initialize and build the arbitrage graph
