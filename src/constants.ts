@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import { parseEther, parseGwei, parseUnits } from "viem";
 dotenv.config();
 
-export const CHAIN_ID = 25;
+export const CHAIN_ID = 1329;
 
 export const RPC_URL = process.env.RPC_URL;
 export const WSS_URL = process.env.WSS_URL;
@@ -29,24 +29,13 @@ export const UNISWAP_FLASH_QUERY_CONTRACT =
  * - decimal: The number of decimals for the token
  */
 export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string; decimal: number }[] = [
-    { name: "WCRO", address: "0x5C7F8A570d578ED84E63fdFA7b1eE72dEae1AE23" as `0x${string}`, LPAMOUNT: parseEther("1000").toString(), decimal: 18 },
-    { name: "LION", address: "0x9D8c68F185A04314DDC8B8216732455e8dbb7E45" as `0x${string}`, LPAMOUNT: parseEther("4000").toString(), decimal: 18 },
-    { name: "USDC", address: "0xc21223249CA28397B4B6541dfFaEcC539BfF0c59" as `0x${string}`, LPAMOUNT: parseUnits("100", 6).toString(), decimal: 6 },
-    { name: "USDT", address: "0x66e428c3f67a68878562e79A0234c1F83c208770" as `0x${string}`, LPAMOUNT: parseUnits("100", 6).toString(), decimal: 6 }, 
-    { name: "WBTC", address: "0x062E66477Faf219F25D27dCED647BF57C3107d52" as `0x${string}`, LPAMOUNT: parseUnits("100", 8).toString(), decimal: 8 }, 
-    { name: "WETH", address: "0xe44Fd7fCb2b1581822D0c862B68222998a0c299a" as `0x${string}`, LPAMOUNT: parseEther("0.05").toString(), decimal: 18 },
-    { name: "USC", address: "0xD42E078ceA2bE8D03cd9dFEcC1f0d28915Edea78" as `0x${string}`, LPAMOUNT: parseEther("100").toString(), decimal: 18 },
-    { name: "CDCBTC", address: "0x2e53c5586e12a99d4CAE366E9Fc5C14fE9c6495d" as `0x${string}`, LPAMOUNT: parseUnits("100", 8).toString(), decimal: 8 },
-    { name: "CDCETH", address: "0x7a7c9db510aB29A2FC362a4c34260BEcB5cE3446" as `0x${string}`, LPAMOUNT: parseEther("0.05").toString(), decimal: 18 },
-    { name: "BCRO", address: "0xeBAceB7F193955b946cC5dd8f8724a80671a1F2F" as `0x${string}`, LPAMOUNT: parseEther("1200").toString(), decimal: 18 },
-    { name: "VVS", address: "0x2D03bECE6747ADC00E1a131BBA1469C15fD11e03" as `0x${string}`, LPAMOUNT: parseEther("48100000").toString(), decimal: 18 },
-    { name: "XRP", address: "0xb9Ce0dd29C91E02d4620F57a66700Fc5e41d6D15" as `0x${string}`, LPAMOUNT: parseUnits("42", 6).toString(), decimal: 6 },
-    { name: "LCRO", address: "0x9Fae23A2700FEeCd5b93e43fDBc03c76AA7C08A6" as `0x${string}`, LPAMOUNT: parseEther("1100").toString(), decimal: 18 },
-    { name: "CROID", address: "0xCbF0ADeA24fd5f32c6e7f0474f0d1b94Ace4E2e7" as `0x${string}`, LPAMOUNT: parseEther("2800").toString(), decimal: 18 },
-    { name: "AGENTAI", address: "0x96733708C4157218B6E6889eb9E16B1df7873061" as `0x${string}`, LPAMOUNT: parseEther("54").toString(), decimal: 18 },
-    { name: "CROB", address: "0x63eD0a82cAC237667C89Cd6AC5BFa2317186FdAa" as `0x${string}`, LPAMOUNT: parseEther("7000").toString(), decimal: 18 },
-    { name: "DAI", address: "0xF2001B145b43032AAF5Ee2884e456CCd805F677D" as `0x${string}`, LPAMOUNT: parseEther("100").toString(), decimal: 18 },
-
+    { name: "WSEI", address: "0xE30feDd158A2e3b13e9badaeABaFc5516e95e8C7" as `0x${string}`, LPAMOUNT: parseEther("495").toString(), decimal: 18 },
+    { name: "USDC", address: "0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 },
+    { name: "USDT", address: "0xB75D0B03c06A926e488e2659DF1A861F860bD3d1" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 },
+    { name: "USD₮0", address: "0x9151434b16b9763660705744891fA906F660EcC5" as `0x${string}`, LPAMOUNT: parseUnits("90", 6).toString(), decimal: 6 }, 
+    { name: "WETH", address: "0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8" as `0x${string}`, LPAMOUNT: parseEther("0.05532").toString(), decimal: 18 }, 
+    { name: "WBTC", address: "0x0555E30da8f98308EdB960aa94C0Db47230d2B9c" as `0x${string}`, LPAMOUNT: parseUnits("0.001032", 8).toString(), decimal: 8 },
+    { name: "ISEI", address: "0x5Cf6826140C1C56Ff49C808A1A75407Cd1DF9423" as `0x${string}`, LPAMOUNT: parseUnits("478", 6).toString(), decimal: 6 },
 ];
         
 /**
@@ -62,20 +51,27 @@ export const ADDRESSES: { name: string; address: `0x${string}`; LPAMOUNT: string
  * - volatile: Flag to indicate if this is a volatile DEX (if true, stable pairs will be excluded)
  * 
  * The bot will search for arbitrage opportunities across all these exchanges.
+ * V2 DEXES FACTORY ADDESSES
  */
 export const FACTORY: { name: string; address: `0x${string}`; fee: number; volatile: boolean }[] = [
-    { name: "VVS", address: "0x3B44B2a187a7b3824131F8db5a74194D0a42Fc15" as `0x${string}`, fee: 30, volatile: false },
-    { name: "MMF", address: "0xd590cC180601AEcD6eeADD9B7f2B7611519544f4" as `0x${string}`, fee: 17, volatile: false }, //swapfee
-    { name: "Ebisu", address: "0x5f1D751F447236f486F4268b883782897A902379" as `0x${string}`, fee: 15, volatile: false }, // swap fee
-    { name: "Crona", address: "0x73A48f8f521EB31c55c0e1274dB0898dE599Cb11" as `0x${string}`, fee: 25, volatile: false },
-    { name: "Candy", address: "0x84343b84EEd78228CCFB65EAdEe7659F246023bf" as `0x${string}`, fee: 15, volatile: false },
-    { name: "Crodex", address: "0xe9c29cB475C0ADe80bE0319B74AD112F1e80058F" as `0x${string}`, fee: 30, volatile: false },
-    { name: "Photon", address: "0x462C98Cae5AffEED576c98A55dAA922604e2D875" as `0x${string}`, fee: 30, volatile: false },
-    { name: "Duckfi", address: "0x796E38Bb00f39a3D39ab75297D8d6202505f52e2" as `0x${string}`, fee: 30, volatile: false },
-    { name: "Obsidian", address: "0xCd2E5cC83681d62BEb066Ad0a2ec94Bf301570C9" as `0x${string}`, fee: 30, volatile: false },
-    { name: "Cougar", address: "0x1CE8f3c99835eA3AaA888Df682d33F7E6eA0B3F4" as `0x${string}`, fee: 20, volatile: false },
-    { name: "Cyborg", address: "0x6C50Ee65CFcfC59B09C570e55D76daa7c67D6da5" as `0x${string}`, fee: 20, volatile: false },
-    { name: "Anne", address: "0xFb6FE7d66E55831b7e108B77D11b8e4d479c2986" as `0x${string}`, fee: 20, volatile: false },
+    { name: "DRAGON", address: "0x71f6b49ae1558357bBb5A6074f1143c46cBcA03d" as `0x${string}`, fee: 30, volatile: false },
+    { name: "YAKA", address: "0xd45dAff288075952822d5323F1d571e73435E929" as `0x${string}`, fee: 18, volatile: true }, //swapfee
+    { name: "Donkey", address: "0x4B4746216214f9e972c5D35D3Fe88e6Ec4C28A6B" as `0x${string}`, fee: 30, volatile: false }, // swap fee
+];
+
+/**
+ * V3 DEXES FACTORY ADDESSES
+ * TODO ADD V3 SUPPORT
+ */
+export const V3_Pools: { name: string; address: `0x${string}`; fee: number; }[] = [
+    { name: "WSEI/WBTC", address: "0x179D9a5592Bc77050796F7be28058c51cA575df4" as `0x${string}`, fee: 3000, }, //0.3% = 3000 (for v3)
+    { name: "WSEI/USDC", address: "0x882f62fe8E9594470D1da0f70Bc85096F6c60423" as `0x${string}`, fee: 3000, },
+    { name: "WETH/USDC", address: "0x69E2EDD60BBCd42Fd5eD549599de249A9A34b98B" as `0x${string}`, fee: 3000, },
+    { name: "USD₮0/WSEI", address: "0xb243320bcf9c95DB7F74108B6773b8F4Dc3adaF5" as `0x${string}`, fee: 3000, },
+    { name: "ISEI/WSEI", address: "0xD0553A0853C57267c1F2E212347002B052595558" as `0x${string}`, fee: 3000, },
+    { name: "USD₮0/USDC", address: "0xC1461365C3FcfeBB12247B40Ceca5bdB97E87c56" as `0x${string}`, fee: 3000, },
+    { name: "WBTC/USDC", address: "0x9E0F3349580ebdFd546efFb0deF17100c60A7af9" as `0x${string}`, fee: 3000, },
+    { name: "WETH/WSEI", address: "0xE0F20947365D2fcF5Fabd14AD4415ab18191BD3a" as `0x${string}`, fee: 3000, },
 ];
 
 /**
@@ -93,17 +89,20 @@ export const FACTORY: { name: string; address: `0x${string}`; fee: number; volat
  * a corresponding minimum profit threshold defined here.
  */
 export const minProfits = [
-    parseEther("3"),     
-    parseEther("6"),     
-    parseUnits("0.3", 6),  
-    parseUnits("0.3", 6),
+    parseEther("0.05540"),     
+    parseUnits("0.01", 6),     
+    parseUnits("0.01", 6),  
+    parseUnits("0.01", 6),
+    parseEther("0.000006120"),
+    parseUnits("0.0000001149", 8),
+    parseUnits("0.05265", 6),
 ];
 
 // Legacy minProfit for backward compatibility - findArbitrageOpportunities
 export const minProfit = parseEther("3");
 
 export const maxIterations = 100;
-export const maxHops = 20;
+export const maxHops = 7;
 export const MAX_ENTRIES_PER_TOKEN = 10;
 
 /**
@@ -112,7 +111,7 @@ export const MAX_ENTRIES_PER_TOKEN = 10;
  * If you increase this number, make sure to add corresponding entries to the minProfits array.
  * NOTE - the more token you add - it increase the speed +100ms when searching(e.g if 3 means 300ms total)
  */
-export const TOP_TOKENS_FOR_ARBITRAGE = 4;
+export const TOP_TOKENS_FOR_ARBITRAGE = 7;
 
 export const DEBUG = true;
 export const WSS_ENABLED = true; //enable this only when you are on a chain with wss support or better wss

@@ -1,12 +1,12 @@
 import { createPublicClient, http } from 'viem';
-import { cronos } from 'viem/chains';
+import { sei } from 'viem/chains';
 
 const client = createPublicClient({
-  chain: cronos,
+  chain: sei,
   transport: http(),
 });
 
-const ROUTER_ADDRESS = '0xbeedc90b22f26fd5847f6b15a2d4956aed802dba';
+const ROUTER_ADDRESS = '0xC75C669a62A7eCe0C8d37904b747970467432ad3';
 const ROUTER_ABI = [
   {
     "inputs": [],

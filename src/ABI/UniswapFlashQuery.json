@@ -2,6 +2,39 @@
 	{
 		"inputs": [
 			{
+				"internalType": "address",
+				"name": "marketAddress",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "baseToken",
+				"type": "address"
+			},
+			{
+				"internalType": "address",
+				"name": "token",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "fee",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "amountInBase",
+				"type": "uint256"
+			}
+		],
+		"name": "_singlePairCheck",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
 				"internalType": "contract IBaseV1Pair[]",
 				"name": "_pairs",
 				"type": "address[]"
@@ -16,6 +49,40 @@
 			}
 		],
 		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "uint256",
+				"name": "amountIn",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "reserveIn",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "reserveOut",
+				"type": "uint256"
+			},
+			{
+				"internalType": "uint256",
+				"name": "fee",
+				"type": "uint256"
+			}
+		],
+		"name": "getAmountOut",
+		"outputs": [
+			{
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
+			}
+		],
+		"stateMutability": "pure",
 		"type": "function"
 	},
 	{
@@ -98,6 +165,25 @@
 	{
 		"inputs": [
 			{
+				"internalType": "contract IUniswapV3PoolState[]",
+				"name": "_pools",
+				"type": "address[]"
+			}
+		],
+		"name": "getPools0or1",
+		"outputs": [
+			{
+				"internalType": "address[2][]",
+				"name": "",
+				"type": "address[2][]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
 				"internalType": "contract IUniswapV2Pair[]",
 				"name": "_pairs",
 				"type": "address[]"
@@ -112,6 +198,69 @@
 			}
 		],
 		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "contract IUniswapV3PoolState[]",
+				"name": "_pools",
+				"type": "address[]"
+			}
+		],
+		"name": "getReservesByV3Pools",
+		"outputs": [
+			{
+				"internalType": "int24[]",
+				"name": "",
+				"type": "int24[]"
+			},
+			{
+				"internalType": "uint128[]",
+				"name": "",
+				"type": "uint128[]"
+			},
+			{
+				"internalType": "uint160[]",
+				"name": "",
+				"type": "uint160[]"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address[]",
+				"name": "marketAddresses",
+				"type": "address[]"
+			},
+			{
+				"internalType": "address[]",
+				"name": "tokens",
+				"type": "address[]"
+			},
+			{
+				"internalType": "address",
+				"name": "baseToken",
+				"type": "address"
+			},
+			{
+				"internalType": "uint256",
+				"name": "amountInBase",
+				"type": "uint256"
+			}
+		],
+		"name": "healthCheck",
+		"outputs": [
+			{
+				"internalType": "bool[]",
+				"name": "",
+				"type": "bool[]"
+			}
+		],
+		"stateMutability": "nonpayable",
 		"type": "function"
 	}
 ]
