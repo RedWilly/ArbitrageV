@@ -64,12 +64,12 @@ export const FACTORY: { name: string; address: `0x${string}`; fee: number; volat
  * TODO ADD V3 SUPPORT
  */
 export const V3_Pools: { name: string; address: `0x${string}`; fee: number; }[] = [
-    { name: "WSEI/WBTC", address: "0x179D9a5592Bc77050796F7be28058c51cA575df4" as `0x${string}`, fee: 3000, }, //0.3% = 3000 (for v3)
+    { name: "WSEI/WBTC", address: "0x3E00Dd875fEf6cE2209007c1e625d9A656E32556" as `0x${string}`, fee: 3000, }, //0.3% = 3000 (for v3)
     { name: "WSEI/USDC", address: "0x882f62fe8E9594470D1da0f70Bc85096F6c60423" as `0x${string}`, fee: 3000, },
     { name: "WETH/USDC", address: "0x69E2EDD60BBCd42Fd5eD549599de249A9A34b98B" as `0x${string}`, fee: 3000, },
     { name: "USD₮0/WSEI", address: "0xb243320bcf9c95DB7F74108B6773b8F4Dc3adaF5" as `0x${string}`, fee: 3000, },
-    { name: "ISEI/WSEI", address: "0xD0553A0853C57267c1F2E212347002B052595558" as `0x${string}`, fee: 3000, },
-    { name: "USD₮0/USDC", address: "0xC1461365C3FcfeBB12247B40Ceca5bdB97E87c56" as `0x${string}`, fee: 3000, },
+    { name: "ISEI/WSEI", address: "0xD0553A0853C57267c1F2E212347002B052595558" as `0x${string}`, fee: 500, }, // 0.05% = 500
+    { name: "USD₮0/USDC", address: "0xC1461365C3FcfeBB12247B40Ceca5bdB97E87c56" as `0x${string}`, fee: 100, }, // 0.01% = 100
     { name: "WBTC/USDC", address: "0x9E0F3349580ebdFd546efFb0deF17100c60A7af9" as `0x${string}`, fee: 3000, },
     { name: "WETH/WSEI", address: "0xE0F20947365D2fcF5Fabd14AD4415ab18191BD3a" as `0x${string}`, fee: 3000, },
 ];
