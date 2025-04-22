@@ -411,7 +411,7 @@ export async function getV3PoolsInfo(
                 fee,
                 tickSpacing: getTickSpacingFromFee(fee) // Add tickSpacing here
             });
-            console.log(results[j]);
+            // console.log(results[j]);
         }
     }
     return results;

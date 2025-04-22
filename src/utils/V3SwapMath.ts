@@ -13,9 +13,12 @@ export class V3SwapMath {
   }
 
   static getSqrtPriceFromTick(tick: number): bigint {
-    console.log("tick", tick);
-    return Q96 * BigInt(1.0001 ** tick);
+    const price = Math.pow(1.0001, tick);
+    // price * Q96 should be integral
+    const sqrtX96 = Math.floor(price * Number(Q96));
+    return BigInt(sqrtX96);
   }
+  
 
   static calculateV3SwapOutput(
     amountIn: bigint,

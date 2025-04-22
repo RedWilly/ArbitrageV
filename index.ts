@@ -1,8 +1,7 @@
-import { formatUnits } from 'viem';
 import { initializeNetwork } from './src/network';
-import { getAllPairsInfo, getV3PoolsInfo, type PairInfo } from './src/getinfo';
+import { getAllPairsInfo, getV3PoolsInfo } from './src/getinfo';
 import { ArbitrageGraph } from './src/graph';
-import { DEBUG, ADDRESSES, enableV3Pools } from './src/constants';
+import { DEBUG, enableV3Pools } from './src/constants';
 import { EventMonitor } from './src/event';
 import { findAndLogArbitrageOpportunities } from "./src/opp";
 import { createNonceManager } from './src/nonce';
