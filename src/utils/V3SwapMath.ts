@@ -1,5 +1,4 @@
 const Q96 = BigInt(2) ** BigInt(96);
-const Q192 = Q96 * Q96;
 
 export type SwapDirection = 'token0ToToken1' | 'token1ToToken0';
 
@@ -14,6 +13,7 @@ export class V3SwapMath {
   }
 
   static getSqrtPriceFromTick(tick: number): bigint {
+    console.log("tick", tick);
     return Q96 * BigInt(1.0001 ** tick);
   }
 
@@ -154,3 +154,4 @@ export class V3SwapMath {
     return Math.floor((currentTick + tickIncrement) / tickSpacing) * tickSpacing;
   }
 }
+

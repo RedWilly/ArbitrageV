@@ -55,7 +55,8 @@ async function main() {
                 tick: pool.tick,
                 liquidity: pool.liquidity,
                 sqrtPriceX96: pool.sqrtPriceX96,
-                fee: pool.fee
+                fee: pool.fee,
+                tickSpacing: pool.tickSpacing
             })));
         }
 
