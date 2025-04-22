@@ -2,7 +2,7 @@ import { formatUnits } from 'viem';
 import { initializeNetwork } from './src/network';
 import { getAllPairsInfo, getV3PoolsInfo, type PairInfo } from './src/getinfo';
 import { ArbitrageGraph } from './src/graph';
-import { DEBUG, ADDRESSES } from './src/constants';
+import { DEBUG, ADDRESSES, enableV3Pools } from './src/constants';
 import { EventMonitor } from './src/event';
 import { findAndLogArbitrageOpportunities } from "./src/opp";
 import { createNonceManager } from './src/nonce';
@@ -24,19 +24,39 @@ async function main() {
             console.log(`Found V2 ${pairs.length} pairs`);
         }
 
-        console.log("fetching specified v3 pool info");
-        const v3Pairs = await getV3PoolsInfo(network.client);
-        if (DEBUG) {
-            console.log(`Successfully fetched V3 ${v3Pairs.length} pools`);
-        }
-
         // Initialize and build the arbitrage graph
         console.log("Building arbitrage graph...");
         const graph = new ArbitrageGraph();
         
-        // Add all pairs to the graph
+        // Add all V2 pools to the graph
         for (const pair of pairs) {
-            graph.addPair(pair);
+            graph.addPair({
+                type: 'V2',
+                pairAddress: pair.pairAddress,
+                token0: pair.token0,
+                token1: pair.token1,
+                reserve0: pair.reserve0,
+                reserve1: pair.reserve1,
+                fee: pair.fee
+            });
+        }
+
+        if (enableV3Pools) {
+            console.log("Fetching V3 pool info...");
+            const v3Pairs = await getV3PoolsInfo(network.client);
+            if (DEBUG) console.log(`Successfully fetched V3 ${v3Pairs.length} pools`);
+            console.log("Adding V3 pools to graph...");
+            // Map raw V3PoolInfo to discriminated PoolInfo
+            graph.addV3Pools(v3Pairs.map(pool => ({
+                type: 'V3',
+                poolAddress: pool.poolAddress,
+                token0: pool.token0,
+                token1: pool.token1,
+                tick: pool.tick,
+                liquidity: pool.liquidity,
+                sqrtPriceX96: pool.sqrtPriceX96,
+                fee: pool.fee
+            })));
         }
 
         // Find arbitrage opportunities

@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { parseEther, parseGwei, parseUnits } from "viem";
+import { parseEther, parseGwei, parseUnits, type Address } from "viem";
 dotenv.config();
 
 export const CHAIN_ID = 1329;
@@ -125,7 +125,7 @@ export const LEGACY = true;
  * 
  * BUT if false it will stick with the current V2→V2 only
  *  */ 
-export const V3 = true; 
+export const enableV3Pools = true; 
 
 
 export const BATCH_SIZE = 200;
@@ -137,3 +137,13 @@ export const BASE_FEE = parseGwei("21060");
 // Telegram notification settings
 export const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 export const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+
+
+/**
+ * Types
+ */
+export type PoolInfo =
+  | { type: 'V2'; pairAddress: Address; token0: Address; token1: Address;
+      reserve0: bigint; reserve1: bigint; fee: number }
+  | { type: 'V3'; poolAddress: Address; token0: Address; token1: Address;
+      tick: number; liquidity: bigint; sqrtPriceX96: bigint; fee: number };

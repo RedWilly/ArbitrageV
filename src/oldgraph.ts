@@ -244,45 +244,6 @@ export class ArbitrageGraph {
     }
   }
 
-  // Batch update V3 pools' dynamic data (tick, liquidity, sqrtPriceX96)
-  public updateV3PoolDynamicDataBatch(updates: { poolAddress: Address; tick: number; liquidity: bigint; sqrtPriceX96: bigint }[]): void {
-    if (!enableV3Pools) return;
-
-    for (const update of updates) {
-      // Update the main pool info stored in the graph
-      const existingPool = this.pools.get(update.poolAddress);
-      if (existingPool && existingPool.type === 'V3') {
-          existingPool.tick = update.tick;
-          existingPool.liquidity = update.liquidity;
-          existingPool.sqrtPriceX96 = update.sqrtPriceX96;
-          this.pools.set(update.poolAddress, existingPool); // Update the map entry
-      } else {
-          if (DEBUG) console.warn(`Attempted to update dynamic data for non-existent or non-V3 pool: ${update.poolAddress}`);
-          continue; // Skip if pool not found or not V3
-      }
-
-      // Update V3 edges in the v3EdgeIndex
-      const pool = existingPool; // Use the updated pool info
-
-      const key01 = this.createV3EdgeKey(pool.token0, pool.poolAddress);
-      if (this.v3EdgeIndex.has(key01)) {
-        const edge = this.v3EdgeIndex.get(key01)!;
-        edge.tick = update.tick;
-        edge.liquidity = update.liquidity;
-        edge.sqrtPriceX96 = update.sqrtPriceX96;
-      }
-
-      const key10 = this.createV3EdgeKey(pool.token1, pool.poolAddress);
-      if (this.v3EdgeIndex.has(key10)) {
-        const edge = this.v3EdgeIndex.get(key10)!;
-        edge.tick = update.tick;
-        edge.liquidity = update.liquidity;
-        edge.sqrtPriceX96 = update.sqrtPriceX96;
-      }
-    }
-     if (DEBUG && updates.length > 0) console.log(`Updated dynamic data for ${updates.length} V3 pools`);
-  }
-
   findMultiTokenArbitrageOpportunities(
     startTokens: Address[],
     maxDepth: number = maxHops
@@ -440,73 +401,57 @@ export class ArbitrageGraph {
     pairs: Address[];
     directions: ('token0ToToken1' | 'token1ToToken0')[];
   }): { maxProfit: number; optimalInput: number } {
+    // Get starting token's decimal from ADDRESSES
     const startToken = opportunity.path[0];
     const tokenInfo = ADDRESSES.find(addr => addr.address === startToken);
     if (!tokenInfo) throw new Error(`Token info not found for ${startToken}`);
     
+    // const pairsInfo = opportunity.pairs.map(pairAddress => {
+    //     const pair = this.pairs.get(pairAddress);
+    //     if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
+    //     return pair;
+    // });
     const poolInfos = opportunity.pairs.map(addr => {
       const pool = this.pools.get(addr)
       if (!pool) throw new Error(`Missing pool info for ${addr}`)
       return pool
     })
-  
-    const { calculateProfit, calculateJacobian, calculateHessian } = 
-      this.createProfitFunctions(opportunity, poolInfos);
+
+    const { calculateProfit, calculateJacobian, calculateHessian } = this.createProfitFunctions(opportunity, poolInfos);
     
-    // Better initial guess based on first pool's reserves/liquidity
-    let inputAmount: number;
-    const firstPool = poolInfos[0];
-    
-    if (firstPool.type === 'V2') {
-      const reserve = opportunity.directions[0] === 'token0ToToken1' 
-        ? Number(firstPool.reserve0) 
-        : Number(firstPool.reserve1);
-      inputAmount = Math.min(reserve * 0.01, 10 ** tokenInfo.decimal); // 1% of reserve
-    } else {
-      // For V3, use liquidity as basis
-      inputAmount = Math.min(Number(firstPool.liquidity) * 0.01, 10 ** tokenInfo.decimal);
-    }
-  
+    // Adjust initial guess based on token decimals
+    let inputAmount = 10 ** tokenInfo.decimal; // Use token's decimal places
     const tolerance = 1e-8;
     let maxProfit = -Infinity;
     let optimalInput = 0;
-    let currentInput = inputAmount;
-  
-    // Newton's Method with better safeguards
+
+    //Newton's Method
     for (let i = 0; i < maxIterations; i++) {
-      const profit = calculateProfit(currentInput);
-      const jacobian = calculateJacobian(currentInput);
-      const hessian = calculateHessian(currentInput);
-  
-      // Track best solution found
-      if (profit > maxProfit && currentInput > 0) {
-        maxProfit = profit;
-        optimalInput = currentInput;
-      }
-  
-      // Check for convergence
-      if (Math.abs(jacobian) < tolerance) {
-        break;
-      }
-  
-      // Safeguard against NaN/Infinity and zero hessian
-      if (isNaN(jacobian) || !isFinite(jacobian) || Math.abs(hessian) < 1e-10) {
-        // Fall back to gradient ascent with small step
-        currentInput += jacobian > 0 ? currentInput * 0.01 : -currentInput * 0.01;
-      } else {
+        const profit = calculateProfit(inputAmount);
+        const jacobian = calculateJacobian(inputAmount);
+        const hessian = calculateHessian(inputAmount);
+
+        // Check if the Hessian is invertible (non-zero determinant).
+        if (hessian === 0) {
+            // console.warn("Hessian is zero, cannot invert.");
+            break;
+        }
+
         const delta = jacobian / hessian;
-        currentInput = Math.max(0, currentInput - delta);
+        const newInputAmount = inputAmount - delta;
+
+        // Check for convergence
+        if (Math.abs(newInputAmount - inputAmount) < tolerance) {
+            break;
+        }
+        inputAmount = Math.max(0, newInputAmount);
+        if (profit > maxProfit) {
+          maxProfit = profit;
+          optimalInput = inputAmount;
       }
-  
-      // Prevent oscillation and extreme values
-      currentInput = Math.min(currentInput, inputAmount * 1000);
-      currentInput = Math.max(currentInput, inputAmount / 1000);
     }
-  
-    return { 
-      maxProfit: maxProfit > 0 ? maxProfit : 0, 
-      optimalInput: maxProfit > 0 ? optimalInput : 0 
-    };
+
+    return { maxProfit, optimalInput };
   }
 
   private createProfitFunctions(
@@ -571,23 +516,16 @@ export class ArbitrageGraph {
           if (amount > reserveIn) return -Infinity;
           amount = swap(amount, reserveIn, reserveOut, pool.fee);
         } else {
-          // Improved V3 swap calculation
-      try {
-        const amountOut = V3SwapMath.simulateSwap({
-          direction: direction as SwapDirection,
-          amountIn: BigInt(Math.floor(amount)),
-          pool: {
-            liquidity: pool.liquidity,
-            sqrtPriceX96: pool.sqrtPriceX96,
-            fee: pool.fee,
-            tick: pool.tick
-          }
-        });
-        amount = Number(amountOut);
-      } catch (e) {
-        return -Infinity; // Invalid swap
-      }
-    }
+          // V3 concentrated liquidity swap via V3SwapMath
+          const feeAdjIn = amount * (1 - pool.fee / 10000);
+          const sqrtFloatBefore = V3SwapMath.sqrtPriceX96ToFloat(pool.sqrtPriceX96);
+          const sqrtFloatAfter = direction === 'token0ToToken1'
+            ? sqrtFloatBefore + feeAdjIn / Number(pool.liquidity)
+            : sqrtFloatBefore - feeAdjIn / Number(pool.liquidity);
+          const afterX96 = V3SwapMath.floatToSqrtPriceX96(sqrtFloatAfter);
+          const outBig = V3SwapMath.getAmountOut(direction as SwapDirection, pool.liquidity, pool.sqrtPriceX96, afterX96);
+          amount = Number(outBig);
+        }
       }
       return amount - inputAmount;
     };
@@ -740,24 +678,7 @@ export class ArbitrageGraph {
     return Array.from(this.pools.values());
   }
 
-  // Get all V3 pool addresses in the graph
-  getV3PoolAddresses(): Address[] {
-    const v3Addresses: Address[] = [];
-    for (const pool of this.pools.values()) {
-      if (pool.type === 'V3') {
-        v3Addresses.push(pool.poolAddress);
-      }
-    }
-    return v3Addresses;
-  }
-
-  // Get all V2 pair and V3 pool addresses combined
-  getAllPoolAndPairAddresses(): Address[] {
-    return Array.from(this.pools.keys());
-  }
-
   clear(): void {
-    this.graph.clear(); // Clear V2 graph
     this.tokens.clear();
     this.pools.clear();
     this.edgeIndex.clear();
@@ -766,3 +687,4 @@ export class ArbitrageGraph {
     this.tokenToHighestReservePair.clear();
   }
 }
+

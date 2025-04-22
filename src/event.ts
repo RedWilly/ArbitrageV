@@ -1,29 +1,50 @@
-import { type Address, createPublicClient, http, parseAbiItem, formatUnits, decodeEventLog, type PublicClient } from 'viem';
+import { type Address, parseAbiItem, decodeEventLog, type PublicClient } from 'viem';
 import { ArbitrageGraph } from './graph';
-import { DEBUG, ADDRESSES, WSS_ENABLED } from './constants';
+import { DEBUG, WSS_ENABLED, enableV3Pools } from './constants';
 import { findAndLogArbitrageOpportunities } from "./opp";
 
-// ABI for both types of Sync events
-const SYNC_EVENT_ABI = [
+// ABI for V2 Sync events
+const SYNC_EVENT_ABI_V2 = [
     parseAbiItem('event Sync(uint112 reserve0, uint112 reserve1)'),
-    parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)')
+    parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)'),
 ];
-//dunno if am to add the v3 sync abi to the sync event yet
-// event Swap(address,address,int256,int256,uint160,uint128,int24)
+
+// ABI for V3 Swap events
+const SYNC_EVENT_ABI_V3 = [
+    parseAbiItem('event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)')
+];
+
+// Combine ABIs if V3 pools are enabled
+const ALL_EVENT_ABIS = enableV3Pools ? [...SYNC_EVENT_ABI_V2, ...SYNC_EVENT_ABI_V3] : SYNC_EVENT_ABI_V2;
 
 // Sync event topics
 const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1';
 const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4917f982149848a';
+// V3 Swap event topic
 const SYNC_TOPIC_V3 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
 
 // Maximum WebSocket reconnection attempts before falling back to HTTP
 const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 3;
 
-type ReserveUpdate = {
+// Type for V2 reserve updates
+type ReserveUpdateV2 = {
+    type: 'V2';
     pairAddress: Address;
     reserve0: bigint;
     reserve1: bigint;
 };
+
+// Type for V3 dynamic data updates
+type ReserveUpdateV3 = {
+    type: 'V3';
+    poolAddress: Address;
+    tick: number;
+    liquidity: bigint;
+    sqrtPriceX96: bigint;
+};
+
+// Union type for pending updates
+type PendingUpdate = ReserveUpdateV2 | ReserveUpdateV3;
 
 export class EventMonitor {
     private client: PublicClient;
@@ -32,7 +53,7 @@ export class EventMonitor {
     private isRunning: boolean = false;
     private isCheckingArbitrage: boolean = false;
     private unwatchFn: any;
-    private pendingUpdates: ReserveUpdate[] = [];
+    private pendingUpdates: PendingUpdate[] = []; // Updated type
     private networkConfig: any;
     private usingWebSocket: boolean = false;
     private wsReconnectAttempts: number = 0;
@@ -61,12 +82,12 @@ export class EventMonitor {
 
         this.isRunning = true;
 
-        // Get all pair addresses from graph for validation
-        const pairAddresses = this.graph.getPairAddresses();
+        // Get all pair and V3 pool addresses from graph for validation
+        const allAddresses = this.graph.getAllPoolAndPairAddresses(); // Use combined addresses
         
-        console.log(`Starting event monitor for ${pairAddresses.length} pairs...`);
+        console.log(`Starting event monitor for ${allAddresses.length} pairs/pools...`);
         if (DEBUG) {
-            console.log('Monitoring pairs:', pairAddresses);
+            console.log('Monitoring addresses:', allAddresses);
         }
 
         try {
@@ -79,10 +100,10 @@ export class EventMonitor {
                 console.log('Using HTTP polling for event monitoring');
             }
             
-            // Watch for both types of Sync events, but only for pairs in our graph
+            // Watch for both V2 Sync and V3 Swap events
             const unwatch = await eventClient.watchContractEvent({
-                address: pairAddresses,
-                abi: SYNC_EVENT_ABI,
+                address: allAddresses, // Use combined addresses
+                abi: ALL_EVENT_ABIS, // Use combined ABIs
                 onLogs: this.handleSyncEvents.bind(this),
                 onError: this.onError.bind(this),
                 strict: true
@@ -135,9 +156,9 @@ export class EventMonitor {
         }
     }
 
-    private decodeSyncEvent(log: any): { reserve0: bigint, reserve1: bigint } | null {
+    private decodeSyncEventV2(log: any): { reserve0: bigint, reserve1: bigint } | null {
         try {
-            // Check if it's a Sync event by topic
+            // Check if it's a V2 Sync event by topic
             if (!log.topics || !log.topics[0]) {
                 return null;
             }
@@ -147,7 +168,7 @@ export class EventMonitor {
             // Try decoding based on the specific topic
             if (topic === SYNC_TOPIC_UINT256) {
                 const decoded = decodeEventLog({
-                    abi: [SYNC_EVENT_ABI[1]], // uint256 version
+                    abi: [SYNC_EVENT_ABI_V2[1]], // uint256 version
                     data: log.data,
                     topics: log.topics
                 });
@@ -157,7 +178,7 @@ export class EventMonitor {
                 };
             } else if (topic === SYNC_TOPIC_UINT112) {
                 const decoded = decodeEventLog({
-                    abi: [SYNC_EVENT_ABI[0]], // uint112 version
+                    abi: [SYNC_EVENT_ABI_V2[0]], // uint112 version
                     data: log.data,
                     topics: log.topics
                 });
@@ -167,25 +188,50 @@ export class EventMonitor {
                 };
             }
 
-            if (DEBUG) console.log('Unknown Sync event topic:', topic);
+            // If not a known V2 topic, return null
             return null;
         } catch (error) {
-            console.error('Failed to decode Sync event:', error);
+            console.error('Failed to decode V2 Sync event:', error);
+            return null;
+        }
+    }
+
+    // New function to decode V3 Swap events
+    private decodeSwapEventV3(log: any): { sqrtPriceX96: bigint, liquidity: bigint, tick: number } | null {
+        try {
+            if (!log.topics || log.topics[0] !== SYNC_TOPIC_V3) {
+                return null;
+            }
+
+            const decoded = decodeEventLog({
+                abi: SYNC_EVENT_ABI_V3, // Use V3 ABI
+                data: log.data,
+                topics: log.topics
+            });
+
+            return {
+                sqrtPriceX96: decoded.args.sqrtPriceX96,
+                liquidity: decoded.args.liquidity,
+                tick: decoded.args.tick
+            };
+        } catch (error) {
+            console.error('Failed to decode V3 Swap event:', error);
             return null;
         }
     }
 
     private async handleSyncEvents(logs: any[]) {
         try {
-            if (DEBUG) console.log(`Received ${logs.length} events`);
+            if (DEBUG && logs.length > 0) console.log(`Received ${logs.length} events`);
             
             // Create a mapping of lowercase to original case addresses
-            const pairAddresses = this.graph.getPairAddresses();
-            const validPairs = new Set(pairAddresses.map(addr => addr.toLowerCase()));
-            const addressMap = new Map(pairAddresses.map(addr => [addr.toLowerCase(), addr]));
+            const allAddresses = this.graph.getAllPoolAndPairAddresses(); // Use combined addresses
+            const validAddresses = new Set(allAddresses.map(addr => addr.toLowerCase()));
+            const addressMap = new Map(allAddresses.map(addr => [addr.toLowerCase(), addr]));
             
-            // Collect all valid updates
-            const updates: ReserveUpdate[] = [];
+            // Collect all valid updates (V2 and V3)
+            const v2Updates: ReserveUpdateV2[] = [];
+            const v3Updates: ReserveUpdateV3[] = [];
             
             for (const log of logs) {
                 // Custom logging to handle BigInt values - convert all BigInt to strings
@@ -193,79 +239,110 @@ export class EventMonitor {
                     typeof value === 'bigint' ? value.toString() : value
                 ));
                 
-                // Check if this pair is in our graph before proceeding
+                // Check if this address is in our graph before proceeding
                 const lowercaseAddress = log.address?.toLowerCase();
-                if (!validPairs.has(lowercaseAddress)) {
+                if (!validAddresses.has(lowercaseAddress)) {
                     if (DEBUG) {
-                        console.log(`Skipping event from unknown pair: ${lowercaseAddress}`);
+                        console.log(`Skipping event from unknown address: ${lowercaseAddress}`);
                     }
                     continue;
                 }
 
                 // Get the original case address for updating the graph
-                const pairAddress = addressMap.get(lowercaseAddress) as Address;
+                const eventAddress = addressMap.get(lowercaseAddress) as Address;
 
                 if (DEBUG) console.log('Raw event log:', JSON.stringify(logForDisplay, null, 2));
 
-                // Decode the Sync event
-                const decodedEvent = this.decodeSyncEvent(log);
-                if (!decodedEvent) {
-                    if (DEBUG) console.log('Failed to decode Sync event');
-                    continue;
+                // Try decoding as V2 Sync event
+                const decodedV2 = this.decodeSyncEventV2(log);
+                if (decodedV2) {
+                    const { reserve0, reserve1 } = decodedV2;
+                    if (DEBUG) console.log(`V2 Sync event from ${eventAddress}:`, {
+                        reserve0: reserve0.toString(),
+                        reserve1: reserve1.toString()
+                    });
+                    v2Updates.push({ type: 'V2', pairAddress: eventAddress, reserve0, reserve1 });
+                    continue; // Move to next log once processed
                 }
 
-                const { reserve0, reserve1 } = decodedEvent;
+                // Try decoding as V3 Swap event (only if V3 enabled)
+                if (enableV3Pools) {
+                    const decodedV3 = this.decodeSwapEventV3(log);
+                    if (decodedV3) {
+                        const { sqrtPriceX96, liquidity, tick } = decodedV3;
+                         if (DEBUG) console.log(`V3 Swap event from ${eventAddress}:`, {
+                            sqrtPriceX96: sqrtPriceX96.toString(),
+                            liquidity: liquidity.toString(),
+                            tick: tick
+                        });
+                        v3Updates.push({ type: 'V3', poolAddress: eventAddress, sqrtPriceX96, liquidity, tick });
+                        continue; // Move to next log once processed
+                    }
+                }
 
-                if (DEBUG) console.log(`Sync event from ${pairAddress}:`, {
-                    reserve0: reserve0.toString(),
-                    reserve1: reserve1.toString()
-                });
+                // If neither V2 nor V3, log if needed
+                if (DEBUG) console.log(`Log from ${eventAddress} wasn't a V2 Sync or V3 Swap event.`);
 
-                
-                updates.push({ pairAddress, reserve0, reserve1 });
             }
 
             // If we're currently checking arbitrage, add these updates to pending queue
             if (this.isCheckingArbitrage) {
-                if (DEBUG) console.log(`Adding ${updates.length} updates to pending queue`);
-                this.pendingUpdates.push(...updates);
+                const combinedUpdates = [...v2Updates, ...v3Updates];
+                if (combinedUpdates.length > 0) {
+                    if (DEBUG) console.log(`Adding ${combinedUpdates.length} updates (V2: ${v2Updates.length}, V3: ${v3Updates.length}) to pending queue`);
+                    this.pendingUpdates.push(...combinedUpdates);
+                }
                 return;
             }
 
             // Process all updates at once
-            await this.processUpdates(updates);
+            await this.processUpdates(v2Updates, v3Updates);
 
         } catch (error) {
-            console.error('Error handling Sync events:', error);
+            console.error('Error handling events:', error);
         }
     }
 
-    private async processUpdates(updates: ReserveUpdate[]) {
-        if (updates.length === 0) return;
+    // Updated to handle both V2 and V3 updates
+    private async processUpdates(v2Updates: ReserveUpdateV2[], v3Updates: ReserveUpdateV3[]) {
+        if (v2Updates.length === 0 && v3Updates.length === 0) return;
 
         try {
-            if (DEBUG) console.log(`Processing ${updates.length} reserve updates`);
+            if (DEBUG) console.log(`Processing ${v2Updates.length} V2 updates and ${v3Updates.length} V3 updates`);
             
-            // Update all reserves at once using batch update
-            try {
-                this.graph.updatePairReservesBatch(updates);
-                if (DEBUG) console.log(`Successfully updated ${updates.length} pairs`);
-            } catch (error) {
-                console.error('Failed to update reserves:', error);
-                return;
+            // Batch update V2 reserves
+            if (v2Updates.length > 0) {
+                try {
+                    this.graph.updatePairReservesBatch(v2Updates);
+                    if (DEBUG) console.log(`Successfully updated ${v2Updates.length} V2 pairs`);
+                } catch (error) {
+                    console.error('Failed to update V2 reserves:', error);
+                }
+            }
+
+            // Batch update V3 dynamic data (only if V3 enabled)
+            if (enableV3Pools && v3Updates.length > 0) {
+                 try {
+                    this.graph.updateV3PoolDynamicDataBatch(v3Updates);
+                    // Debug log is inside updateV3PoolDynamicDataBatch
+                } catch (error) {
+                    console.error('Failed to update V3 pool dynamic data:', error);
+                }
             }
 
             // Check for arbitrage opportunities only once after all updates
             this.isCheckingArbitrage = true;
-            // if (DEBUG) 
             console.log('Starting arbitrage check after batch update...');
             await this.checkArbitrageOpportunities();
 
             // Process any pending updates that came during arbitrage check
             if (this.pendingUpdates.length > 0) {
-                const pendingUpdates = [...this.pendingUpdates];
+                const pending = [...this.pendingUpdates];
                 this.pendingUpdates = [];
-                await this.processUpdates(pendingUpdates);
+                // Separate pending updates by type
+                const pendingV2 = pending.filter(upd => upd.type === 'V2') as ReserveUpdateV2[];
+                const pendingV3 = pending.filter(upd => upd.type === 'V3') as ReserveUpdateV3[];
+                await this.processUpdates(pendingV2, pendingV3);
             }
 
         } finally {
@@ -352,12 +429,14 @@ export class EventMonitor {
         const isWebSocketError = this.usingWebSocket && (
             errorMessage.includes('websocket') || 
             errorDetails.includes('websocket') ||
-            errorMessage.includes('connection') || 
-            errorDetails.includes('connection') ||
+            (errorMessage.includes('connection') && !errorMessage.includes('connection reset')) || // Avoid catching 'connection reset'
+            (errorDetails.includes('connection') && !errorDetails.includes('connection reset')) ||
             errorMessage.includes('socket') ||
             errorDetails.includes('socket') ||
             errorMessage.includes('closed') ||
-            errorDetails.includes('closed')
+            errorDetails.includes('closed') ||
+            errorMessage.includes('timeout') || // Added timeout
+            errorDetails.includes('timeout')
         );
         
         if (isWebSocketError) {
@@ -389,10 +468,12 @@ export class EventMonitor {
             errorDetails.includes('filter not found') ||
             errorMessage.includes('invalid parameters') ||
             errorDetails.includes('invalid parameters')||
-            errorMessage.includes('rpc request failed')||
-            errorDetails.includes('rpc request failed')) {
+            errorMessage.includes('rpc request failed') ||
+            errorDetails.includes('rpc request failed') ||
+            errorMessage.includes('connection reset') || // Treat connection reset as needing restart
+            errorDetails.includes('connection reset')) {
             
-            if (DEBUG) console.log('Filter error detected, restarting event monitor...');
+            if (DEBUG) console.log('RPC/Filter/Connection error detected, restarting event monitor...');
             await this.restart();
         }
     }
