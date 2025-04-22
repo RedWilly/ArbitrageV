@@ -186,6 +186,7 @@ export class ArbitrageGraph {
   // Add V3 pools as native V3Edges
   public addV3Pools(pools: Extract<PoolInfo, { type: 'V3' }>[]): void {
     if (!enableV3Pools) return;
+    
     for (const pool of pools) {
       // Store V3 pool info for profit calculations
       this.pools.set(pool.poolAddress, pool);
