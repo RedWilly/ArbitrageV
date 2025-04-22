@@ -93,20 +93,20 @@ export const V3_Pools: { name: string; address: `0x${string}`; fee: number; }[] 
  * a corresponding minimum profit threshold defined here.
  */
 export const minProfits = [
-    parseEther("0"),     
-    parseUnits("0", 6),     
-    parseUnits("0", 6),  
-    parseUnits("0", 6),
-    parseEther("0"),
-    parseUnits("0", 8),
-    parseUnits("0", 6),
+    parseEther("0.05540"),     
+    parseUnits("0.01", 6),     
+    parseUnits("0.01", 6),  
+    parseUnits("0.01", 6),
+    parseEther("0.000006120"),
+    parseUnits("0.0000001149", 8),
+    parseUnits("0.05265", 6),
 ];
 
 // Legacy minProfit for backward compatibility - findArbitrageOpportunities
 export const minProfit = parseEther("3");
 
 export const maxIterations = 100;
-export const maxHops = 7;
+export const maxHops = 3;
 export const MAX_ENTRIES_PER_TOKEN = 10;
 
 /**
