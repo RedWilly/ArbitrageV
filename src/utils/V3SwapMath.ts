@@ -4,127 +4,153 @@ const Q192 = Q96 * Q96;
 export type SwapDirection = 'token0ToToken1' | 'token1ToToken0';
 
 export class V3SwapMath {
-  // Convert sqrtPriceX96 (Q64.96) to a float with more precision
+  // Basic conversion utilities
   static sqrtPriceX96ToFloat(sqrtPriceX96: bigint): number {
     return Number(sqrtPriceX96) / Number(Q96);
   }
 
-  // Convert float sqrtPrice to Q64.96 with proper rounding
   static floatToSqrtPriceX96(sqrtPrice: number): bigint {
     return BigInt(Math.round(sqrtPrice * Number(Q96)));
   }
 
-  // More precise calculation for token0 → token1
-  private static getAmountOutToken0ToToken1(
-    liquidity: bigint,
-    sqrtPriceX96Before: bigint,
-    sqrtPriceX96After: bigint
-  ): bigint {
-    if (sqrtPriceX96After <= sqrtPriceX96Before) return BigInt(0);
-    const delta = sqrtPriceX96After - sqrtPriceX96Before;
-    return (liquidity * delta * Q96) / (sqrtPriceX96Before * sqrtPriceX96After);
+  static getSqrtPriceFromTick(tick: number): bigint {
+    return Q96 * BigInt(1.0001 ** tick);
   }
 
-  // More precise calculation for token1 → token0
-  private static getAmountOutToken1ToToken0(
+  static calculateV3SwapOutput(
+    amountIn: bigint,
+    currentTick: number,
+    sqrtPriceX96: bigint,
     liquidity: bigint,
-    sqrtPriceX96Before: bigint,
-    sqrtPriceX96After: bigint
+    fee: number,
+    tickSpacing: number,
+    direction: SwapDirection
   ): bigint {
-    if (sqrtPriceX96After >= sqrtPriceX96Before) return BigInt(0);
-    const numerator = liquidity * (sqrtPriceX96Before - sqrtPriceX96After) * Q96;
-    const denominator = sqrtPriceX96Before * sqrtPriceX96After;
-    return numerator / denominator;
-  }
-
-  static getAmountOut(
-    direction: SwapDirection,
-    liquidity: bigint,
-    sqrtPriceX96Before: bigint,
-    sqrtPriceX96After: bigint
-  ): bigint {
-    try {
-      return direction === 'token0ToToken1'
-        ? this.getAmountOutToken0ToToken1(liquidity, sqrtPriceX96Before, sqrtPriceX96After)
-        : this.getAmountOutToken1ToToken0(liquidity, sqrtPriceX96Before, sqrtPriceX96After);
-    } catch (e) {
-      console.error('V3SwapMath.getAmountOut error:', e);
-      return BigInt(0);
-    }
-  }
-
-  /**
-   * More accurate first derivative calculation
-   */
-  static getAmountOutFirstDerivative(
-    direction: SwapDirection,
-    liquidity: bigint,
-    sqrtPriceX96Before: bigint,
-    sqrtPriceX96After: bigint,
-    fee: number
-  ): number {
-    const feeMult = 1 - fee / 10000;
-    const priceAfter = (Number(sqrtPriceX96After) / Number(Q96)) ** 2;
+    let remainingAmount = amountIn;
+    let currentSqrtPrice = sqrtPriceX96;
+    let outputAmount = 0n;
     
-    if (direction === 'token0ToToken1') {
-      return priceAfter * feeMult;
-    } else {
-      return (1 / priceAfter) * feeMult;
+    while (remainingAmount > 0n) {
+      const nextTick = this.getNextInitializedTick(currentTick, tickSpacing, direction);
+      
+      const virtualReserves = this.calculateVirtualReserves(
+        currentSqrtPrice,
+        liquidity,
+        currentTick,
+        nextTick
+      );
+      
+      const { maxIn, maxOut } = this.calculateTickRangeIO(
+        virtualReserves,
+        currentSqrtPrice,
+        direction
+      );
+      
+      const swapResult = this.computeSwapStep(
+        currentSqrtPrice,
+        this.getSqrtPriceFromTick(nextTick),
+        liquidity,
+        remainingAmount,
+        fee
+      );
+      
+      remainingAmount -= swapResult.amountIn;
+      outputAmount += swapResult.amountOut;
+      currentSqrtPrice = swapResult.sqrtRatioNextX96;
+      currentTick = nextTick;
     }
-  }
-
-  /**
-   * More accurate second derivative calculation
-   */
-  static getAmountOutSecondDerivative(
-    direction: SwapDirection,
-    liquidity: bigint,
-    sqrtPriceX96After: bigint,
-    fee: number
-  ): number {
-    const feeMult = 1 - fee / 10000;
-    const sqrtPrice = Number(sqrtPriceX96After) / Number(Q96);
-    const price = sqrtPrice * sqrtPrice;
-    const L = Number(liquidity);
     
-    if (direction === 'token0ToToken1') {
-      return (-2 * feeMult * sqrtPrice) / (L * price);
+    return outputAmount;
+  }
+
+  static calculateVirtualReserves(
+    currentSqrtPrice: bigint,
+    liquidity: bigint,
+    currentTick: number,
+    nextTick: number
+  ): { reserve0: bigint; reserve1: bigint } {
+    const sqrtPriceLower = this.getSqrtPriceFromTick(currentTick);
+    const sqrtPriceUpper = this.getSqrtPriceFromTick(nextTick);
+
+    if (currentSqrtPrice <= sqrtPriceLower) {
+      return {
+        reserve0: 0n,
+        reserve1: liquidity
+      };
+    } else if (currentSqrtPrice >= sqrtPriceUpper) {
+      return {
+        reserve0: liquidity,
+        reserve1: 0n
+      };
     } else {
-      return (2 * feeMult) / (L * sqrtPrice * price * price);
+      const reserve0 = this.calculateToken0Virtual(liquidity, sqrtPriceUpper, currentSqrtPrice);
+      const reserve1 = this.calculateToken1Virtual(liquidity, currentSqrtPrice, sqrtPriceLower);
+      return { reserve0, reserve1 };
     }
   }
 
-  /**
-   * Simulate a complete swap with fee handling
-   */
-  static simulateSwap(params: {
-    direction: SwapDirection;
-    amountIn: bigint;
-    pool: {
-      liquidity: bigint;
-      sqrtPriceX96: bigint;
-      fee: number;
-      tick: number;
-    };
-  }): bigint {
-    const { direction, amountIn, pool } = params;
-    if (amountIn <= 0) return BigInt(0);
+  private static calculateToken0Virtual(
+    liquidity: bigint,
+    sqrtPriceUpperX96: bigint,
+    sqrtPriceCurrentX96: bigint
+  ): bigint {
+    return (liquidity * (sqrtPriceUpperX96 - sqrtPriceCurrentX96)) / 
+           (sqrtPriceCurrentX96 * sqrtPriceUpperX96);
+  }
 
-    const feeAmount = (amountIn * BigInt(pool.fee)) / BigInt(10000);
-    const amountInAfterFee = amountIn - feeAmount;
+  private static calculateToken1Virtual(
+    liquidity: bigint,
+    sqrtPriceCurrentX96: bigint,
+    sqrtPriceLowerX96: bigint
+  ): bigint {
+    return liquidity * (sqrtPriceCurrentX96 - sqrtPriceLowerX96);
+  }
 
-    const sqrtPriceBefore = pool.sqrtPriceX96;
-    let sqrtPriceAfter: bigint;
-
+  static calculateTickRangeIO(
+    virtualReserves: { reserve0: bigint; reserve1: bigint },
+    currentSqrtPrice: bigint,
+    direction: SwapDirection
+  ): { maxIn: bigint; maxOut: bigint } {
     if (direction === 'token0ToToken1') {
-      sqrtPriceAfter = sqrtPriceBefore + (amountInAfterFee * Q96) / pool.liquidity;
+      return {
+        maxIn: virtualReserves.reserve0,
+        maxOut: virtualReserves.reserve1
+      };
     } else {
-      sqrtPriceAfter = sqrtPriceBefore - (amountInAfterFee * Q96) / pool.liquidity;
+      return {
+        maxIn: virtualReserves.reserve1,
+        maxOut: virtualReserves.reserve0
+      };
     }
+  }
 
-    // Prevent price from crossing zero
-    if (sqrtPriceAfter <= 0) return BigInt(0);
+  static computeSwapStep(
+    currentSqrtPrice: bigint,
+    nextSqrtPrice: bigint,
+    liquidity: bigint,
+    amountIn: bigint,
+    fee: number
+  ): { amountIn: bigint; amountOut: bigint; sqrtRatioNextX96: bigint } {
+    const feeMult = BigInt(Math.floor((1 - fee / 10000) * 1e6)) / BigInt(1e6);
+    const amountInWithFee = (amountIn * feeMult);
 
-    return this.getAmountOut(direction, pool.liquidity, sqrtPriceBefore, sqrtPriceAfter);
+    if (currentSqrtPrice <= nextSqrtPrice) {
+      const amountOut = (amountInWithFee * currentSqrtPrice) / Q96;
+      const sqrtRatioNextX96 = currentSqrtPrice + (amountInWithFee * Q96) / liquidity;
+      return { amountIn, amountOut, sqrtRatioNextX96 };
+    } else {
+      const amountOut = liquidity * (currentSqrtPrice - nextSqrtPrice) / Q96;
+      const sqrtRatioNextX96 = nextSqrtPrice;
+      return { amountIn, amountOut, sqrtRatioNextX96 };
+    }
+  }
+
+  static getNextInitializedTick(
+    currentTick: number,
+    tickSpacing: number,
+    direction: SwapDirection
+  ): number {
+    const tickIncrement = direction === 'token0ToToken1' ? tickSpacing : -tickSpacing;
+    return Math.floor((currentTick + tickIncrement) / tickSpacing) * tickSpacing;
   }
 }

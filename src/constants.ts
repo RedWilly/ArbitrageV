@@ -61,7 +61,11 @@ export const FACTORY: { name: string; address: `0x${string}`; fee: number; volat
 
 /**
  * V3 DEXES FACTORY ADDESSES
- * TODO ADD V3 SUPPORT
+ * Fee tiers and corresponding tick spacing:
+ * - 100 (0.01%) -> tick spacing: 1
+ * - 500 (0.05%) -> tick spacing: 10
+ * - 3000 (0.3%) -> tick spacing: 60
+ * - 10000 (1%) -> tick spacing: 200
  */
 export const V3_Pools: { name: string; address: `0x${string}`; fee: number; }[] = [
     { name: "WSEI/WBTC", address: "0x3E00Dd875fEf6cE2209007c1e625d9A656E32556" as `0x${string}`, fee: 3000, }, //0.3% = 3000 (for v3)
@@ -89,13 +93,13 @@ export const V3_Pools: { name: string; address: `0x${string}`; fee: number; }[] 
  * a corresponding minimum profit threshold defined here.
  */
 export const minProfits = [
-    parseEther("0.05540"),     
-    parseUnits("0.01", 6),     
-    parseUnits("0.01", 6),  
-    parseUnits("0.01", 6),
-    parseEther("0.000006120"),
-    parseUnits("0.0000001149", 8),
-    parseUnits("0.05265", 6),
+    parseEther("0"),     
+    parseUnits("0", 6),     
+    parseUnits("0", 6),  
+    parseUnits("0", 6),
+    parseEther("0"),
+    parseUnits("0", 8),
+    parseUnits("0", 6),
 ];
 
 // Legacy minProfit for backward compatibility - findArbitrageOpportunities
@@ -142,8 +146,22 @@ export const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 /**
  * Types
  */
-export type PoolInfo =
-  | { type: 'V2'; pairAddress: Address; token0: Address; token1: Address;
-      reserve0: bigint; reserve1: bigint; fee: number }
-  | { type: 'V3'; poolAddress: Address; token0: Address; token1: Address;
-      tick: number; liquidity: bigint; sqrtPriceX96: bigint; fee: number };
+export type PoolInfo = {
+  type: 'V2';
+  token0: Address;
+  token1: Address;
+  pairAddress: Address;
+  fee: number;
+  reserve0: bigint;
+  reserve1: bigint;
+} | {
+  type: 'V3';
+  token0: Address;
+  token1: Address;
+  poolAddress: Address;
+  fee: number;
+  tick: number;
+  liquidity: bigint;
+  sqrtPriceX96: bigint;
+  tickSpacing: number;
+};

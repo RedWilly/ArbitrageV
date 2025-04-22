@@ -20,6 +20,7 @@ interface V3Edge {
   tick: number;
   liquidity: bigint;
   sqrtPriceX96: bigint;
+  tickSpacing: number; // Add this new field
 }
 
 // Key for edge lookup, combining source token and pair address
@@ -188,6 +189,7 @@ export class ArbitrageGraph {
     for (const pool of pools) {
       // Store V3 pool info for profit calculations
       this.pools.set(pool.poolAddress, pool);
+      
       // forward edge
       const key01 = this.createV3EdgeKey(pool.token0, pool.poolAddress);
       if (this.v3EdgeIndex.has(key01)) {
@@ -197,7 +199,16 @@ export class ArbitrageGraph {
         ex.liquidity = pool.liquidity;
         ex.sqrtPriceX96 = pool.sqrtPriceX96;
       } else {
-        const e01: V3Edge = { to: pool.token1, poolAddress: pool.poolAddress, direction: 'token0ToToken1', fee: pool.fee, tick: pool.tick, liquidity: pool.liquidity, sqrtPriceX96: pool.sqrtPriceX96 };
+        const e01: V3Edge = {
+          to: pool.token1,
+          poolAddress: pool.poolAddress,
+          direction: 'token0ToToken1',
+          fee: pool.fee,
+          tick: pool.tick,
+          liquidity: pool.liquidity,
+          sqrtPriceX96: pool.sqrtPriceX96,
+          tickSpacing: pool.tickSpacing // Add tickSpacing
+        };
         this.v3EdgeIndex.set(key01, e01);
         if (!this.v3Graph.has(pool.token0)) this.v3Graph.set(pool.token0, []);
         this.v3Graph.get(pool.token0)!.push(e01);
@@ -211,7 +222,16 @@ export class ArbitrageGraph {
         ex.liquidity = pool.liquidity;
         ex.sqrtPriceX96 = pool.sqrtPriceX96;
       } else {
-        const e10: V3Edge = { to: pool.token0, poolAddress: pool.poolAddress, direction: 'token1ToToken0', fee: pool.fee, tick: pool.tick, liquidity: pool.liquidity, sqrtPriceX96: pool.sqrtPriceX96 };
+        const e10: V3Edge = {
+          to: pool.token0,
+          poolAddress: pool.poolAddress,
+          direction: 'token1ToToken0',
+          fee: pool.fee,
+          tick: pool.tick,
+          liquidity: pool.liquidity,
+          sqrtPriceX96: pool.sqrtPriceX96,
+          tickSpacing: pool.tickSpacing // Add tickSpacing
+        };
         this.v3EdgeIndex.set(key10, e10);
         if (!this.v3Graph.has(pool.token1)) this.v3Graph.set(pool.token1, []);
         this.v3Graph.get(pool.token1)!.push(e10);
@@ -336,7 +356,7 @@ export class ArbitrageGraph {
             // Calculate output using native pricing functions
             const newAmountOut = 'reserveIn' in edge
               ? this.getAmountOutV2(entry.amountOut, Number(edge.reserveIn), Number(edge.reserveOut), edge.fee)
-              : this.getAmountOutV3(entry.amountOut, edge.sqrtPriceX96, edge.liquidity, edge.fee, edge.direction);
+              : this.getAmountOutV3(entry.amountOut, edge);
 
             // unify pairAddress for V2 and poolAddress for V3
             const poolId = 'reserveIn' in edge ? edge.pairAddress : edge.poolAddress;
@@ -424,15 +444,26 @@ export class ArbitrageGraph {
     return (amtInWithFee * reserveOut) / (reserveIn + amtInWithFee);
   }
 
-  private getAmountOutV3(amountIn: number, sqrtPriceX96: bigint, liquidity: bigint, fee: number, direction: SwapDirection): number {
-    const feeAdjIn = amountIn * (1 - fee / 10000);
-    const sqrtFloatBefore = V3SwapMath.sqrtPriceX96ToFloat(sqrtPriceX96);
-    const sqrtFloatAfter = direction === 'token0ToToken1'
-      ? sqrtFloatBefore + feeAdjIn / Number(liquidity)
-      : sqrtFloatBefore - feeAdjIn / Number(liquidity);
-    const afterX96 = V3SwapMath.floatToSqrtPriceX96(sqrtFloatAfter);
-    const outBig = V3SwapMath.getAmountOut(direction, liquidity, sqrtPriceX96, afterX96);
-    return Number(outBig);
+  private getAmountOutV3(amountIn: number, edge: V3Edge): number {
+    try {
+      const amountInBigInt = BigInt(Math.floor(amountIn));
+      const outputAmount = V3SwapMath.calculateV3SwapOutput(
+        amountInBigInt,
+        edge.tick,
+        edge.sqrtPriceX96,
+        edge.liquidity,
+        edge.fee,
+        edge.tickSpacing,
+        edge.direction as SwapDirection
+      );
+      
+      return Number(outputAmount);
+    } catch (error) {
+      if (DEBUG) {
+        console.warn('V3 swap calculation failed:', error);
+      }
+      return 0;
+    }
   }
 
   private calculateMaxProfit(opportunity: {
@@ -571,23 +602,22 @@ export class ArbitrageGraph {
           if (amount > reserveIn) return -Infinity;
           amount = swap(amount, reserveIn, reserveOut, pool.fee);
         } else {
-          // Improved V3 swap calculation
-      try {
-        const amountOut = V3SwapMath.simulateSwap({
-          direction: direction as SwapDirection,
-          amountIn: BigInt(Math.floor(amount)),
-          pool: {
-            liquidity: pool.liquidity,
-            sqrtPriceX96: pool.sqrtPriceX96,
-            fee: pool.fee,
-            tick: pool.tick
+          // V3 swap calculation using new interface
+          try {
+            const amountOut = V3SwapMath.calculateV3SwapOutput(
+              BigInt(Math.floor(amount)),
+              pool.tick,
+              pool.sqrtPriceX96,
+              pool.liquidity,
+              pool.fee,
+              pool.tickSpacing,
+              direction as SwapDirection
+            );
+            amount = Number(amountOut);
+          } catch (e) {
+            return -Infinity;
           }
-        });
-        amount = Number(amountOut);
-      } catch (e) {
-        return -Infinity; // Invalid swap
-      }
-    }
+        }
       }
       return amount - inputAmount;
     };
@@ -596,9 +626,11 @@ export class ArbitrageGraph {
       const calculateJacobian = (inputAmount: number): number => {
         let derivative = 1;
         let amount = inputAmount;
+        
         for (let i = 0; i < opportunity.pairs.length; i++) {
           const pool = poolInfos[i];
           const direction = opportunity.directions[i];
+          
           if (pool.type === 'V2') {
             const reserveIn = direction === 'token0ToToken1'
               ? Number(pool.reserve0)
@@ -610,29 +642,31 @@ export class ArbitrageGraph {
             derivative *= swapDerivative(amount, reserveIn, reserveOut, pool.fee);
             amount = swap(amount, reserveIn, reserveOut, pool.fee);
           } else {
-            // V3 first derivative via V3SwapMath
-            const feeAdjIn = amount * (1 - pool.fee / 10000);
-            const sqrtFloatBefore = V3SwapMath.sqrtPriceX96ToFloat(pool.sqrtPriceX96);
-            const sqrtFloatAfter = direction === 'token0ToToken1'
-              ? sqrtFloatBefore + feeAdjIn / Number(pool.liquidity)
-              : sqrtFloatBefore - feeAdjIn / Number(pool.liquidity);
-            const afterX96 = V3SwapMath.floatToSqrtPriceX96(sqrtFloatAfter);
-            const deriv = V3SwapMath.getAmountOutFirstDerivative(
-              direction as SwapDirection,
-              pool.liquidity,
+            // Use numerical approximation for V3 derivative
+            const epsilon = amount * 0.0001;
+            const baseOutput = V3SwapMath.calculateV3SwapOutput(
+              BigInt(Math.floor(amount)),
+              pool.tick,
               pool.sqrtPriceX96,
-              afterX96,
-              pool.fee
+              pool.liquidity,
+              pool.fee,
+              pool.tickSpacing,
+              direction as SwapDirection
             );
-            derivative *= deriv;
-            amount = Number(
-              V3SwapMath.getAmountOut(
-                direction as SwapDirection,
-                pool.liquidity,
-                pool.sqrtPriceX96,
-                afterX96
-              )
+            
+            const perturbedOutput = V3SwapMath.calculateV3SwapOutput(
+              BigInt(Math.floor(amount + epsilon)),
+              pool.tick,
+              pool.sqrtPriceX96,
+              pool.liquidity,
+              pool.fee,
+              pool.tickSpacing,
+              direction as SwapDirection
             );
+            
+            const localDerivative = Number(perturbedOutput - baseOutput) / epsilon;
+            derivative *= localDerivative;
+            amount = Number(baseOutput);
           }
         }
         return derivative - 1;
@@ -644,9 +678,11 @@ export class ArbitrageGraph {
         let amount = inputAmount;
         const derivs: number[] = [];
         const secondDerivs: number[] = [];
+        
         for (let i = 0; i < opportunity.pairs.length; i++) {
           const pool = poolInfos[i];
           const direction = opportunity.directions[i];
+          
           if (pool.type === 'V2') {
             const reserveIn = direction === 'token0ToToken1'
               ? Number(pool.reserve0)
@@ -658,36 +694,48 @@ export class ArbitrageGraph {
             secondDerivs[i] = swapSecondDerivative(amount, reserveIn, reserveOut, pool.fee);
             amount = swap(amount, reserveIn, reserveOut, pool.fee);
           } else {
-            // V3 swap derivatives via V3SwapMath
-            const feeAdjInH = amount * (1 - pool.fee / 10000);
-            const sqrtFloatBeforeH = V3SwapMath.sqrtPriceX96ToFloat(pool.sqrtPriceX96);
-            const sqrtFloatAfterH = direction === 'token0ToToken1'
-              ? sqrtFloatBeforeH + feeAdjInH / Number(pool.liquidity)
-              : sqrtFloatBeforeH - feeAdjInH / Number(pool.liquidity);
-            const afterX96H = V3SwapMath.floatToSqrtPriceX96(sqrtFloatAfterH);
-            derivs[i] = V3SwapMath.getAmountOutFirstDerivative(
-              direction as SwapDirection,
-              pool.liquidity,
+            // Use numerical approximation for V3 derivatives
+            const epsilon = amount * 0.0001;
+            
+            // Calculate first derivative
+            const baseOutput = V3SwapMath.calculateV3SwapOutput(
+              BigInt(Math.floor(amount)),
+              pool.tick,
               pool.sqrtPriceX96,
-              afterX96H,
-              pool.fee
-            );
-            secondDerivs[i] = V3SwapMath.getAmountOutSecondDerivative(
-              direction as SwapDirection,
               pool.liquidity,
-              afterX96H,
-              pool.fee
+              pool.fee,
+              pool.tickSpacing,
+              direction as SwapDirection
             );
-            amount = Number(
-              V3SwapMath.getAmountOut(
-                direction as SwapDirection,
-                pool.liquidity,
-                pool.sqrtPriceX96,
-                afterX96H
-              )
+            
+            const perturbedOutput = V3SwapMath.calculateV3SwapOutput(
+              BigInt(Math.floor(amount + epsilon)),
+              pool.tick,
+              pool.sqrtPriceX96,
+              pool.liquidity,
+              pool.fee,
+              pool.tickSpacing,
+              direction as SwapDirection
             );
+            
+            derivs[i] = Number(perturbedOutput - baseOutput) / epsilon;
+            
+            // Calculate second derivative
+            const doublePerturbedOutput = V3SwapMath.calculateV3SwapOutput(
+              BigInt(Math.floor(amount + 2 * epsilon)),
+              pool.tick,
+              pool.sqrtPriceX96,
+              pool.liquidity,
+              pool.fee,
+              pool.tickSpacing,
+              direction as SwapDirection
+            );
+            
+            secondDerivs[i] = (Number(doublePerturbedOutput - 2n * perturbedOutput + baseOutput)) / (epsilon * epsilon);
+            amount = Number(baseOutput);
           }
         }
+        
         for (let i = 0; i < opportunity.pairs.length; i++) {
           let term = secondDerivs[i] || 0;
           for (let j = 0; j < opportunity.pairs.length; j++) {

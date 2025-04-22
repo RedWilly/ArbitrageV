@@ -349,10 +349,24 @@ export async function getAllPairsInfo(
 }
 
 /**
- * V3 pool info
- * -and here we dont need to filter anything
- * -since the v3 pools were manual added in the constants
+ * Get tick spacing based on V3 fee tier
+ * @param fee Fee in basis points (e.g., 3000 for 0.3%)
  */
+function getTickSpacingFromFee(fee: number): number {
+    switch (fee) {
+        case 100:   // 0.01%
+            return 1;
+        case 500:   // 0.05%
+            return 10;
+        case 3000:  // 0.3%
+            return 60;
+        case 10000: // 1%
+            return 200;
+        default:
+            throw new Error(`Unsupported fee tier: ${fee}`);
+    }
+}
+
 export type V3PoolInfo = {
     poolAddress: Address;
     token0: Address;
@@ -361,6 +375,7 @@ export type V3PoolInfo = {
     liquidity: bigint;
     sqrtPriceX96: bigint;
     fee: number;
+    tickSpacing: number; // Add this field
 };
 
 export async function getV3PoolsInfo(
@@ -382,17 +397,21 @@ export async function getV3PoolsInfo(
             functionName: 'getReservesByV3Pools',
             args: [slice],
         }) as [bigint[], bigint[], bigint[]];
+
         for (let j = 0; j < slice.length; j++) {
-            const idx = i + j;
+            const poolAddress = slice[j];
+            const fee = V3_Pools.find(p => p.address === poolAddress)?.fee ?? 3000;
             results.push({
-                poolAddress: slice[j],
+                poolAddress,
                 token0: tokenPairs[j][0],
                 token1: tokenPairs[j][1],
                 tick: Number(ticks[j]),
                 liquidity: liquidities[j],
                 sqrtPriceX96: sqrtPrices[j],
-                fee: V3_Pools[idx].fee,
+                fee,
+                tickSpacing: getTickSpacingFromFee(fee) // Add tickSpacing here
             });
+            console.log(results[j]);
         }
     }
     return results;
