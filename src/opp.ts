@@ -6,9 +6,9 @@ import { type NetworkConfig } from './network';
 
 export interface ArbitrageOpportunities {
     paths: string[][];
-    profits: number[];
+    profits: bigint[];
     pairs: string[][];
-    optimalAmounts: number[];
+    optimalAmounts: bigint[];
     fees: number[][];
 }
 
@@ -37,8 +37,8 @@ export function findAndLogArbitrageOpportunities(graph: ArbitrageGraph, networkC
             path: path as Address[],
             pairs: opportunities.pairs[index] as Address[],
             fees: opportunities.fees[index],
-            optimalAmount: BigInt(opportunities.optimalAmounts[index]),
-            expectedProfit: BigInt(opportunities.profits[index])
+            optimalAmount: opportunities.optimalAmounts[index],
+            expectedProfit: opportunities.profits[index]
         }));
 
         // Create manager and process opportunities
@@ -62,7 +62,7 @@ function logArbitrageOpportunities(opportunities: ArbitrageOpportunities) {
             const pairs = opportunities.pairs[index];
             const fees = opportunities.fees[index];
             const optimalAmount = opportunities.optimalAmounts[index];
-            const profitPercentage = (profit / optimalAmount) * 100;
+            const profitPercentage = (Number(profit) / Number(optimalAmount)) * 100;
             
             if (DEBUG) {
                 console.log(`\nOpportunity #${index + 1}:`);
@@ -71,8 +71,8 @@ function logArbitrageOpportunities(opportunities: ArbitrageOpportunities) {
                 const tokenInfo = ADDRESSES.find(addr => addr.address === startToken);
                 if (!tokenInfo) throw new Error(`Token info not found for ${startToken}`);
                 
-                console.log(`Expected profit: ${formatUnits(BigInt(profit), tokenInfo.decimal)} ${tokenInfo.name}`);
-                console.log(`Optimal input amount: ${optimalAmount} wei || ${formatUnits(BigInt(optimalAmount), tokenInfo.decimal)} ${tokenInfo.name}`);
+                console.log(`Expected profit: ${formatUnits(profit, tokenInfo.decimal)} ${tokenInfo.name}`);
+                console.log(`Optimal input amount: ${optimalAmount} wei || ${formatUnits(optimalAmount, tokenInfo.decimal)} ${tokenInfo.name}`);
                 console.log(`Profit percentage: ${profitPercentage.toFixed(2)}%`);
                 console.log(`Pairs used: ${pairs.join(', ')}`);
                 console.log(`Fees: ${fees.map(fee => fee.toString()).join(', ')}`);

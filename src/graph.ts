@@ -30,7 +30,7 @@ type EdgeKey = `${string}-${string}`;
 type V3EdgeKey = `${string}-${string}`;
 
 interface DPEntry {
-  amountOut: number;
+  amountOut: bigint;
   path: Address[];
   pairs: Address[];
   directions: ('token0ToToken1' | 'token1ToToken0')[];
@@ -307,13 +307,13 @@ export class ArbitrageGraph {
   findMultiTokenArbitrageOpportunities(
     startTokens: Address[],
     maxDepth: number = maxHops
-  ): { paths: Address[][]; pairs: Address[][]; profits: number[]; optimalAmounts: number[]; fees: number[][] } {
+  ): { paths: Address[][]; pairs: Address[][]; profits: bigint[]; optimalAmounts: bigint[]; fees: number[][] } {
     // Initialize a result object with empty arrays
     const result = {
       paths: [] as Address[][],
       pairs: [] as Address[][],
-      profits: [] as number[],
-      optimalAmounts: [] as number[],
+      profits: [] as bigint[],
+      optimalAmounts: [] as bigint[],
       fees: [] as number[][],
     };
 
@@ -332,7 +332,7 @@ export class ArbitrageGraph {
     for (const startToken of startTokens) {
       dp[0].set(startToken, [
         {
-          amountOut: 1.0,
+          amountOut: 1n,
           path: [startToken],
           pairs: [],
           directions: [],
@@ -356,12 +356,17 @@ export class ArbitrageGraph {
 
             // Calculate output using native pricing functions
             const newAmountOut = 'reserveIn' in edge
-              ? this.getAmountOutV2(entry.amountOut, Number(edge.reserveIn), Number(edge.reserveOut), edge.fee)
+              ? this.getAmountOutV2(entry.amountOut, edge.reserveIn, edge.reserveOut, edge.fee)
               : this.getAmountOutV3(entry.amountOut, edge);
 
             // unify pairAddress for V2 and poolAddress for V3
             const poolId = 'reserveIn' in edge ? edge.pairAddress : edge.poolAddress;
-            const newEntry: DPEntry = { amountOut: newAmountOut, path: [...entry.path, edge.to], pairs: [...entry.pairs, poolId], directions: [...entry.directions, edge.direction] };
+            const newEntry: DPEntry = {
+              amountOut: newAmountOut,
+              path: [...entry.path, edge.to],
+              pairs: [...entry.pairs, poolId],
+              directions: [...entry.directions, edge.direction]
+            };
 
             const targetToken = edge.to;
             if (!dp[step].has(targetToken)) {
@@ -370,12 +375,14 @@ export class ArbitrageGraph {
 
             // Keep only top entries per token
             dp[step].get(targetToken)!.push(newEntry);
-            dp[step].get(targetToken)!.sort((a, b) => b.amountOut - a.amountOut);
+            dp[step].get(targetToken)!.sort((a, b) => 
+              a.amountOut < b.amountOut ? 1 : a.amountOut > b.amountOut ? -1 : 0
+            );
             dp[step].get(targetToken)!.splice(MAX_ENTRIES_PER_TOKEN);
 
-            // Check for arbitrage opportunities with all starting tokens
+            // start arb search with all the start tokens
             if (step >= 2) {
-              const originToken = entry.path[0]; // The actual starting token for this path
+              const originToken = entry.path[0];
               
               // When NERK is false, only accept circular arbitrage back to the original token
               if (!NERK) {
@@ -420,9 +427,13 @@ export class ArbitrageGraph {
         }
         
         const tokenMinProfit = minProfits[tokenIndex];
-        return opp.profit > Number(tokenMinProfit);
+        return opp.profit > tokenMinProfit;
       })
-      .sort((a, b) => b.profit - a.profit)
+      .sort((a, b) => {
+        if (a.profit > b.profit) return -1;
+        if (a.profit < b.profit) return 1;
+        return 0;
+      })
       .slice(0, 20);
 
     return {
@@ -440,16 +451,16 @@ export class ArbitrageGraph {
     };
   }
 
-  private getAmountOutV2(amountIn: number, reserveIn: number, reserveOut: number, fee: number): number {
-    const amtInWithFee = amountIn * (1 - fee / 10000);
-    return (amtInWithFee * reserveOut) / (reserveIn + amtInWithFee);
+  private getAmountOutV2(amountIn: bigint, reserveIn: bigint, reserveOut: bigint, fee: number): bigint {
+    const feeMultiplier = 10000n - BigInt(fee);
+    const amountInWithFee = (amountIn * feeMultiplier) / 10000n;
+    return (amountInWithFee * reserveOut) / (reserveIn + amountInWithFee);
   }
 
-  private getAmountOutV3(amountIn: number, edge: V3Edge): number {
+  private getAmountOutV3(amountIn: bigint, edge: V3Edge): bigint {
     try {
-      const amountInBigInt = BigInt(Math.floor(amountIn));
-      const outputAmount = V3SwapMath.calculateV3SwapOutput(
-        amountInBigInt,
+      return V3SwapMath.calculateV3SwapOutput(
+        amountIn,
         edge.tick,
         edge.sqrtPriceX96,
         edge.liquidity,
@@ -457,13 +468,11 @@ export class ArbitrageGraph {
         edge.tickSpacing,
         edge.direction as SwapDirection
       );
-      
-      return Number(outputAmount);
     } catch (error) {
       if (DEBUG) {
         console.warn('V3 swap calculation failed:', error);
       }
-      return 0;
+      return 0n;
     }
   }
 
@@ -471,7 +480,7 @@ export class ArbitrageGraph {
     path: Address[];
     pairs: Address[];
     directions: ('token0ToToken1' | 'token1ToToken0')[];
-  }): { maxProfit: number; optimalInput: number } {
+  }): { maxProfit: bigint; optimalInput: bigint } {
     const startToken = opportunity.path[0];
     const tokenInfo = ADDRESSES.find(addr => addr.address === startToken);
     if (!tokenInfo) throw new Error(`Token info not found for ${startToken}`);
@@ -486,22 +495,30 @@ export class ArbitrageGraph {
       this.createProfitFunctions(opportunity, poolInfos);
     
     // Better initial guess based on first pool's reserves/liquidity
-    let inputAmount: number;
+    let inputAmount: bigint;
     const firstPool = poolInfos[0];
     
     if (firstPool.type === 'V2') {
       const reserve = opportunity.directions[0] === 'token0ToToken1' 
-        ? Number(firstPool.reserve0) 
-        : Number(firstPool.reserve1);
-      inputAmount = Math.min(reserve * 0.01, 10 ** tokenInfo.decimal); // 1% of reserve
+        ? firstPool.reserve0 
+        : firstPool.reserve1;
+      
+      // Calculate 1% of reserve (BigInt-safe)
+      const onePercent = reserve / 100n;
+      
+      // Ensure we don't exceed 10^decimals (e.g., 1e18 for ETH)
+      const maxInput = 10n ** BigInt(tokenInfo.decimal);
+      inputAmount = onePercent < maxInput ? onePercent : maxInput;
     } else {
-      // For V3, use liquidity as basis
-      inputAmount = Math.min(Number(firstPool.liquidity) * 0.01, 10 ** tokenInfo.decimal);
+      // For V3 (same logic, but using liquidity)
+      const onePercent = firstPool.liquidity / 100n;
+      const maxInput = 10n ** BigInt(tokenInfo.decimal);
+      inputAmount = onePercent < maxInput ? onePercent : maxInput;
     }
   
     const tolerance = 1e-8;
-    let maxProfit = -Infinity;
-    let optimalInput = 0;
+    let maxProfit = -0n;
+    let optimalInput = 0n;
     let currentInput = inputAmount;
   
     // Newton's Method with better safeguards
@@ -511,33 +528,37 @@ export class ArbitrageGraph {
       const hessian = calculateHessian(currentInput);
   
       // Track best solution found
-      if (profit > maxProfit && currentInput > 0) {
+      if (profit > maxProfit && currentInput > 0n) {
         maxProfit = profit;
         optimalInput = currentInput;
       }
   
       // Check for convergence
-      if (Math.abs(jacobian) < tolerance) {
+      if (jacobian === 0n) {
         break;
       }
   
-      // Safeguard against NaN/Infinity and zero hessian
-      if (isNaN(jacobian) || !isFinite(jacobian) || Math.abs(hessian) < 1e-10) {
+      // Safeguard against zero hessian
+      if (hessian === 0n) {
         // Fall back to gradient ascent with small step
-        currentInput += jacobian > 0 ? currentInput * 0.01 : -currentInput * 0.01;
+        currentInput = jacobian > 0n 
+          ? currentInput + (currentInput / 100n)  // 1% increase
+          : currentInput - (currentInput / 100n); // 1% decrease
       } else {
         const delta = jacobian / hessian;
-        currentInput = Math.max(0, currentInput - delta);
+        currentInput = delta > currentInput ? 0n : currentInput - delta;
       }
   
       // Prevent oscillation and extreme values
-      currentInput = Math.min(currentInput, inputAmount * 1000);
-      currentInput = Math.max(currentInput, inputAmount / 1000);
+      const maxBound = inputAmount * 1000n;
+      const minBound = inputAmount / 1000n;
+      currentInput = currentInput > maxBound ? maxBound : currentInput;
+      currentInput = currentInput < minBound ? minBound : currentInput;
     }
   
     return { 
-      maxProfit: maxProfit > 0 ? maxProfit : 0, 
-      optimalInput: maxProfit > 0 ? optimalInput : 0 
+      maxProfit: maxProfit,
+      optimalInput: optimalInput
     };
   }
 
@@ -549,64 +570,70 @@ export class ArbitrageGraph {
     },
     poolInfos: PoolInfo[]
   ): {
-      calculateProfit: (inputAmount: number) => number;
-      calculateJacobian: (inputAmount: number) => number;
-      calculateHessian: (inputAmount: number) => number;
+    calculateProfit: (inputAmount: bigint) => bigint;
+    calculateJacobian: (inputAmount: bigint) => bigint;
+    calculateHessian: (inputAmount: bigint) => bigint;
   } {
     // Swap function (CPMM formula)
     const swap = (
-      amountIn: number,
-      reserveIn: number,
-      reserveOut: number,
+      amountIn: bigint,
+      reserveIn: bigint,
+      reserveOut: bigint,
       fee: number
-    ): number => {
-      const feeMultiplier = 1 - fee / 10000;
-      const amountInAfterFee = amountIn * feeMultiplier;
+    ): bigint => {
+      const feeMultiplier = 10000n - BigInt(fee);
+      const amountInAfterFee = (amountIn * feeMultiplier) / 10000n;
       return (amountInAfterFee * reserveOut) / (reserveIn + amountInAfterFee);
     };
 
       // Derivative of swap function
       const swapDerivative = (
-          amountIn: number,
-          reserveIn: number,
-          reserveOut: number,
-          fee: number
-      ): number => {
-          const feeMultiplier = 1 - fee / 10000;
-          return (feeMultiplier * reserveIn * reserveOut) / ((reserveIn + feeMultiplier * amountIn) ** 2);
-      };
+        amountIn: bigint,
+        reserveIn: bigint,
+        reserveOut: bigint,
+        fee: number
+      ): bigint => {
+        const feeMultiplier = 10000n - BigInt(fee);
+        const numerator = feeMultiplier * reserveIn * reserveOut;
+        const denominator = (reserveIn * 10000n + feeMultiplier * amountIn) ** 2n;
+        return numerator / denominator;
+    };
 
        // Second derivative of swap function
-       const swapSecondDerivative = (
-          amountIn: number,
-          reserveIn: number,
-          reserveOut: number,
-          fee: number
-      ): number => {
-          const feeMultiplier = 1 - fee / 10000;
-          return (-2 * feeMultiplier ** 2 * reserveIn * reserveOut) / ((reserveIn + feeMultiplier * amountIn) ** 3);
-      };
+      const swapSecondDerivative = (
+        amountIn: bigint,
+        reserveIn: bigint,
+        reserveOut: bigint,
+        fee: number
+    ): bigint => {
+        const feeMultiplier = 10000n - BigInt(fee);
+        const numerator = -2n * (feeMultiplier ** 2n) * reserveIn * reserveOut;
+        const denominator = (reserveIn * 10000n + feeMultiplier * amountIn) ** 3n;
+        return numerator / denominator;
+    };
 
     // Profit function (supports V2 and V3)
-    const calculateProfit = (inputAmount: number): number => {
+    const calculateProfit = (inputAmount: bigint): bigint => {
       let amount = inputAmount;
       for (let i = 0; i < opportunity.pairs.length; i++) {
         const pool = poolInfos[i];
         const direction = opportunity.directions[i];
+        
         if (pool.type === 'V2') {
           const reserveIn = direction === 'token0ToToken1'
-            ? Number(pool.reserve0)
-            : Number(pool.reserve1);
+            ? pool.reserve0
+            : pool.reserve1;
           const reserveOut = direction === 'token0ToToken1'
-            ? Number(pool.reserve1)
-            : Number(pool.reserve0);
-          if (amount > reserveIn) return -Infinity;
+            ? pool.reserve1
+            : pool.reserve0;
+          
+          if (amount > reserveIn) return 0n;
           amount = swap(amount, reserveIn, reserveOut, pool.fee);
         } else {
           // V3 swap calculation using new interface
           try {
-            const amountOut = V3SwapMath.calculateV3SwapOutput(
-              BigInt(Math.floor(amount)),
+            amount = V3SwapMath.calculateV3SwapOutput(
+              amount,
               pool.tick,
               pool.sqrtPriceX96,
               pool.liquidity,
@@ -614,18 +641,17 @@ export class ArbitrageGraph {
               pool.tickSpacing,
               direction as SwapDirection
             );
-            amount = Number(amountOut);
           } catch (e) {
-            return -Infinity;
+            return 0n;
           }
         }
       }
-      return amount - inputAmount;
+      return amount > inputAmount ? amount - inputAmount : 0n;
     };
 
       // First derivative (supports V2 and V3)
-      const calculateJacobian = (inputAmount: number): number => {
-        let derivative = 1;
+      const calculateJacobian = (inputAmount: bigint): bigint => {
+        let derivative = 1n;
         let amount = inputAmount;
         
         for (let i = 0; i < opportunity.pairs.length; i++) {
@@ -634,51 +660,42 @@ export class ArbitrageGraph {
           
           if (pool.type === 'V2') {
             const reserveIn = direction === 'token0ToToken1'
-              ? Number(pool.reserve0)
-              : Number(pool.reserve1);
+              ? pool.reserve0
+              : pool.reserve1;
             const reserveOut = direction === 'token0ToToken1'
-              ? Number(pool.reserve1)
-              : Number(pool.reserve0);
-            if (amount > reserveIn) return 0;
+              ? pool.reserve1
+              : pool.reserve0;
+            if (amount > reserveIn) return 0n;
             derivative *= swapDerivative(amount, reserveIn, reserveOut, pool.fee);
             amount = swap(amount, reserveIn, reserveOut, pool.fee);
           } else {
-            // Use numerical approximation for V3 derivative
-            const epsilon = amount * 0.0001;
-            const baseOutput = V3SwapMath.calculateV3SwapOutput(
-              BigInt(Math.floor(amount)),
-              pool.tick,
-              pool.sqrtPriceX96,
-              pool.liquidity,
-              pool.fee,
-              pool.tickSpacing,
-              direction as SwapDirection
-            );
-            
-            const perturbedOutput = V3SwapMath.calculateV3SwapOutput(
-              BigInt(Math.floor(amount + epsilon)),
-              pool.tick,
-              pool.sqrtPriceX96,
-              pool.liquidity,
-              pool.fee,
-              pool.tickSpacing,
-              direction as SwapDirection
-            );
-            
-            const localDerivative = Number(perturbedOutput - baseOutput) / epsilon;
-            derivative *= localDerivative;
-            amount = Number(baseOutput);
+            // Direct V3 derivative calculation
+            try {
+              const output = V3SwapMath.calculateV3SwapOutput(
+                amount,
+                pool.tick,
+                pool.sqrtPriceX96,
+                pool.liquidity,
+                pool.fee,
+                pool.tickSpacing,
+                direction as SwapDirection
+              );
+              derivative *= output / amount;
+              amount = output;
+            } catch (e) {
+              return 0n;
+            }
           }
         }
-        return derivative - 1;
+        return derivative - 1n;
       };
 
       // Second derivative (supports V2 and V3)
-      const calculateHessian = (inputAmount: number): number => {
-        let hessian = 0;
+      const calculateHessian = (inputAmount: bigint): bigint => {
+        let hessian = 0n;
         let amount = inputAmount;
-        const derivs: number[] = [];
-        const secondDerivs: number[] = [];
+        const derivs: bigint[] = [];
+        const secondDerivs: bigint[] = [];
         
         for (let i = 0; i < opportunity.pairs.length; i++) {
           const pool = poolInfos[i];
@@ -686,59 +703,38 @@ export class ArbitrageGraph {
           
           if (pool.type === 'V2') {
             const reserveIn = direction === 'token0ToToken1'
-              ? Number(pool.reserve0)
-              : Number(pool.reserve1);
+              ? pool.reserve0
+              : pool.reserve1;
             const reserveOut = direction === 'token0ToToken1'
-              ? Number(pool.reserve1)
-              : Number(pool.reserve0);
+              ? pool.reserve1
+              : pool.reserve0;
             derivs[i] = swapDerivative(amount, reserveIn, reserveOut, pool.fee);
             secondDerivs[i] = swapSecondDerivative(amount, reserveIn, reserveOut, pool.fee);
             amount = swap(amount, reserveIn, reserveOut, pool.fee);
           } else {
-            // Use numerical approximation for V3 derivatives
-            const epsilon = amount * 0.0001;
-            
-            // Calculate first derivative
-            const baseOutput = V3SwapMath.calculateV3SwapOutput(
-              BigInt(Math.floor(amount)),
-              pool.tick,
-              pool.sqrtPriceX96,
-              pool.liquidity,
-              pool.fee,
-              pool.tickSpacing,
-              direction as SwapDirection
-            );
-            
-            const perturbedOutput = V3SwapMath.calculateV3SwapOutput(
-              BigInt(Math.floor(amount + epsilon)),
-              pool.tick,
-              pool.sqrtPriceX96,
-              pool.liquidity,
-              pool.fee,
-              pool.tickSpacing,
-              direction as SwapDirection
-            );
-            
-            derivs[i] = Number(perturbedOutput - baseOutput) / epsilon;
-            
-            // Calculate second derivative
-            const doublePerturbedOutput = V3SwapMath.calculateV3SwapOutput(
-              BigInt(Math.floor(amount + 2 * epsilon)),
-              pool.tick,
-              pool.sqrtPriceX96,
-              pool.liquidity,
-              pool.fee,
-              pool.tickSpacing,
-              direction as SwapDirection
-            );
-            
-            secondDerivs[i] = (Number(doublePerturbedOutput - 2n * perturbedOutput + baseOutput)) / (epsilon * epsilon);
-            amount = Number(baseOutput);
+            // Direct V3 derivative calculation
+            try {
+              const output = V3SwapMath.calculateV3SwapOutput(
+                amount,
+                pool.tick,
+                pool.sqrtPriceX96,
+                pool.liquidity,
+                pool.fee,
+                pool.tickSpacing,
+                direction as SwapDirection
+              );
+              derivs[i] = output / amount;
+              secondDerivs[i] = 0n; // Simplified second derivative for V3
+              amount = output;
+            } catch (e) {
+              derivs[i] = 0n;
+              secondDerivs[i] = 0n;
+            }
           }
         }
         
         for (let i = 0; i < opportunity.pairs.length; i++) {
-          let term = secondDerivs[i] || 0;
+          let term = secondDerivs[i];
           for (let j = 0; j < opportunity.pairs.length; j++) {
             if (i !== j) term *= derivs[j];
           }
@@ -815,3 +811,13 @@ export class ArbitrageGraph {
     this.tokenToHighestReservePair.clear();
   }
 }
+
+
+
+
+
+
+
+
+
+

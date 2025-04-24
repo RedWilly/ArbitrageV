@@ -119,7 +119,7 @@ export const TOP_TOKENS_FOR_ARBITRAGE = 7;
 
 export const DEBUG = true;
 export const WSS_ENABLED = true; //enable this only when you are on a chain with wss support or better wss
-export const NERK = false;
+export const NERK = true;
 export const LEGACY = true;
 
 /**

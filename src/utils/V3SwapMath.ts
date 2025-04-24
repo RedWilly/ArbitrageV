@@ -1,3 +1,5 @@
+import { TickMath } from "./TickMath";
+
 const Q96 = BigInt(2) ** BigInt(96);
 
 export type SwapDirection = 'token0ToToken1' | 'token1ToToken0';
@@ -12,11 +14,9 @@ export class V3SwapMath {
     return BigInt(Math.round(sqrtPrice * Number(Q96)));
   }
 
+
   static getSqrtPriceFromTick(tick: number): bigint {
-    const price = Math.pow(1.0001, tick);
-    // price * Q96 should be integral
-    const sqrtX96 = Math.floor(price * Number(Q96));
-    return BigInt(sqrtX96);
+    return TickMath.getSqrtRatioAtTick(tick);
   }
   
 
@@ -98,7 +98,7 @@ export class V3SwapMath {
     sqrtPriceCurrentX96: bigint
   ): bigint {
     return (liquidity * (sqrtPriceUpperX96 - sqrtPriceCurrentX96)) / 
-           (sqrtPriceCurrentX96 * sqrtPriceUpperX96);
+           (sqrtPriceCurrentX96 * sqrtPriceUpperX96 / Q96);
   }
 
   private static calculateToken1Virtual(
@@ -106,7 +106,7 @@ export class V3SwapMath {
     sqrtPriceCurrentX96: bigint,
     sqrtPriceLowerX96: bigint
   ): bigint {
-    return liquidity * (sqrtPriceCurrentX96 - sqrtPriceLowerX96);
+    return (liquidity * (sqrtPriceCurrentX96 - sqrtPriceLowerX96)) / Q96;
   }
 
   static calculateTickRangeIO(
@@ -134,15 +134,15 @@ export class V3SwapMath {
     amountIn: bigint,
     fee: number
   ): { amountIn: bigint; amountOut: bigint; sqrtRatioNextX96: bigint } {
-    const feeMult = BigInt(Math.floor((1 - fee / 10000) * 1e6)) / BigInt(1e6);
-    const amountInWithFee = (amountIn * feeMult);
+    const feeMult = BigInt(Math.floor((1 - fee / 10000) * 1e6)) / 1000000n;
+    const amountInWithFee = amountIn * feeMult;
 
     if (currentSqrtPrice <= nextSqrtPrice) {
       const amountOut = (amountInWithFee * currentSqrtPrice) / Q96;
       const sqrtRatioNextX96 = currentSqrtPrice + (amountInWithFee * Q96) / liquidity;
       return { amountIn, amountOut, sqrtRatioNextX96 };
     } else {
-      const amountOut = liquidity * (currentSqrtPrice - nextSqrtPrice) / Q96;
+      const amountOut = (liquidity * (currentSqrtPrice - nextSqrtPrice)) / Q96;
       const sqrtRatioNextX96 = nextSqrtPrice;
       return { amountIn, amountOut, sqrtRatioNextX96 };
     }
@@ -157,4 +157,5 @@ export class V3SwapMath {
     return Math.floor((currentTick + tickIncrement) / tickSpacing) * tickSpacing;
   }
 }
+
 
