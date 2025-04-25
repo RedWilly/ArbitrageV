@@ -494,27 +494,8 @@ export class ArbitrageGraph {
     const { calculateProfit, calculateJacobian, calculateHessian } = 
       this.createProfitFunctions(opportunity, poolInfos);
     
-    // Better initial guess based on first pool's reserves/liquidity
-    let inputAmount: bigint;
-    const firstPool = poolInfos[0];
-    
-    if (firstPool.type === 'V2') {
-      const reserve = opportunity.directions[0] === 'token0ToToken1' 
-        ? firstPool.reserve0 
-        : firstPool.reserve1;
-      
-      // Calculate 1% of reserve (BigInt-safe)
-      const onePercent = reserve / 100n;
-      
-      // Ensure we don't exceed 10^decimals (e.g., 1e18 for ETH)
-      const maxInput = 10n ** BigInt(tokenInfo.decimal);
-      inputAmount = onePercent < maxInput ? onePercent : maxInput;
-    } else {
-      // For V3 (same logic, but using liquidity)
-      const onePercent = firstPool.liquidity / 100n;
-      const maxInput = 10n ** BigInt(tokenInfo.decimal);
-      inputAmount = onePercent < maxInput ? onePercent : maxInput;
-    }
+    // Adjust initial guess based on token decimals
+    let inputAmount = 10n ** BigInt(tokenInfo.decimal); // Use token's decimal places
   
     const tolerance = 1e-8;
     let maxProfit = -0n;
@@ -811,6 +792,7 @@ export class ArbitrageGraph {
     this.tokenToHighestReservePair.clear();
   }
 }
+
 
 
 

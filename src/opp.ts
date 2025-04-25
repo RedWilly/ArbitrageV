@@ -62,18 +62,30 @@ function logArbitrageOpportunities(opportunities: ArbitrageOpportunities) {
             const pairs = opportunities.pairs[index];
             const fees = opportunities.fees[index];
             const optimalAmount = opportunities.optimalAmounts[index];
-            const profitPercentage = (Number(profit) / Number(optimalAmount)) * 100;
+            
+            // Get the start token for optimal input amount formatting
+            const startToken = path[0];
+            const startTokenInfo = ADDRESSES.find(addr => addr.address === startToken);
+            if (!startTokenInfo) throw new Error(`Token info not found for ${startToken}`);
+
+            // Get the end token for profit formatting
+            const endToken = path[path.length - 1];
+            const endTokenInfo = ADDRESSES.find(addr => addr.address === endToken);
+            if (!endTokenInfo) throw new Error(`Token info not found for ${endToken}`);
             
             if (DEBUG) {
                 console.log(`\nOpportunity #${index + 1}:`);
                 console.log(`Path: ${path.join(' -> ')}`);
-                const startToken = path[0];
-                const tokenInfo = ADDRESSES.find(addr => addr.address === startToken);
-                if (!tokenInfo) throw new Error(`Token info not found for ${startToken}`);
                 
-                console.log(`Expected profit: ${formatUnits(profit, tokenInfo.decimal)} ${tokenInfo.name}`);
-                console.log(`Optimal input amount: ${optimalAmount} wei || ${formatUnits(optimalAmount, tokenInfo.decimal)} ${tokenInfo.name}`);
-                console.log(`Profit percentage: ${profitPercentage.toFixed(2)}%`);
+                console.log(`Expected profit: ${formatUnits(profit, endTokenInfo.decimal)} ${endTokenInfo.name}`);
+                console.log(`Optimal input amount: ${optimalAmount.toString()} wei || ${formatUnits(optimalAmount, startTokenInfo.decimal)} ${startTokenInfo.name}`);
+                
+                // Only show profit percentage if it's a circular arbitrage (start = end token)
+                if (path[0] === path[path.length - 1]) {
+                    const profitPercentage = (Number(profit) / Number(optimalAmount)) * 100;
+                    console.log(`Profit percentage: ${profitPercentage.toFixed(2)}%`);
+                }
+
                 console.log(`Pairs used: ${pairs.join(', ')}`);
                 console.log(`Fees: ${fees.map(fee => fee.toString()).join(', ')}`);
             }
@@ -82,3 +94,7 @@ function logArbitrageOpportunities(opportunities: ArbitrageOpportunities) {
         console.log("No profitable arbitrage opportunities found");
     }
 }
+
+
+
+
