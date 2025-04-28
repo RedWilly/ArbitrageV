@@ -52,6 +52,13 @@ export class ArbitrageGraph {
   private tokenToHighestReservePair: Map<Address, { pairAddress: Address; reserves: bigint; fee: number }> = new Map();
   private pools = new Map<Address,PoolInfo>();
 
+  // Add this new method
+  getEdgesForToken(token: Address): (Edge | V3Edge)[] {
+    const v2Edges = this.graph.get(token) || [];
+    const v3Edges = this.v3Graph.get(token) || [];
+    return [...v2Edges, ...v3Edges];
+  }
+
   private createEdgeKey(fromToken: Address, pairAddress: Address): EdgeKey {
     return `${fromToken}-${pairAddress}`;
   }
@@ -792,6 +799,7 @@ export class ArbitrageGraph {
     this.tokenToHighestReservePair.clear();
   }
 }
+
 
 
 

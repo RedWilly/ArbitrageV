@@ -94,78 +94,85 @@ export class V3SwapMath {
   }
 
   static computeSwapStep(
-      currentSqrtPrice: bigint,
-      targetSqrtPrice: bigint,
-      liquidity: bigint,
-      amountRemaining: bigint,
-      feeTier: number  // e.g., 3000 for 0.3%
-  ): { amountIn: bigint; amountOut: bigint; sqrtRatioNextX96: bigint } {
-      const zeroForOne = currentSqrtPrice >= targetSqrtPrice;
-      const exactIn = amountRemaining > 0n;
+    currentSqrtPrice: bigint,
+    targetSqrtPrice: bigint,
+    liquidity: bigint,
+    amountRemaining: bigint,
+    feeTier: number
+): { amountIn: bigint; amountOut: bigint; sqrtRatioNextX96: bigint } {
+    const zeroForOne = currentSqrtPrice >= targetSqrtPrice;
+    const exactIn = amountRemaining > 0n;
 
-      if (!exactIn) {
-          throw new Error("Exact output swaps not implemented");
-      }
+    if (!exactIn) throw new Error("Exact output swaps not implemented");
 
-      // Calculate fee-adjusted input amount (1 - fee)
-      const feeAmount = (amountRemaining * BigInt(feeTier)) / 1_000_000n;
-      const amountRemainingLessFee = amountRemaining - feeAmount;
+    // Fee calculation
+    const feeAmount = (amountRemaining * BigInt(feeTier)) / 1_000_000n;
+    const amountRemainingLessFee = amountRemaining - feeAmount;
 
-      if (zeroForOne) {
-          // Token0 → Token1 (price decreases)
-          const amountInToken0 = (liquidity * Q96 * (currentSqrtPrice - targetSqrtPrice)) / 
-                              (currentSqrtPrice * targetSqrtPrice);
-          
-          if (amountRemainingLessFee >= amountInToken0) {
-              // Swap entire amount in this tick range
-              return {
-                  amountIn: amountInToken0 + feeAmount,
-                  amountOut: (liquidity * (currentSqrtPrice - targetSqrtPrice)) / Q96,
-                  sqrtRatioNextX96: targetSqrtPrice,
-              };
-          } else {
-              // Partial swap
-              const sqrtRatioNextX96 = currentSqrtPrice - 
-                  ((amountRemainingLessFee * currentSqrtPrice * targetSqrtPrice) / (liquidity * Q96));
-              
-              return {
-                  amountIn: amountRemaining,
-                  amountOut: (liquidity * (currentSqrtPrice - sqrtRatioNextX96)) / Q96,
-                  sqrtRatioNextX96,
-              };
-          }
-      } else {
-          // Token1 → Token0 (price increases)
-          const amountInToken1 = (liquidity * (targetSqrtPrice - currentSqrtPrice)) / Q96;
-          
-          if (amountRemainingLessFee >= amountInToken1) {
-              return {
-                  amountIn: amountInToken1 + feeAmount,
-                  amountOut: (liquidity * Q96 * (targetSqrtPrice - currentSqrtPrice)) / 
-                          (targetSqrtPrice * currentSqrtPrice),
-                  sqrtRatioNextX96: targetSqrtPrice,
-              };
-          } else {
-              const sqrtRatioNextX96 = currentSqrtPrice + 
-                  (amountRemainingLessFee * Q96) / liquidity;
-              
-              return {
-                  amountIn: amountRemaining,
-                  amountOut: (liquidity * Q96 * (sqrtRatioNextX96 - currentSqrtPrice)) / 
-                            (sqrtRatioNextX96 * currentSqrtPrice),
-                  sqrtRatioNextX96,
-              };
-          }
-      }
-  }
+    if (zeroForOne) {
+        // Token0 → Token1 (price decreases)
+        const amountInToken0 = (liquidity * (currentSqrtPrice - targetSqrtPrice) * Q96) / 
+            (currentSqrtPrice * targetSqrtPrice);
+        
+        if (amountRemainingLessFee >= amountInToken0) {
+            return {
+                amountIn: amountInToken0 + feeAmount,
+                amountOut: (liquidity * (currentSqrtPrice - targetSqrtPrice)) / Q96,
+                sqrtRatioNextX96: targetSqrtPrice,
+            };
+        } else {
+            const sqrtRatioNextX96 = currentSqrtPrice - 
+                (amountRemainingLessFee * currentSqrtPrice * targetSqrtPrice) / 
+                (liquidity * Q96 + (amountRemainingLessFee * targetSqrtPrice));
+            
+            return {
+                amountIn: amountRemaining,
+                amountOut: (liquidity * (currentSqrtPrice - sqrtRatioNextX96)) / Q96,
+                sqrtRatioNextX96,
+            };
+        }
+    } else {
+        // Token1 → Token0 (price increases)
+        const amountInToken1 = (liquidity * (targetSqrtPrice - currentSqrtPrice)) / 
+            (currentSqrtPrice * targetSqrtPrice) * Q96;
+        
+        if (amountRemainingLessFee >= amountInToken1) {
+            return {
+                amountIn: amountInToken1 + feeAmount,
+                amountOut: (liquidity * (targetSqrtPrice - currentSqrtPrice)) / Q96,
+                sqrtRatioNextX96: targetSqrtPrice,
+            };
+        } else {
+            const sqrtRatioNextX96 = currentSqrtPrice + 
+                (amountRemainingLessFee * currentSqrtPrice * targetSqrtPrice) / 
+                (liquidity * Q96 + amountRemainingLessFee * currentSqrtPrice);
+            
+            return {
+                amountIn: amountRemaining,
+                amountOut: (liquidity * (sqrtRatioNextX96 - currentSqrtPrice)) / Q96,
+                sqrtRatioNextX96,
+            };
+        }
+    }
+}
 
+  // static getNextInitializedTick(
+  //   currentTick: number,
+  //   tickSpacing: number,
+  //   direction: SwapDirection
+  // ): number {
+  //   const tickIncrement = direction === 'token0ToToken1' ? tickSpacing : -tickSpacing;
+  //   return Math.floor((currentTick + tickIncrement) / tickSpacing) * tickSpacing;
+  // }
+// In Graph.ts getNextInitializedTick()
   static getNextInitializedTick(
     currentTick: number,
     tickSpacing: number,
     direction: SwapDirection
   ): number {
-    const tickIncrement = direction === 'token0ToToken1' ? tickSpacing : -tickSpacing;
-    return Math.floor((currentTick + tickIncrement) / tickSpacing) * tickSpacing;
+    // FIXED: Proper tick alignment using tickSpacing
+    const step = direction === 'token0ToToken1' ? tickSpacing : -tickSpacing;
+    return Math.floor(currentTick / tickSpacing) * tickSpacing + step;
   }
 }
 

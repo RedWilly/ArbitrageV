@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import { parseEther, parseGwei, parseUnits, type Address } from "viem";
 dotenv.config();
 
-export const CHAIN_ID = 1329;
+export const CHAIN_ID = 2000;
 
 export const RPC_URL = process.env.RPC_URL;
 export const WSS_URL = process.env.WSS_URL;
@@ -129,7 +129,7 @@ export const LEGACY = true;
  * 
  * BUT if false it will stick with the current V2→V2 only
  *  */ 
-export const enableV3Pools = true; 
+export const enableV3Pools = false; 
 
 
 export const BATCH_SIZE = 200;
