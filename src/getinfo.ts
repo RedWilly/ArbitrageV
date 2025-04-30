@@ -106,7 +106,7 @@ async function getPairsLength(
 }
 
 /**
- * Fetches pairs from a specific factory within a range and filters out pairs with banned tokens
+ * Fetches pairs from a specific factory within a range and only filters out pairs with banned tokens
  */
 async function getPairsInRange(
     client: ReturnType<typeof createPublicClient>,
@@ -122,7 +122,9 @@ async function getPairsInRange(
             args: [factory.address, BigInt(start), BigInt(stop)],
         }) as Address[][];
 
-        // Filter out pairs that contain banned tokens
+        if (DEBUG) console.log(`Raw pairs data from contract: ${pairsData.length} pairs`);
+
+        // Map raw data to PairInfo objects
         const pairs = pairsData
             .map(([token0, token1, pairAddress]) => ({
                 pairAddress,
@@ -135,24 +137,31 @@ async function getPairsInRange(
                 fee: factory.fee,
             }));
 
-        // Build a map of token liquidity pool counts
-        const tokenPoolCount: { [token: string]: number } = {};
-        pairs.forEach(pair => {
-          const tokenA = pair.token0;
-          const tokenB = pair.token1;
-          tokenPoolCount[tokenA] = (tokenPoolCount[tokenA] || 0) + 1;
-          tokenPoolCount[tokenB] = (tokenPoolCount[tokenB] || 0) + 1;
-        });
+        if (DEBUG) console.log(`Mapped ${pairs.length} pairs for ${factory.name}`);
 
-        // Filter out pairs where either token appears in only one liquidity pool
-        const filteredPairs = pairs.filter(pair => 
-            tokenPoolCount[pair.token0] > 1 && 
-            tokenPoolCount[pair.token1] > 1 && 
-            !bannedTokens.some(bannedToken => {
+        // Only filter out banned tokens at this stage
+        let bannedTokenPairs = 0;
+        const filteredPairs = pairs.filter(pair => {
+            // Check banned token condition
+            const hasBannedToken = bannedTokens.some(bannedToken => {
                 const bannedTokenLower = bannedToken.toLowerCase();
                 return pair.token0.toLowerCase() === bannedTokenLower || pair.token1.toLowerCase() === bannedTokenLower;
-            })
-        );
+            });
+            
+            if (hasBannedToken) {
+                bannedTokenPairs++;
+                return false;
+            }
+            
+            return true;
+        });
+
+        if (DEBUG) {
+            console.log(`Filtering stats for ${factory.name}:`);
+            console.log(`- Original pairs: ${pairs.length}`);
+            console.log(`- Filtered out ${bannedTokenPairs} pairs with banned tokens`);
+            console.log(`- Remaining pairs: ${filteredPairs.length}`);
+        }
 
         return filteredPairs;
     } catch (error) {
@@ -255,8 +264,8 @@ async function getReservesWithRetry(
             
             // Filter pairs that are active and have sufficient reserves
             const validPairs = pairsWithReserves.filter(pair => 
-                pair.reserve0 > parseEther("1") && 
-                pair.reserve1 > parseEther("1") && 
+                // pair.reserve0 > parseEther("1") && 
+                // pair.reserve1 > parseEther("1") && 
                 isPairActive(pair.lastTimestamp) && 
                 hasEnoughWethLiquidity(pair)
             );
@@ -285,7 +294,7 @@ async function getReservesWithRetry(
 }
 
 /**
- * Fetches all pairs and their reserves from all factories
+ * Fetches all pairs from all factories and returns them as an array
  */
 export async function getAllPairsInfo(
     client: ReturnType<typeof createPublicClient>
@@ -314,35 +323,43 @@ export async function getAllPairsInfo(
                 }
             }
 
-            // Then get reserves for all pairs from this factory
-            if (factoryPairs.length > 0) {
-                console.log(`Getting reserves for ${factoryPairs.length} pairs from ${factory.name}...`);
-                const pairsWithReserves = await getReservesWithRetry(client, factoryPairs);
-                console.log(`Successfully fetched reserves for ${pairsWithReserves.length}/${factoryPairs.length} pairs from ${factory.name}`);
-                allPairs = allPairs.concat(pairsWithReserves);
-            }
+            console.log(`Total pairs collected for ${factory.name}: ${factoryPairs.length}`);
+            // Add this factory's pairs to the overall list
+            allPairs.push(...factoryPairs);
         }
 
-        // Build a global token liquidity pool count based on validPairs from all factories
-        const globalTokenPoolCount: { [token: string]: number } = {};
+        console.log(`Total pairs found across all factories (before filtering): ${allPairs.length}`);
+
+        // NOW build the token pool count map considering ALL pairs from ALL factories
+        const tokenPoolCount: { [token: string]: number } = {};
         allPairs.forEach(pair => {
-          const tokenA = pair.token0;
-          const tokenB = pair.token1;
-          globalTokenPoolCount[tokenA] = (globalTokenPoolCount[tokenA] || 0) + 1;
-          globalTokenPoolCount[tokenB] = (globalTokenPoolCount[tokenB] || 0) + 1;
+            const tokenA = pair.token0;
+            const tokenB = pair.token1;
+            tokenPoolCount[tokenA] = (tokenPoolCount[tokenA] || 0) + 1;
+            tokenPoolCount[tokenB] = (tokenPoolCount[tokenB] || 0) + 1;
         });
 
-        // Filter out pairs where either token is associated with only one liquidity pool
-        const finalPairs = allPairs.filter(pair => 
-          globalTokenPoolCount[pair.token0] > 1 && 
-          globalTokenPoolCount[pair.token1] > 1
-        );
+        // Filter out pairs where either token appears in only one liquidity pool
+        let singlePoolTokenPairs = 0;
+        const filteredByPoolCount = allPairs.filter(pair => {
+            const hasSinglePoolToken = tokenPoolCount[pair.token0] <= 1 || tokenPoolCount[pair.token1] <= 1;
+            if (hasSinglePoolToken) {
+                singlePoolTokenPairs++;
+                return false;
+            }
+            return true;
+        });
 
-        return finalPairs;
+        console.log(`Filtered out ${singlePoolTokenPairs} pairs with single-pool tokens`);
+        console.log(`Pairs remaining after single-pool token filtering: ${filteredByPoolCount.length}`);
+
+        // Get reserves for all pairs
+        const pairsWithReserves = await getReservesWithRetry(client, filteredByPoolCount);
+        console.log(`Successfully fetched reserves for ${pairsWithReserves.length} pairs`);
+
+        return pairsWithReserves;
     } catch (error) {
-        if (DEBUG) {
-            console.error('Error in getAllPairsInfo:', error);
-        }
+        console.error('Error fetching all pairs:', error);
         return [];
     }
 }
