@@ -21,7 +21,7 @@ const WOOF_RESERVES_BATCH_SIZE = 5;
 const MAX_PAIR_AGE_SECONDS = 300 * 24 * 60 * 60;
 
 
-const MIN_OTHER_TOKENS_LIQUIDITY = parseEther("500");
+const MIN_OTHER_TOKENS_LIQUIDITY = parseEther("1500");
 
 /**
  * Check if a pair is active based on its last timestamp

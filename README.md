@@ -2,6 +2,8 @@
 
 ArbitrageV is a high-performance arbitrage engine that scans AMM-based DEXs, builds a fees‑aware exchange graph, detects negative‑cycle arbitrage opportunities, and executes profitable trades automatically.
 
+### NOTE: V3 IMPLEMENTATION IS NOT COMPLETE - AMOUNTOUT SEEMS TO BE INCORRECT - all v3 config can be done  and enable in constant
+
 ## Table of Contents
 - [Features](#features)
 - [Tech Stack](#tech-stack)

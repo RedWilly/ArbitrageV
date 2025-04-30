@@ -1,12 +1,12 @@
 import { createPublicClient, http } from 'viem';
-import { sei } from 'viem/chains';
+import { dogechain } from 'viem/chains';
 
 const client = createPublicClient({
-  chain: sei,
+  chain: dogechain,
   transport: http(),
 });
 
-const ROUTER_ADDRESS = '0xC75C669a62A7eCe0C8d37904b747970467432ad3';
+const ROUTER_ADDRESS = '0x3fC0A08974D7f6a22a0f8D63eD60B4D935b53F5A';
 const ROUTER_ABI = [
   {
     "inputs": [],
