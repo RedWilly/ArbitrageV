@@ -264,8 +264,6 @@ async function getReservesWithRetry(
             
             // Filter pairs that are active and have sufficient reserves
             const validPairs = pairsWithReserves.filter(pair => 
-                // pair.reserve0 > parseEther("1") && 
-                // pair.reserve1 > parseEther("1") && 
                 isPairActive(pair.lastTimestamp) && 
                 hasEnoughWethLiquidity(pair)
             );
