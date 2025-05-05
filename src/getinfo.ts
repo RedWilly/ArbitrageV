@@ -234,60 +234,81 @@ async function getReservesWithRetry(
     pairs: PairInfo[]
 ): Promise<PairInfo[]> {
     const result: PairInfo[] = [];
-    const isWoofFactory = FACTORY.find(f => f.name === pairs[0]?.factory)?.volatile ?? false;
-    const batchSize = isWoofFactory ? WOOF_RESERVES_BATCH_SIZE : BATCH_SIZE;
+    
+    // Group pairs by factory
+    const pairsByFactory: { [factory: string]: PairInfo[] } = {};
+    
+    for (const pair of pairs) {
+        if (!pairsByFactory[pair.factory]) {
+            pairsByFactory[pair.factory] = [];
+        }
+        pairsByFactory[pair.factory].push(pair);
+    }
+    
+    // Process each factory's pairs with appropriate batch size
+    for (const factory of Object.keys(pairsByFactory)) {
+        const factoryPairs = pairsByFactory[factory];
+        const factoryConfig = FACTORY.find(f => f.name === factory);
+        const isWoofFactory = factoryConfig?.volatile ?? false;
+        const batchSize = isWoofFactory ? WOOF_RESERVES_BATCH_SIZE : BATCH_SIZE;
+        
+        if (DEBUG) {
+            console.log(`Processing ${factoryPairs.length} pairs from ${factory} with batch size ${batchSize}`);
+        }
+        
+        for (let i = 0; i < factoryPairs.length; i += batchSize) {
+            const batch = factoryPairs.slice(i, i + batchSize);
+            try {
+                if (DEBUG) {
+                    console.log(`Fetching reserves for ${batch.length} pairs from ${factory} (${i + 1} to ${i + batch.length})`);
+                }
 
-    for (let i = 0; i < pairs.length; i += batchSize) {
-        const batch = pairs.slice(i, i + batchSize);
-        try {
-            if (DEBUG) {
-                console.log(`Fetching reserves for ${batch.length} pairs from ${pairs[0].factory} (${i + 1} to ${i + batch.length})`);
-            }
+                // For Woof factory, filter out stable pairs first
+                let filteredBatch = batch;
+                if (isWoofFactory) {
+                    const isStablePair = await filterVolatilePairs(client, batch);
+                    filteredBatch = batch.filter((_, index) => !isStablePair[index]);
+                    
+                    if (DEBUG && batch.length !== filteredBatch.length) {
+                        console.log(`Filtered out ${batch.length - filteredBatch.length} stable pairs from Woof factory`);
+                    }
 
-            // For Woof factory, filter out stable pairs first
-            let filteredBatch = batch;
-            if (isWoofFactory) {
-                const isStablePair = await filterVolatilePairs(client, batch);
-                filteredBatch = batch.filter((_, index) => !isStablePair[index]);
+                    // If all pairs in batch were stable, skip to next batch
+                    if (filteredBatch.length === 0) {
+                        continue;
+                    }
+                }
+
+                const pairsWithReserves = await getReservesForPairs(client, filteredBatch);
                 
-                if (DEBUG && batch.length !== filteredBatch.length) {
-                    console.log(`Filtered out ${batch.length - filteredBatch.length} stable pairs from Woof factory`);
+                // Filter pairs that are active and have sufficient reserves
+                const validPairs = pairsWithReserves.filter(pair => 
+                    isPairActive(pair.lastTimestamp) && 
+                    hasEnoughWethLiquidity(pair)
+                );
+                
+                const skippedCount = filteredBatch.length - validPairs.length;
+                if (skippedCount > 0 && DEBUG) {
+                    console.log(`Skipped ${skippedCount} pairs (${
+                        filteredBatch.length - validPairs.length - pairsWithReserves.filter(p => !isPairActive(p.lastTimestamp)).length
+                    } with zero reserves, ${
+                        pairsWithReserves.filter(p => !isPairActive(p.lastTimestamp)).length
+                    } inactive, ${
+                        pairsWithReserves.filter(p => !hasEnoughWethLiquidity(p)).length
+                    } insufficient liquidity)`);
                 }
-
-                // If all pairs in batch were stable, skip to next batch
-                if (filteredBatch.length === 0) {
-                    continue;
-                }
+                
+                result.push(...validPairs);
+            } catch (error) {
+                // Only show minimal error message when DEBUG is false
+                console.error(`Failed to fetch reserves for batch ${i} to ${i + batch.length}${DEBUG ? `, skipping these pairs: ${
+                    batch.map(p => p.pairAddress).join(', ')
+                }` : ''}`);
+                continue;
             }
-
-            const pairsWithReserves = await getReservesForPairs(client, filteredBatch);
-            
-            // Filter pairs that are active and have sufficient reserves
-            const validPairs = pairsWithReserves.filter(pair => 
-                isPairActive(pair.lastTimestamp) && 
-                hasEnoughWethLiquidity(pair)
-            );
-            
-            const skippedCount = filteredBatch.length - validPairs.length;
-            if (skippedCount > 0 && DEBUG) {
-                console.log(`Skipped ${skippedCount} pairs (${
-                    filteredBatch.length - validPairs.length - pairsWithReserves.filter(p => !isPairActive(p.lastTimestamp)).length
-                } with zero reserves, ${
-                    pairsWithReserves.filter(p => !isPairActive(p.lastTimestamp)).length
-                } inactive, ${
-                    pairsWithReserves.filter(p => !hasEnoughWethLiquidity(p)).length
-                } insufficient liquidity)`);
-            }
-            
-            result.push(...validPairs);
-        } catch (error) {
-            // Only show minimal error message when DEBUG is false
-            console.error(`Failed to fetch reserves for batch ${i} to ${i + batch.length}${DEBUG ? `, skipping these pairs: ${
-                batch.map(p => p.pairAddress).join(', ')
-            }` : ''}`);
-            continue;
         }
     }
+    
     return result;
 }
 
