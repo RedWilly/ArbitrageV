@@ -375,7 +375,7 @@ export class ArbitrageGraph {
   
       // 1. Primary Convergence Check (Jacobian zero)
       if (jacobian === 0n) {
-        if (DEBUG) console.log(`Converged: Zero gradient at iteration ${i}`);
+        // if (DEBUG) console.log(`Converged: Zero gradient at iteration ${i}`);
         break;
       }
   

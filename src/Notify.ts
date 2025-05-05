@@ -1,6 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { formatEther } from 'viem';
-import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } from './constants';
+import { formatEther, type Address } from 'viem';
+import { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, ADDRESSES } from './constants';
 
 if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.warn('Warning: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID not set. Notifications will be disabled.');
@@ -26,20 +26,33 @@ class NotificationService {
     async sendTransactionNotification(
         hash: string,
         type: 'flashswap' | 'direct',
-        expectedProfit: bigint
+        expectedProfit: bigint,
+        tokenAddress?: Address
     ): Promise<void> {
         if (!this.bot || !TELEGRAM_CHAT_ID) return;
 
         const profitInEth = Number(formatEther(expectedProfit));
         const emoji = profitInEth > 0 ? '💰' : '⚠️';
         
+        // Find the token name from ADDRESSES if tokenAddress is provided
+        let tokenName = "Unknown";
+        if (tokenAddress) {
+            const token = ADDRESSES.find(addr => addr.address.toLowerCase() === tokenAddress.toLowerCase());
+            if (token) {
+                tokenName = token.name;
+            }
+        } else {
+            // Default to the first token in ADDRESSES if no tokenAddress is provided
+            tokenName = ADDRESSES[0]?.name || "Unknown";
+        }
+        
         const message = 
             `${emoji} <b>Arbitrage Transaction</b>\n\n` +
             `🔄 <b>Type:</b> ${type === 'flashswap' ? 'Flash Swap' : 'Direct Swap'}\n` +
-            `💵 <b>Expected Profit:</b> ${profitInEth.toFixed(6)} ETH\n\n` +
+            `💵 <b>Expected Profit:</b> ${profitInEth.toFixed(6)} ${tokenName}\n\n` +
             `🔗 <b>Transaction:</b>\n` +
             `<code>${hash}</code>\n\n` +
-            `🔍 <a href="https://chiliscan.com/tx/${hash}">View on Explorer</a>`;
+            `🔍 <a href="https://www.shibariumscan.io/tx/${hash}">View on Explorer</a>`;
 
         try {
             await this.bot.sendMessage(TELEGRAM_CHAT_ID, message, {

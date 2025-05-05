@@ -175,7 +175,8 @@ export class OpportunityManager {
         await notificationService.sendTransactionNotification(
             hash,
             'flashswap',
-            opportunity.expectedProfit
+            opportunity.expectedProfit,
+            opportunity.path[opportunity.path.length - 1]
         );
     }
 
@@ -230,7 +231,8 @@ export class OpportunityManager {
         await notificationService.sendTransactionNotification(
             hash,
             'direct',
-            opportunity.expectedProfit
+            opportunity.expectedProfit,
+            opportunity.path[opportunity.path.length - 1]
         );
     }
 
