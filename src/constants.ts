@@ -100,7 +100,7 @@ export const MAX_ENTRIES_PER_TOKEN = 10;
  */
 export const TOP_TOKENS_FOR_ARBITRAGE = 7;
 
-export const DEBUG = true;
+export const DEBUG = false;
 export const WSS_ENABLED = false; //enable this only when you are on a chain with wss support or better wss
 export const NERK = false;
 
@@ -109,7 +109,7 @@ export const BATCH_SIZE = 200;
 
 // Gas fee settings (in Gwei)
 export const GAS_LIMIT = 500000n;
-export const BASE_FEE = parseGwei("4.7");
+export const BASE_FEE = parseGwei("24.9");
 export const LEGACY = true;
 
 // Telegram notification settings
