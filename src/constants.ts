@@ -109,7 +109,7 @@ export const BATCH_SIZE = 200;
 
 // Gas fee settings (in Gwei)
 export const GAS_LIMIT = 500000n;
-export const BASE_FEE = parseGwei("24.9");
+export const BASE_FEE = parseGwei("34.9");
 export const LEGACY = true;
 
 // Telegram notification settings
