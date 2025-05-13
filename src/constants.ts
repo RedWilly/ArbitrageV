@@ -98,7 +98,7 @@ export const MAX_ENTRIES_PER_TOKEN = 10;
  * If you increase this number, make sure to add corresponding entries to the minProfits array.
  * NOTE - the more token you add - it increase the speed +100ms when searching(e.g if 3 means 300ms total)
  */
-export const TOP_TOKENS_FOR_ARBITRAGE = 7;
+export const TOP_TOKENS_FOR_ARBITRAGE = 2;
 
 export const DEBUG = false;
 export const WSS_ENABLED = false; //enable this only when you are on a chain with wss support or better wss
