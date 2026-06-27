@@ -1,4 +1,4 @@
-import { maxHops, MAX_ENTRIES_PER_TOKEN, DEBUG, minProfit, maxIterations, minProfits, ADDRESSES, NERK } from './constants';
+import { maxHops, MAX_ENTRIES_PER_TOKEN, DEBUG, minProfits, ADDRESSES, NERK } from './constants';
 import { type Address } from 'viem';
 
 export type PairInfo = {
@@ -23,7 +23,8 @@ interface Edge {
 type EdgeKey = `${string}-${string}`;
 
 interface DPEntry {
-  amountOut: bigint;
+  rateNumerator: bigint;
+  rateDenominator: bigint;
   path: Address[];
   pairs: Address[];
   directions: ('token0ToToken1' | 'token1ToToken0')[];
@@ -32,6 +33,10 @@ interface DPEntry {
 interface DPTable {
   [step: number]: Map<Address, DPEntry[]>;
 }
+
+const FEE_DENOMINATOR = 10000n;
+const OPTIMIZATION_ITERATIONS = 160;
+const MAX_INPUT_RESERVE_FRACTION = 3n;
 
 // Helper function for bigint swap calculations
 function bigintSwap(
@@ -43,9 +48,22 @@ function bigintSwap(
   // Convert fee to bigint basis points (10000 = 100%)
   const feeMultiplier = BigInt(10000 - fee);
   // Calculate amount after fee with precision (multiply first, then divide)
-  const amountInAfterFee = (amountIn * feeMultiplier) / BigInt(10000);
+  const amountInAfterFee = (amountIn * feeMultiplier) / FEE_DENOMINATOR;
   // Calculate output amount using CPMM formula with bigint
   return (amountInAfterFee * reserveOut) / (reserveIn + amountInAfterFee);
+}
+
+function compareRates(
+  aNumerator: bigint,
+  aDenominator: bigint,
+  bNumerator: bigint,
+  bDenominator: bigint
+): number {
+  const left = aNumerator * bDenominator;
+  const right = bNumerator * aDenominator;
+  if (left > right) return 1;
+  if (left < right) return -1;
+  return 0;
 }
 
 export class ArbitrageGraph {
@@ -191,16 +209,6 @@ export class ArbitrageGraph {
     startTokens: Address[],
     maxDepth: number = maxHops
   ): { paths: Address[][]; pairs: Address[][]; profits: bigint[]; optimalAmounts: bigint[]; fees: number[][] } {
-    // Initialize a result object with empty arrays
-    const result = {
-      paths: [] as Address[][],
-      pairs: [] as Address[][],
-      profits: [] as bigint[],
-      optimalAmounts: [] as bigint[],
-      fees: [] as number[][],
-    };
-
-    // Use a single DP table for all start tokens
     const dp: DPTable = {};
     const rawOpportunities: Array<{
       path: Address[];
@@ -208,14 +216,12 @@ export class ArbitrageGraph {
       directions: ('token0ToToken1' | 'token1ToToken0')[];
     }> = [];
 
-    // Initialize with starting tokens
     dp[0] = new Map();
-    
-    // Add all starting tokens to the initial step of the DP table
     for (const startToken of startTokens) {
       dp[0].set(startToken, [
         {
-          amountOut: 1n,
+          rateNumerator: 1n,
+          rateDenominator: 1n,
           path: [startToken],
           pairs: [],
           directions: [],
@@ -223,7 +229,6 @@ export class ArbitrageGraph {
       ]);
     }
 
-    // Process all steps of the DP table just once
     for (let step = 1; step <= maxDepth; step++) {
       dp[step] = new Map();
 
@@ -232,19 +237,12 @@ export class ArbitrageGraph {
 
         for (const entry of entries) {
           for (const edge of edges) {
-            // Avoid immediate loops and revisit same pair
             if (entry.pairs.includes(edge.pairAddress)) continue;
 
-            // Calculate output using actual swap formula with bigint
-            const newAmountOut = bigintSwap(
-              entry.amountOut,
-              edge.reserveIn,
-              edge.reserveOut,
-              edge.fee
-            );
-
+            const feeMultiplier = BigInt(10000 - edge.fee);
             const newEntry: DPEntry = {
-              amountOut: newAmountOut,
+              rateNumerator: entry.rateNumerator * edge.reserveOut * feeMultiplier,
+              rateDenominator: entry.rateDenominator * edge.reserveIn * FEE_DENOMINATOR,
               path: [...entry.path, edge.to],
               pairs: [...entry.pairs, edge.pairAddress],
               directions: [...entry.directions, edge.direction],
@@ -255,65 +253,51 @@ export class ArbitrageGraph {
               dp[step].set(targetToken, []);
             }
 
-            // Keep only top entries per token
             dp[step].get(targetToken)!.push(newEntry);
-            // Sort using bigint comparison
             dp[step].get(targetToken)!.sort((a, b) => {
-              if (b.amountOut > a.amountOut) return 1;
-              if (b.amountOut < a.amountOut) return -1;
-              return 0;
+              return compareRates(
+                b.rateNumerator,
+                b.rateDenominator,
+                a.rateNumerator,
+                a.rateDenominator
+              );
             });
             dp[step].get(targetToken)!.splice(MAX_ENTRIES_PER_TOKEN);
 
-            // Check for arbitrage opportunities with all starting tokens
-            if (step >= 2) {
-              const originToken = entry.path[0]; // The actual starting token for this path
-              
-              // When NERK is false, only accept circular arbitrage back to the original token
-              if (!NERK) {
-                if (targetToken === originToken) {
-                  rawOpportunities.push({
-                    path: newEntry.path,
-                    pairs: newEntry.pairs,
-                    directions: newEntry.directions,
-                  });
-                }
-              } else {
-                // If NERK is true, include any arbitrage where origin and target tokens are both in the startTokens list
-                if (startTokens.includes(originToken) && startTokens.includes(targetToken)) {
-                  rawOpportunities.push({
-                    path: newEntry.path,
-                    pairs: newEntry.pairs,
-                    directions: newEntry.directions,
-                  });
-                }
-              }
+            if (step < 2 || !this.hasProfitableRate(newEntry)) continue;
+
+            const originToken = entry.path[0];
+            const isAcceptedEndpoint = !NERK
+              ? targetToken === originToken
+              : startTokens.includes(originToken) && startTokens.includes(targetToken);
+
+            if (isAcceptedEndpoint) {
+              rawOpportunities.push({
+                path: newEntry.path,
+                pairs: newEntry.pairs,
+                directions: newEntry.directions,
+              });
             }
           }
         }
       }
     }
 
-    // Validate opportunities with actual swap simulation
     const validated = rawOpportunities
       .map(opp => {
         const { maxProfit, optimalInput } = this.calculateMaxProfit(opp);
         return { ...opp, profit: maxProfit, optimalInput };
       })
       .filter(opp => {
-        // Find the index of the starting token in ADDRESSES
         const originToken = opp.path[0];
         const tokenIndex = ADDRESSES.findIndex(addr => addr.address === originToken);
-        
-        // Throw an error if no specific profit threshold is defined for this token
+
         if (tokenIndex < 0 || tokenIndex >= minProfits.length) {
           const tokenName = tokenIndex >= 0 ? ADDRESSES[tokenIndex].name : originToken;
           throw new Error(`No minimum profit threshold defined for token ${tokenName}. Please update the minProfits array in constants.ts.`);
         }
-        
-        const tokenMinProfit = minProfits[tokenIndex];
-        // Convert tokenMinProfit to bigint for comparison
-        return opp.profit > BigInt(tokenMinProfit);
+
+        return opp.profit > BigInt(minProfits[tokenIndex]);
       })
       .sort((a, b) => {
         if (b.profit > a.profit) return 1;
@@ -327,7 +311,7 @@ export class ArbitrageGraph {
       pairs: validated.map(opp => opp.pairs),
       profits: validated.map(opp => opp.profit),
       optimalAmounts: validated.map(opp => opp.optimalInput),
-      fees: validated.map(opp => 
+      fees: validated.map(opp =>
         opp.pairs.map(pairAddress => {
           const pair = this.pairs.get(pairAddress);
           if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
@@ -342,251 +326,105 @@ export class ArbitrageGraph {
     pairs: Address[];
     directions: ('token0ToToken1' | 'token1ToToken0')[];
   }): { maxProfit: bigint; optimalInput: bigint } {
-    const startToken = opportunity.path[0];
-    const tokenInfo = ADDRESSES.find(addr => addr.address === startToken);
-    if (!tokenInfo) throw new Error(`Token info not found for ${startToken}`);
-    
     const pairsInfo = opportunity.pairs.map(pairAddress => {
       const pair = this.pairs.get(pairAddress);
       if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
       return pair;
     });
-  
-    const { calculateProfit, calculateJacobian, calculateHessian } = 
-      this.createProfitFunctions(opportunity, pairsInfo);
-    
-    // Initialize with reasonable starting amount considering decimals
-    const decimalFactor = 10n ** BigInt(tokenInfo.decimal);
-    let currentInput = decimalFactor; // Start with 1 unit of token
-    let maxProfit = -1n;
-    let optimalInput = 0n;
-  
-    // Newton's Method with enhanced convergence checks
-    for (let i = 0; i < maxIterations; i++) {
-      const profit = calculateProfit(currentInput);
-      const jacobian = calculateJacobian(currentInput);
-      const hessian = calculateHessian(currentInput);
-  
-      // Track best solution found (regardless of convergence)
-      if (profit > maxProfit && currentInput > 0n) {
-        maxProfit = profit;
-        optimalInput = currentInput;
-      }
-  
-      // 1. Primary Convergence Check (Jacobian zero)
-      if (jacobian === 0n) {
-        // if (DEBUG) console.log(`Converged: Zero gradient at iteration ${i}`);
-        break;
-      }
-  
-      // 2. Handle Zero Hessian (undefined curvature)
-      if (hessian === 0n) {
-        // Fall back to gradient-based adjustment
-        const stepSize = currentInput / 100n; // 1% of current value
-        currentInput = jacobian > 0n 
-          ? currentInput + stepSize // Move upward if gradient positive
-          : currentInput - stepSize; // Move downward if gradient negative
-        continue;
-      }
-  
-      // Normal Newton-Raphson step
-      const delta = jacobian / hessian;
-      const newInput = currentInput - delta;
-  
-      // 3. Secondary Convergence Check (Minimal movement)
-      const absDelta = delta > 0n ? delta : -delta;
-      if (absDelta < (currentInput / 10000n)) { // 0.01% relative change
-        if (DEBUG) console.log(`Converged: Minimal change at iteration ${i}`);
-        break;
-      }
-  
-      // Apply bounds protection
-      const maxBound = decimalFactor * 1000n; // 1000 tokens max
-      const minBound = decimalFactor / 1000n; // 0.001 tokens min
-      currentInput = newInput > maxBound ? maxBound :
-                    newInput < minBound ? minBound :
-                    newInput;
-    }
-  
-    return { 
-      maxProfit: maxProfit > 0n ? maxProfit : 0n,
-      optimalInput 
-    };
-  }
 
-  private createProfitFunctions(
-    opportunity: {
-      path: Address[];
-      pairs: Address[];
-      directions: ('token0ToToken1' | 'token1ToToken0')[];
-    },
-    pairsInfo: PairInfo[]
-  ): {
-      calculateProfit: (inputAmount: bigint) => bigint;
-      calculateJacobian: (inputAmount: bigint) => bigint;
-      calculateHessian: (inputAmount: bigint) => bigint;
-  } {
-    // Swap function (CPMM formula) using bigint
-    const swap = (
-      amountIn: bigint,
-      reserveIn: bigint,
-      reserveOut: bigint,
-      fee: number
-    ): bigint => {
-      // Convert fee to bigint basis points (10000 = 100%)
-      const feeMultiplier = BigInt(10000 - fee);
-      // Calculate amount after fee with precision (multiply first, then divide)
-      const amountInAfterFee = (amountIn * feeMultiplier) / BigInt(10000);
-      // Calculate output amount using CPMM formula with bigint
-      return (amountInAfterFee * reserveOut) / (reserveIn + amountInAfterFee);
-    };
-
-      // Derivative of swap function using bigint
-    const swapDerivative = (
-      amountIn: bigint,
-      reserveIn: bigint,
-      reserveOut: bigint,
-      fee: number
-    ): bigint => {
-      const feeMultiplier = BigInt(10000 - fee);
-      const numerator = feeMultiplier * reserveIn * reserveOut * BigInt(10000);
-      const denominator = (reserveIn * BigInt(10000) + feeMultiplier * amountIn) ** BigInt(2);
-      return numerator / denominator;
-    };
-
-    // Second derivative of swap function using bigint
-    const swapSecondDerivative = (
-      amountIn: bigint,
-      reserveIn: bigint,
-      reserveOut: bigint,
-      fee: number
-    ): bigint => {
-      const feeMultiplier = BigInt(10000 - fee);
-      const numerator = BigInt(-2) * feeMultiplier ** BigInt(2) * reserveIn * reserveOut * BigInt(10000) ** BigInt(2);
-      const denominator = (reserveIn * BigInt(10000) + feeMultiplier * amountIn) ** BigInt(3);
-      return numerator / denominator;
-    };
-
-    // Calculate profit for the entire arbitrage loop using bigint
     const calculateProfit = (inputAmount: bigint): bigint => {
       try {
         let amount = inputAmount;
         for (let i = 0; i < opportunity.pairs.length; i++) {
           const pair = pairsInfo[i];
           const direction = opportunity.directions[i];
-          
-          let reserveIn, reserveOut;
-          if (direction === 'token0ToToken1') {
-            reserveIn = pair.reserve0;
-            reserveOut = pair.reserve1;
-          } else {
-            reserveIn = pair.reserve1;
-            reserveOut = pair.reserve0;
-          }
-          
-          // Check if input exceeds reserves
-          if (amount > reserveIn) {
-            return -1n; // Use -1n instead of -Infinity for bigint
+          const reserveIn = direction === 'token0ToToken1' ? pair.reserve0 : pair.reserve1;
+          const reserveOut = direction === 'token0ToToken1' ? pair.reserve1 : pair.reserve0;
+
+          if (amount <= 0n || amount >= reserveIn) {
+            return -1n;
           }
 
-          amount = swap(amount, reserveIn, reserveOut, pair.fee);
+          amount = bigintSwap(amount, reserveIn, reserveOut, pair.fee);
         }
-        return amount - inputAmount; // our profit
+
+        return amount - inputAmount;
       } catch {
-        return -1n; // Use -1n instead of -Infinity for bigint
+        return -1n;
       }
     };
 
-      // Calculate Jacobian of the profit function (first derivative)
-      const calculateJacobian = (inputAmount: bigint): bigint => {
-          let derivative = 1n; // Start with 1.0 (derivative of input)
+    let low = 1n;
+    let high = this.getMaxInputBound(opportunity, pairsInfo);
 
-          let amount = inputAmount;
+    if (high <= low) {
+      return { maxProfit: 0n, optimalInput: 0n };
+    }
 
-          for (let i = 0; i < opportunity.pairs.length; i++) {
-              const pair = pairsInfo[i];
-              const direction = opportunity.directions[i];
+    for (let i = 0; i < OPTIMIZATION_ITERATIONS && high - low > 3n; i++) {
+      const third = (high - low) / 3n;
+      if (third === 0n) break;
 
-              let reserveIn, reserveOut;
-              if (direction === 'token0ToToken1') {
-                  reserveIn = pair.reserve0;
-                  reserveOut = pair.reserve1;
-              } else {
-                  reserveIn = pair.reserve1;
-                  reserveOut = pair.reserve0;
-              }
-              
-              if (amount > reserveIn) {
-                  return 0n; // Infeasible
-              }
-              derivative *= swapDerivative(amount, reserveIn, reserveOut, pair.fee);
-              amount = swap(amount, reserveIn, reserveOut, pair.fee);
-          }
-          return derivative - 1n; // Subtract 1 (derivative of initial input amount)
-      };
+      const mid1 = low + third;
+      const mid2 = high - third;
+      const profit1 = calculateProfit(mid1);
+      const profit2 = calculateProfit(mid2);
 
-      // Calculate Hessian of the profit function (second derivative)
-      const calculateHessian = (inputAmount: bigint): bigint => {
-          let hessian = 0n;
-          let amount = inputAmount;
+      if (profit1 < profit2) {
+        low = mid1 + 1n;
+      } else {
+        high = mid2 - 1n;
+      }
+    }
 
-          // First derivative for each swap
-          const swapDerivatives = pairsInfo.map((pair, i) => {
-              const direction = opportunity.directions[i];
-              let reserveIn, reserveOut;
-              if (direction === 'token0ToToken1') {
-                  reserveIn = pair.reserve0;
-                  reserveOut = pair.reserve1;
-              } else {
-                  reserveIn = pair.reserve1;
-                  reserveOut = pair.reserve0;
-              }
-              return swapDerivative(amount, reserveIn, reserveOut, pair.fee);
-          });
+    const finalCandidates = new Set<bigint>([low, high, (low + high) / 2n]);
+    for (let offset = 1n; offset <= 5n; offset++) {
+      const center = (low + high) / 2n;
+      if (center > offset) finalCandidates.add(center - offset);
+      finalCandidates.add(center + offset);
+    }
 
-          // Second derivative for each swap
-          const swapSecondDerivatives = pairsInfo.map((pair, i) => {
-              const direction = opportunity.directions[i];
-              let reserveIn, reserveOut;
-              if (direction === 'token0ToToken1') {
-                  reserveIn = pair.reserve0;
-                  reserveOut = pair.reserve1;
-              } else {
-                  reserveIn = pair.reserve1;
-                  reserveOut = pair.reserve0;
-              }
-              return swapSecondDerivative(amount, reserveIn, reserveOut, pair.fee);
-          });
-          for (let i = 0; i < opportunity.pairs.length; i++) {
-              const pair = pairsInfo[i];
-              const direction = opportunity.directions[i];
+    let maxProfit = 0n;
+    let optimalInput = 0n;
+    for (const input of finalCandidates) {
+      if (input < low || input > high) continue;
+      const profit = calculateProfit(input);
+      if (profit > maxProfit) {
+        maxProfit = profit;
+        optimalInput = input;
+      }
+    }
 
-              let reserveIn, reserveOut;
-              if (direction === 'token0ToToken1') {
-                  reserveIn = pair.reserve0;
-                  reserveOut = pair.reserve1;
-              } else {
-                  reserveIn = pair.reserve1;
-                  reserveOut = pair.reserve0;
-              }
-              if (amount > reserveIn) {
-                 return 0n;  // Or handle infeasibility differently
-                }
-              let term = swapSecondDerivatives[i];
-              for (let j = 0; j < opportunity.pairs.length; j++) {
-                if (i !== j) {
-                  // Ensure proper bigint multiplication
-                  term = term * swapDerivatives[j];
-                }
-              }
-              hessian += term
-               amount = swap(amount, reserveIn, reserveOut, pair.fee);
+    return { maxProfit, optimalInput };
+  }
 
-          }
-           return hessian;
-      };
+  private hasProfitableRate(entry: DPEntry): boolean {
+    return entry.rateNumerator > entry.rateDenominator;
+  }
 
-    return { calculateProfit, calculateJacobian, calculateHessian };
+  private getMaxInputBound(
+    opportunity: {
+      pairs: Address[];
+      directions: ('token0ToToken1' | 'token1ToToken0')[];
+    },
+    pairsInfo: PairInfo[]
+  ): bigint {
+    let bound: bigint | null = null;
+
+    for (let i = 0; i < opportunity.pairs.length; i++) {
+      const pair = pairsInfo[i];
+      const direction = opportunity.directions[i];
+      const reserveIn = direction === 'token0ToToken1' ? pair.reserve0 : pair.reserve1;
+      const candidate = reserveIn / MAX_INPUT_RESERVE_FRACTION;
+
+      if (candidate <= 0n) {
+        return 0n;
+      }
+
+      bound = bound === null || candidate < bound ? candidate : bound;
+    }
+
+    return bound ?? 0n;
   }
 
   // Fast lookup for pair with highest reserves
