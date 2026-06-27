@@ -220,7 +220,6 @@ contract ArbitrageExecutor is Withdrawable {
         _handleFlashLoan(sender, amount0, amount1, data);
     }
 
-    /// @dev Handles the flash loan callback.
     function _handleFlashLoan(
         address,
         uint amount0,
@@ -240,7 +239,6 @@ contract ArbitrageExecutor is Withdrawable {
             revert RepaymentTransferFailed();
     }
 
-    /// @dev Executes the arbitrage path by looping through swap steps.
     function _executeArbitragePath(
         address startToken,
         uint256 startAmount,
@@ -261,9 +259,6 @@ contract ArbitrageExecutor is Withdrawable {
         return state.amount;
     }
 
-    /// @dev Executes the arbitrage path for direct (user-supplied) funds.
-    /// Unlike the flashloan version, the final token need not equal the start token.
-    /// Returns the final token and amount.
     function _executeArbitragePathDirect(
         address startToken,
         uint256 startAmount,
@@ -284,14 +279,6 @@ contract ArbitrageExecutor is Withdrawable {
         finalAmount = state.amount;
     }
 
-    /// @dev Executes a single swap step.
-    /// @param currentToken The token being swapped.
-    /// @param currentAmount The amount to swap.
-    /// @param pairAddr The address of the pair.
-    /// @param fee The fee in basis points for this swap.
-    /// @param nextPair The address of the next pair in the arbitrage path, or address(0) if this is the last swap.
-    /// @return newToken The token received from the swap.
-    /// @return newAmount The calculated amount after the swap.
     function _executeSwapStep(
         address currentToken,
         uint256 currentAmount,
@@ -307,7 +294,6 @@ contract ArbitrageExecutor is Withdrawable {
         
         if (currentToken != pair.token0() && currentToken != pair.token1()) revert SwapPathError();
 
-        // Get reserves and validate
         (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
         uint256 reserveIn = isToken0 ? reserve0 : reserve1;
         uint256 reserveOut = isToken0 ? reserve1 : reserve0;
@@ -315,11 +301,9 @@ contract ArbitrageExecutor is Withdrawable {
 
         _safeTransfer(currentToken, pairAddr, currentAmount);
 
-        // Calculate output amount
         newAmount = _calculateSwapOutput(currentAmount, reserveIn, reserveOut, fee);
         if (newAmount >= reserveOut) revert OutputExceedsReserve();
 
-        // Determine destination and execute swap
         address to = nextPair != address(0) ? nextPair : address(this);
         pair.swap(
             isToken0 ? 0 : newAmount,
@@ -329,7 +313,6 @@ contract ArbitrageExecutor is Withdrawable {
         );
     }
 
-    /// @dev Calculates the output amount for a swap.
     function _calculateSwapOutput(
         uint256 input,
         uint256 inputReserve,
@@ -342,7 +325,6 @@ contract ArbitrageExecutor is Withdrawable {
         return numerator / denominator;
     }
 
-    /// @dev A minimal wrapper around ERC20 transfer.
     function _safeTransfer(address token, address to, uint256 amount) internal {
         if (!IERC20(token).transfer(to, amount)) revert TokenTransferFailed();
     }

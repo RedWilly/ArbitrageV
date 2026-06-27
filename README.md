@@ -46,15 +46,11 @@ root/
 │   ├─ opp.ts            # Opportunity discovery & logging
 │   ├─ Notify.ts         # Telegram notifications
 │   └─ nonce.ts          # Nonce management
-├─ Formulas.md           # Mathematical derivations
 ├─ README.md
 ├─ package.json
 └─ tsconfig.json
 ```
 
-## Mathematical Foundations
-
-Detailed derivations are available in [Formulas.md](./Formulas.md).
 
 ## Prerequisites
 
