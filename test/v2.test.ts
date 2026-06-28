@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { parseEther, type Address } from "viem";
 import { V2ArbitrageEngine, type PairInfo } from "../src/arbitrage";
-import { ADDRESSES, minProfits } from "../src/constants";
+import { TOKENS } from "../src/constants";
 
-const [tokenA, tokenB, tokenC] = ADDRESSES.map(({ address }) => address);
+const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
 
 function pairAddress(id: number): Address {
   return `0x${id.toString(16).padStart(40, "0")}` as Address;
@@ -52,7 +52,7 @@ describe("V2 arbitrage graph", () => {
     expect(opportunities.pairs[0]).toHaveLength(3);
     expect(new Set(opportunities.pairs[0]).size).toBe(3);
     expect(opportunities.optimalAmounts[0]).toBeGreaterThan(0n);
-    expect(opportunities.profits[0]).toBeGreaterThan(minProfits[0]);
+    expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
   });
 
   test("does not report a route when fees make the cycle unprofitable", () => {
@@ -95,7 +95,7 @@ describe("V2 arbitrage graph", () => {
     });
 
     expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.profits[0]).toBeGreaterThan(minProfits[0]);
+    expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
   });
 
   test("event-local search only returns routes touching affected pairs", () => {
@@ -120,3 +120,4 @@ describe("V2 arbitrage graph", () => {
     }
   });
 });
+

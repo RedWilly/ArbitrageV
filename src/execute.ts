@@ -1,14 +1,11 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { formatEther, type Address, formatUnits } from 'viem';
 import {
-    ADDRESSES,
-    ARB_CONTRACT,
-    BASE_FEE,
-    DEBUG,
-    GAS_LIMIT,
-    LEGACY,
-    TELEGRAM_BOT_TOKEN,
-    TELEGRAM_CHAT_ID,
+    CONTRACTS,
+    EXECUTION_POLICY,
+    RUNTIME,
+    TELEGRAM,
+    TOKENS,
 } from './constants';
 import ArbABI from './ABI/Arb.json';
 import { type NetworkConfig } from './network';
@@ -40,7 +37,7 @@ class NonceTracker {
                 address: this.networkConfig.account.address,
             }));
 
-            if (DEBUG) {
+            if (RUNTIME.debug) {
                 console.log(`Initialized nonce tracker with nonce: ${this.currentNonce}`);
             }
         }
@@ -52,8 +49,8 @@ class NonceTracker {
 }
 
 class TransactionNotifier {
-    private bot: TelegramBot | null = TELEGRAM_BOT_TOKEN
-        ? new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false })
+    private bot: TelegramBot | null = TELEGRAM.botToken
+        ? new TelegramBot(TELEGRAM.botToken, { polling: false })
         : null;
 
     async transactionSent(
@@ -62,7 +59,7 @@ class TransactionNotifier {
         expectedProfit: bigint,
         tokenAddress?: Address
     ): Promise<void> {
-        if (!this.bot || !TELEGRAM_CHAT_ID) return;
+        if (!this.bot || !TELEGRAM.chatId) return;
 
         const tokenName = this.resolveTokenName(tokenAddress);
         const status = expectedProfit > 0n ? 'PROFIT' : 'WARNING';
@@ -75,7 +72,7 @@ class TransactionNotifier {
             `<a href="https://www.shibariumscan.io/tx/${hash}">View on Explorer</a>`;
 
         try {
-            await this.bot.sendMessage(TELEGRAM_CHAT_ID, message, {
+            await this.bot.sendMessage(TELEGRAM.chatId, message, {
                 parse_mode: 'HTML',
                 disable_web_page_preview: true,
             });
@@ -85,9 +82,9 @@ class TransactionNotifier {
     }
 
     private resolveTokenName(tokenAddress?: Address): string {
-        if (!tokenAddress) return ADDRESSES[0]?.name || 'Unknown';
+        if (!tokenAddress) return TOKENS[0]?.name || 'Unknown';
 
-        const token = ADDRESSES.find(addr => addr.address.toLowerCase() === tokenAddress.toLowerCase());
+        const token = TOKENS.find(addr => addr.address.toLowerCase() === tokenAddress.toLowerCase());
         return token?.name || 'Unknown';
     }
 }
@@ -123,14 +120,14 @@ export class OpportunityManager {
             return 0;
         });
 
-        if (DEBUG) {
+        if (RUNTIME.debug) {
             console.log(`Processing ${sortedOpps.length} opportunities in profit order`);
         }
 
         for (const opp of sortedOpps) {
             // Skip if any pairs conflict
             if (this.hasConflict(opp.pairs)) {
-                if (DEBUG) {
+                if (RUNTIME.debug) {
                     console.log('Skipping opportunity due to pair conflict:', {
                         pairs: opp.pairs,
                         usedPairs: Array.from(this.usedPairs)
@@ -144,14 +141,14 @@ export class OpportunityManager {
 
                 // Mark pairs as used only after successful execution
                 this.markPairsAsUsed(opp.pairs);
-                if (DEBUG) {
+                if (RUNTIME.debug) {
                     console.log('Successfully executed opportunity:', {
                         profit: formatUnits(opp.expectedProfit, 18),
                         pairs: opp.pairs
                     });
                 }
             } catch (error) {
-                if (DEBUG) {
+                if (RUNTIME.debug) {
                     console.error('Failed to execute opportunity:', error);
                 }
             }
@@ -180,8 +177,8 @@ export class OpportunityManager {
         graph: FlashLoanPairLookup,
         opportunity: ArbitrageOpportunity
     ): Promise<void> {
-        if (!ARB_CONTRACT || !ARB_CONTRACT.match(/^0x[a-fA-F0-9]{40}$/)) {
-            throw new Error('Invalid ARB_CONTRACT address');
+        if (!CONTRACTS.arbitrage || !CONTRACTS.arbitrage.match(/^0x[a-fA-F0-9]{40}$/)) {
+            throw new Error('Invalid CONTRACTS.arbitrage address');
         }
 
         const startToken = opportunity.path[0];
@@ -197,7 +194,7 @@ export class OpportunityManager {
             throw new Error(`No suitable flashswap pair found for token ${startToken}`);
         }
 
-        if (DEBUG) {
+        if (RUNTIME.debug) {
             console.log('Executing arbitrage with flashswap:', {
                 flashLoanPair: flashLoanPair.pairAddress,
                 startToken,
@@ -216,7 +213,7 @@ export class OpportunityManager {
 
         // Send transaction directly with gas parameters
         const hash = await this.networkConfig.walletClient.writeContract({
-            address: ARB_CONTRACT as Address,
+            address: CONTRACTS.arbitrage as Address,
             abi: ArbABI,
             functionName: 'executeArbitrage',
             args: [
@@ -230,13 +227,13 @@ export class OpportunityManager {
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
-            gas: GAS_LIMIT,
-            ...(LEGACY
-                ? { gasPrice: BASE_FEE, type: 'legacy' as const }
+            gas: EXECUTION_POLICY.gasLimit,
+            ...(EXECUTION_POLICY.legacy
+                ? { gasPrice: EXECUTION_POLICY.baseFee, type: 'legacy' as const }
                 : { maxFeePerGas, maxPriorityFeePerGas, type: 'eip1559' as const }),
         });
         
-        if (DEBUG) {
+        if (RUNTIME.debug) {
             console.log('Transaction sent:', {
                 hash,
                 nonce,
@@ -255,7 +252,7 @@ export class OpportunityManager {
     private async executeDirectly(
         opportunity: ArbitrageOpportunity
     ): Promise<void> {
-        if (DEBUG) {
+        if (RUNTIME.debug) {
             console.log('Executing arbitrage directly:', {
                 startToken: opportunity.path[0],
                 startAmount: opportunity.optimalAmount.toString(),
@@ -272,7 +269,7 @@ export class OpportunityManager {
 
         // Send transaction directly with gas parameters
         const hash = await this.networkConfig.walletClient.writeContract({
-            address: ARB_CONTRACT as Address,
+            address: CONTRACTS.arbitrage as Address,
             abi: ArbABI,
             functionName: 'executeArbitrageDirect',
             args: [
@@ -284,13 +281,13 @@ export class OpportunityManager {
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
-            gas: GAS_LIMIT,
-            ...(LEGACY
-                ? { gasPrice: BASE_FEE, type: 'legacy' as const }
+            gas: EXECUTION_POLICY.gasLimit,
+            ...(EXECUTION_POLICY.legacy
+                ? { gasPrice: EXECUTION_POLICY.baseFee, type: 'legacy' as const }
                 : { maxFeePerGas, maxPriorityFeePerGas, type: 'eip1559' as const }),
         });
 
-        if (DEBUG) {
+        if (RUNTIME.debug) {
             console.log('Transaction sent:', {
                 hash,
                 nonce,
@@ -312,7 +309,7 @@ export class OpportunityManager {
         const totalGasFee = (expectedProfit * 90n) / 100n;
         
         // Calculate maxFeePerGas with (totalGasFee * 1_000_000_000) / gasLimit
-        const maxFeePerGas = (totalGasFee * 1n) /  GAS_LIMIT;
+        const maxFeePerGas = (totalGasFee * 1n) /  EXECUTION_POLICY.gasLimit;
         
         // // Use same value for maxPriorityFeePerGas as maxFeePerGas
         const maxPriorityFeePerGas = maxFeePerGas;
@@ -328,3 +325,4 @@ export class OpportunityManager {
 export function createOpportunityManager(networkConfig: NetworkConfig): OpportunityManager {
     return new OpportunityManager(networkConfig);
 }
+

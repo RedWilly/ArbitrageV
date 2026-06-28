@@ -1,5 +1,5 @@
 import { type Address } from 'viem';
-import { ADDRESSES, minProfits, V2_SEARCH_POLICY } from '../constants';
+import { TOKENS, V2_SEARCH_POLICY } from '../constants';
 import { CandidateFinder } from './candidate-finder';
 import { MarketGraph } from './market-graph';
 import { TradeSizer } from './trade-sizer';
@@ -35,14 +35,13 @@ export class V2ArbitrageEngine {
       .map(candidate => this.sizeCandidate(candidate))
       .filter(opportunity => {
         const originToken = opportunity.path[0];
-        const tokenIndex = ADDRESSES.findIndex(addr => addr.address === originToken);
+        const token = TOKENS.find(addr => addr.address === originToken);
 
-        if (tokenIndex < 0 || tokenIndex >= minProfits.length) {
-          const tokenName = tokenIndex >= 0 ? ADDRESSES[tokenIndex].name : originToken;
-          throw new Error(`No minimum profit threshold defined for token ${tokenName}. Please update the minProfits array in constants.ts.`);
+        if (!token) {
+          throw new Error(`No token config found for ${originToken}. Please update TOKENS in constants.ts.`);
         }
 
-        return opportunity.profit > BigInt(minProfits[tokenIndex]);
+        return opportunity.profit > token.minProfit;
       })
       .sort((a, b) => {
         if (b.profit > a.profit) return 1;
@@ -104,3 +103,4 @@ export class V2ArbitrageEngine {
     };
   }
 }
+

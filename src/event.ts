@@ -1,6 +1,6 @@
 import { type Address, parseAbiItem, decodeEventLog, type PublicClient } from 'viem';
 import { V2ArbitrageEngine } from './arbitrage';
-import { DEBUG, WSS_ENABLED } from './constants';
+import { RUNTIME } from './constants';
 import { OpportunityWorkflow } from './arbitrage/opportunity-workflow';
 
 // ABI for both types of Sync events
@@ -44,7 +44,7 @@ export class EventMonitor {
         this.client = networkConfig.client;
         
         // Use WebSocket client if available
-        if (WSS_ENABLED && networkConfig.wsClient) {
+        if (RUNTIME.websocketEnabled && networkConfig.wsClient) {
             this.wsClient = networkConfig.wsClient;
             this.usingWebSocket = true;
             console.log('EventMonitor will use WebSocket for real-time events');
@@ -55,7 +55,7 @@ export class EventMonitor {
 
     async start() {
         if (this.isRunning) {
-            if (DEBUG) console.log('Event monitor is already running');
+            if (RUNTIME.debug) console.log('Event monitor is already running');
             return;
         }
 
@@ -65,7 +65,7 @@ export class EventMonitor {
         const pairAddresses = this.graph.getPairAddresses();
         
         console.log(`Starting event monitor for ${pairAddresses.length} pairs...`);
-        if (DEBUG) {
+        if (RUNTIME.debug) {
             console.log('Monitoring pairs:', pairAddresses);
         }
 
@@ -167,7 +167,7 @@ export class EventMonitor {
                 };
             }
 
-            if (DEBUG) console.log('Unknown Sync event topic:', topic);
+            if (RUNTIME.debug) console.log('Unknown Sync event topic:', topic);
             return null;
         } catch (error) {
             console.error('Failed to decode Sync event:', error);
@@ -177,7 +177,7 @@ export class EventMonitor {
 
     private async handleSyncEvents(logs: any[]) {
         try {
-            if (DEBUG) console.log(`Received ${logs.length} events`);
+            if (RUNTIME.debug) console.log(`Received ${logs.length} events`);
             
             // Create a mapping of lowercase to original case addresses
             const pairAddresses = this.graph.getPairAddresses();
@@ -196,7 +196,7 @@ export class EventMonitor {
                 // Check if this pair is in our graph before proceeding
                 const lowercaseAddress = log.address?.toLowerCase();
                 if (!validPairs.has(lowercaseAddress)) {
-                    if (DEBUG) {
+                    if (RUNTIME.debug) {
                         console.log(`Skipping event from unknown pair: ${lowercaseAddress}`);
                     }
                     continue;
@@ -205,18 +205,18 @@ export class EventMonitor {
                 // Get the original case address for updating the graph
                 const pairAddress = addressMap.get(lowercaseAddress) as Address;
 
-                if (DEBUG) console.log('Raw event log:', JSON.stringify(logForDisplay, null, 2));
+                if (RUNTIME.debug) console.log('Raw event log:', JSON.stringify(logForDisplay, null, 2));
 
                 // Decode the Sync event
                 const decodedEvent = this.decodeSyncEvent(log);
                 if (!decodedEvent) {
-                    if (DEBUG) console.log('Failed to decode Sync event');
+                    if (RUNTIME.debug) console.log('Failed to decode Sync event');
                     continue;
                 }
 
                 const { reserve0, reserve1 } = decodedEvent;
 
-                if (DEBUG) console.log(`Sync event from ${pairAddress}:`, {
+                if (RUNTIME.debug) console.log(`Sync event from ${pairAddress}:`, {
                     reserve0: reserve0.toString(),
                     reserve1: reserve1.toString()
                 });
@@ -227,7 +227,7 @@ export class EventMonitor {
 
             // If we're currently checking arbitrage, add these updates to pending queue
             if (this.isCheckingArbitrage) {
-                if (DEBUG) console.log(`Adding ${updates.length} updates to pending queue`);
+                if (RUNTIME.debug) console.log(`Adding ${updates.length} updates to pending queue`);
                 this.pendingUpdates.push(...updates);
                 return;
             }
@@ -244,12 +244,12 @@ export class EventMonitor {
         if (updates.length === 0) return;
 
         try {
-            if (DEBUG) console.log(`Processing ${updates.length} reserve updates`);
+            if (RUNTIME.debug) console.log(`Processing ${updates.length} reserve updates`);
             
             // Update all reserves at once using batch update
             try {
                 this.graph.updateReserves(updates);
-                if (DEBUG) console.log(`Successfully updated ${updates.length} pairs`);
+                if (RUNTIME.debug) console.log(`Successfully updated ${updates.length} pairs`);
             } catch (error) {
                 console.error('Failed to update reserves:', error);
                 return;
@@ -257,7 +257,7 @@ export class EventMonitor {
 
             // Check for arbitrage opportunities only once after all updates
             this.isCheckingArbitrage = true;
-            // if (DEBUG) 
+            // if (RUNTIME.debug) 
             console.log('Starting arbitrage check after batch update...');
             await this.checkArbitrageOpportunities(updates.map(update => update.pairAddress));
 
@@ -285,13 +285,13 @@ export class EventMonitor {
         if (!this.isRunning) return;
         
         this.isRunning = false;
-        if (DEBUG) console.log('Stopping event monitor...');
+        if (RUNTIME.debug) console.log('Stopping event monitor...');
         
         // Unsubscribe from events
         if (this.unwatchFn) {
             try {
                 await this.unwatchFn();
-                if (DEBUG) console.log('Successfully unsubscribed from events');
+                if (RUNTIME.debug) console.log('Successfully unsubscribed from events');
             } catch (error) {
                 console.error('Error unsubscribing from events:', error);
             }
@@ -313,7 +313,7 @@ export class EventMonitor {
 
     private async restart() {
         if (this.reconnecting) {
-            if (DEBUG) console.log('Already in the process of reconnecting, skipping duplicate restart');
+            if (RUNTIME.debug) console.log('Already in the process of reconnecting, skipping duplicate restart');
             return;
         }
         
@@ -323,7 +323,7 @@ export class EventMonitor {
             await this.stop();
             
             // Reset WebSocket status to try again with the original configuration
-            if (WSS_ENABLED && this.networkConfig.wsClient && this.usingWebSocket) {
+            if (RUNTIME.websocketEnabled && this.networkConfig.wsClient && this.usingWebSocket) {
                 this.wsClient = this.networkConfig.wsClient;
                 console.log('Resetting WebSocket client for restart');
             }
@@ -336,7 +336,7 @@ export class EventMonitor {
     }
 
     private async onError(error: any) {
-        if (DEBUG) {
+        if (RUNTIME.debug) {
             console.error('Error in event monitoring:', error);
         }
 
@@ -388,8 +388,9 @@ export class EventMonitor {
             errorMessage.includes('rpc request failed')||
             errorDetails.includes('rpc request failed')) {
             
-            if (DEBUG) console.log('Filter error detected, restarting event monitor...');
+            if (RUNTIME.debug) console.log('Filter error detected, restarting event monitor...');
             await this.restart();
         }
     }
 }
+

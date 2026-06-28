@@ -1,5 +1,5 @@
 import { type Address } from 'viem';
-import { DEBUG } from '../constants';
+import { RUNTIME } from '../constants';
 import { compareFractions, FEE_DENOMINATOR } from './v2-math';
 import { type Edge, type PairInfo } from './types';
 
@@ -36,7 +36,7 @@ export class MarketGraph {
       pair.reserve1 = update.reserve1;
       updatedPairs.add(pair);
 
-      if (DEBUG) {
+      if (RUNTIME.debug) {
         console.log(`Updated reserves for pair ${update.pairAddress}: ${update.reserve0}, ${update.reserve1}`);
       }
     }
@@ -168,3 +168,4 @@ export class MarketGraph {
     this.rankedEdgesCache.delete(fromToken);
   }
 }
+

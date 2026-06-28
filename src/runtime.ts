@@ -1,4 +1,4 @@
-import { DEBUG } from './constants';
+import { RUNTIME } from './constants';
 import { EventMonitor } from './event';
 import { getAllPairsInfo } from './getinfo';
 import { V2ArbitrageEngine } from './arbitrage';
@@ -12,7 +12,7 @@ export async function runArbitrageBot(): Promise<void> {
   console.log('Fetching pairs information...');
   const pairs = await getAllPairsInfo(network.client);
 
-  if (DEBUG) {
+  if (RUNTIME.debug) {
     console.log(`Found ${pairs.length} pairs`);
   }
 
@@ -35,3 +35,4 @@ export async function runArbitrageBot(): Promise<void> {
     process.exit();
   });
 }
+

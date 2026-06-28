@@ -1,5 +1,5 @@
 import { formatUnits, type Address } from 'viem';
-import { ADDRESSES, DEBUG, V2_SEARCH_POLICY } from '../constants';
+import { RUNTIME, TOKENS, V2_SEARCH_POLICY } from '../constants';
 import { createOpportunityManager } from '../execute';
 import { type NetworkConfig } from '../network';
 import { type ArbitrageSearchResult, type FindOpportunitiesRequest } from './types';
@@ -37,7 +37,7 @@ export class OpportunityWorkflow {
         optimalAmount: opportunities.optimalAmounts[index],
         expectedProfit: opportunities.profits[index],
       }))).catch(error => {
-        if (DEBUG) {
+        if (RUNTIME.debug) {
           console.error('Error processing opportunities:', error);
         }
       });
@@ -47,14 +47,14 @@ export class OpportunityWorkflow {
   }
 
   private createSearchRequest(request: OpportunityWorkflowRequest): FindOpportunitiesRequest {
-    const startTokens = ADDRESSES
-      .slice(0, Math.min(V2_SEARCH_POLICY.topTokens, ADDRESSES.length))
+    const startTokens = TOKENS
+      .slice(0, Math.min(V2_SEARCH_POLICY.topTokens, TOKENS.length))
       .map(addr => addr.address);
 
-    if (DEBUG) {
+    if (RUNTIME.debug) {
       console.log(`Searching for arbitrage opportunities using ${startTokens.length} tokens simultaneously`);
       startTokens.forEach((token, i) => {
-        console.log(`Token ${i + 1}: ${ADDRESSES[i].name} (${token})`);
+        console.log(`Token ${i + 1}: ${TOKENS[i].name} (${token})`);
       });
     }
 
@@ -66,14 +66,14 @@ export class OpportunityWorkflow {
 
   private log(opportunities: ArbitrageSearchResult): void {
     if (opportunities.paths.length === 0) {
-      if (DEBUG) console.log('No profitable arbitrage opportunities found');
+      if (RUNTIME.debug) console.log('No profitable arbitrage opportunities found');
       return;
     }
 
     console.log(`\nFound ${opportunities.paths.length} potential arbitrage opportunities:`);
 
     opportunities.paths.forEach((path, index) => {
-      if (!DEBUG) return;
+      if (!RUNTIME.debug) return;
 
       const profit = opportunities.profits[index];
       const pairs = opportunities.pairs[index];
@@ -81,17 +81,17 @@ export class OpportunityWorkflow {
       const optimalAmount = opportunities.optimalAmounts[index];
       const profitBps = optimalAmount > 0n ? (profit * 10000n) / optimalAmount : 0n;
       const startToken = path[0];
-      const startTokenInfo = ADDRESSES.find(addr => addr.address === startToken);
+      const startTokenInfo = TOKENS.find(addr => addr.address === startToken);
       if (!startTokenInfo) throw new Error(`Token info not found for ${startToken}`);
 
       const lastToken = path[path.length - 1];
-      const lastTokenInfo = ADDRESSES.find(addr => addr.address === lastToken);
+      const lastTokenInfo = TOKENS.find(addr => addr.address === lastToken);
       if (!lastTokenInfo) throw new Error(`Token info not found for ${lastToken}`);
 
       console.log(`\nOpportunity #${index + 1}:`);
       console.log(`Path: ${path.join(' -> ')}`);
-      console.log(`Expected profit: ${formatUnits(profit, lastTokenInfo.decimal)} ${lastTokenInfo.name}`);
-      console.log(`Optimal input amount: ${optimalAmount.toString()} wei || ${formatUnits(optimalAmount, startTokenInfo.decimal)} ${startTokenInfo.name}`);
+      console.log(`Expected profit: ${formatUnits(profit, lastTokenInfo.decimals)} ${lastTokenInfo.name}`);
+      console.log(`Optimal input amount: ${optimalAmount.toString()} wei || ${formatUnits(optimalAmount, startTokenInfo.decimals)} ${startTokenInfo.name}`);
       console.log(`Profit percentage: ${this.formatBasisPoints(profitBps)}%`);
       console.log(`Pairs used: ${pairs.join(', ')}`);
       console.log(`Fees: ${fees.map(fee => fee.toString()).join(', ')}`);
@@ -104,3 +104,4 @@ export class OpportunityWorkflow {
     return `${whole}.${fraction.toString().padStart(2, '0')}`;
   }
 }
+
