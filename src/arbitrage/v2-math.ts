@@ -1,4 +1,5 @@
 import { type PairInfo, type SwapDirection } from './types';
+import { feeMultiplier } from '../values';
 
 export const FEE_DENOMINATOR = 10000n;
 
@@ -16,8 +17,7 @@ export function compareFractions(
 }
 
 export function swapV2(amountIn: bigint, reserveIn: bigint, reserveOut: bigint, fee: number): bigint {
-  const feeMultiplier = BigInt(10000 - fee);
-  const amountInAfterFee = (amountIn * feeMultiplier) / FEE_DENOMINATOR;
+  const amountInAfterFee = (amountIn * feeMultiplier(fee)) / FEE_DENOMINATOR;
   return (amountInAfterFee * reserveOut) / (reserveIn + amountInAfterFee);
 }
 

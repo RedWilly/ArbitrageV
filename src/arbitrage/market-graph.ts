@@ -1,5 +1,6 @@
 import { type Address } from 'viem';
 import { RUNTIME } from '../constants';
+import { feeMultiplier } from '../values';
 import { compareFractions, FEE_DENOMINATOR } from './v2-math';
 import { type Edge, type PairInfo } from './types';
 
@@ -52,9 +53,9 @@ export class MarketGraph {
 
     const ranked = [...(this.graph.get(token) || [])].sort((a, b) => {
       const rateCompare = compareFractions(
-        b.reserveOut * BigInt(10000 - b.fee),
+        b.reserveOut * feeMultiplier(b.fee),
         b.reserveIn * FEE_DENOMINATOR,
-        a.reserveOut * BigInt(10000 - a.fee),
+        a.reserveOut * feeMultiplier(a.fee),
         a.reserveIn * FEE_DENOMINATOR
       );
 

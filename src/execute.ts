@@ -1,5 +1,5 @@
 import TelegramBot from 'node-telegram-bot-api';
-import { formatEther, type Address, formatUnits } from 'viem';
+import { type Address } from 'viem';
 import {
     CONTRACTS,
     EXECUTION_POLICY,
@@ -9,6 +9,7 @@ import {
 } from './constants';
 import ArbABI from './ABI/Arb.json';
 import { type NetworkConfig } from './network';
+import { formatTokenAmountWithSymbol } from './values';
 
 interface ArbitrageOpportunity {
     path: Address[];
@@ -61,12 +62,12 @@ class TransactionNotifier {
     ): Promise<void> {
         if (!this.bot || !TELEGRAM.chatId) return;
 
-        const tokenName = this.resolveTokenName(tokenAddress);
+        const token = this.resolveToken(tokenAddress);
         const status = expectedProfit > 0n ? 'PROFIT' : 'WARNING';
         const message =
             `<b>${status}: Arbitrage Transaction</b>\n\n` +
             `<b>Type:</b> ${type === 'flashswap' ? 'Flash Swap' : 'Direct Swap'}\n` +
-            `<b>Expected Profit:</b> ${formatEther(expectedProfit)} ${tokenName}\n\n` +
+            `<b>Expected Profit:</b> ${formatTokenAmountWithSymbol(expectedProfit, token)}\n\n` +
             `<b>Transaction:</b>\n` +
             `<code>${hash}</code>\n\n` +
             `<a href="https://www.shibariumscan.io/tx/${hash}">View on Explorer</a>`;
@@ -81,11 +82,11 @@ class TransactionNotifier {
         }
     }
 
-    private resolveTokenName(tokenAddress?: Address): string {
-        if (!tokenAddress) return TOKENS[0]?.name || 'Unknown';
+    private resolveToken(tokenAddress?: Address): Pick<(typeof TOKENS)[number], 'name' | 'decimals'> {
+        if (!tokenAddress) return TOKENS[0] || { name: 'Unknown', decimals: 18 };
 
         const token = TOKENS.find(addr => addr.address.toLowerCase() === tokenAddress.toLowerCase());
-        return token?.name || 'Unknown';
+        return token || { name: 'Unknown', decimals: 18 };
     }
 }
 
@@ -143,7 +144,7 @@ export class OpportunityManager {
                 this.markPairsAsUsed(opp.pairs);
                 if (RUNTIME.debug) {
                     console.log('Successfully executed opportunity:', {
-                        profit: formatUnits(opp.expectedProfit, 18),
+                        profit: opp.expectedProfit.toString(),
                         pairs: opp.pairs
                     });
                 }
@@ -202,7 +203,7 @@ export class OpportunityManager {
                 pairs: opportunity.pairs,
                 fees: opportunity.fees,
                 repayFee: flashLoanPair.fee,
-                expectedProfit: formatUnits(opportunity.expectedProfit, 18)
+                expectedProfit: opportunity.expectedProfit.toString()
             });
         }
 
@@ -258,7 +259,7 @@ export class OpportunityManager {
                 startAmount: opportunity.optimalAmount.toString(),
                 pairs: opportunity.pairs,
                 fees: opportunity.fees,
-                expectedProfit: formatUnits(opportunity.expectedProfit, 18)
+                expectedProfit: opportunity.expectedProfit.toString()
             });
         }
 

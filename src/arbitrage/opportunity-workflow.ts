@@ -1,7 +1,8 @@
-import { formatUnits, type Address } from 'viem';
+import { type Address } from 'viem';
 import { RUNTIME, TOKENS, V2_SEARCH_POLICY } from '../constants';
 import { createOpportunityManager } from '../execute';
 import { type NetworkConfig } from '../network';
+import { basisPoints, formatBasisPoints, formatTokenAmountWithSymbol } from '../values';
 import { type ArbitrageSearchResult, type FindOpportunitiesRequest } from './types';
 
 export type OpportunityWorkflowRequest = {
@@ -79,7 +80,7 @@ export class OpportunityWorkflow {
       const pairs = opportunities.pairs[index];
       const fees = opportunities.fees[index];
       const optimalAmount = opportunities.optimalAmounts[index];
-      const profitBps = optimalAmount > 0n ? (profit * 10000n) / optimalAmount : 0n;
+      const profitBps = basisPoints(profit, optimalAmount);
       const startToken = path[0];
       const startTokenInfo = TOKENS.find(addr => addr.address === startToken);
       if (!startTokenInfo) throw new Error(`Token info not found for ${startToken}`);
@@ -90,18 +91,12 @@ export class OpportunityWorkflow {
 
       console.log(`\nOpportunity #${index + 1}:`);
       console.log(`Path: ${path.join(' -> ')}`);
-      console.log(`Expected profit: ${formatUnits(profit, lastTokenInfo.decimals)} ${lastTokenInfo.name}`);
-      console.log(`Optimal input amount: ${optimalAmount.toString()} wei || ${formatUnits(optimalAmount, startTokenInfo.decimals)} ${startTokenInfo.name}`);
-      console.log(`Profit percentage: ${this.formatBasisPoints(profitBps)}%`);
+      console.log(`Expected profit: ${formatTokenAmountWithSymbol(profit, lastTokenInfo)}`);
+      console.log(`Optimal input amount: ${optimalAmount.toString()} wei || ${formatTokenAmountWithSymbol(optimalAmount, startTokenInfo)}`);
+      console.log(`Profit percentage: ${formatBasisPoints(profitBps)}%`);
       console.log(`Pairs used: ${pairs.join(', ')}`);
       console.log(`Fees: ${fees.map(fee => fee.toString()).join(', ')}`);
     });
-  }
-
-  private formatBasisPoints(value: bigint): string {
-    const whole = value / 100n;
-    const fraction = value % 100n;
-    return `${whole}.${fraction.toString().padStart(2, '0')}`;
   }
 }
 

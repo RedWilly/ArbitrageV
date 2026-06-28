@@ -1,4 +1,5 @@
 import { type Address } from 'viem';
+import { feeMultiplier } from '../values';
 import { MarketGraph } from './market-graph';
 import { compareFractions, FEE_DENOMINATOR } from './v2-math';
 import { type CandidateRoute, type SwapDirection, type V2SearchPolicy } from './types';
@@ -48,7 +49,7 @@ export class CandidateFinder {
 
             expanded = true;
             const next: RouteState = {
-              rateNumerator: entry.rateNumerator * edge.reserveOut * BigInt(10000 - edge.fee),
+              rateNumerator: entry.rateNumerator * edge.reserveOut * feeMultiplier(edge.fee),
               rateDenominator: entry.rateDenominator * edge.reserveIn * FEE_DENOMINATOR,
               path: [...entry.path, edge.to],
               pairs: [...entry.pairs, edge.pairAddress],

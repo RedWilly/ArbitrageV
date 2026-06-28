@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { parseEther, type Address } from "viem";
+import { type Address } from "viem";
 import { V2ArbitrageEngine, type PairInfo } from "../src/arbitrage";
 import { TOKENS } from "../src/constants";
+import { tokenAmount } from "../src/values";
 
 const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
 
@@ -38,9 +39,9 @@ function buildGraph(pairs: PairInfo[]): V2ArbitrageEngine {
 describe("V2 arbitrage graph", () => {
   test("finds a profitable three-pool circular arbitrage route", () => {
     const graph = buildGraph([
-      pair(1, tokenA, tokenB, parseEther("1000"), parseEther("2200")),
-      pair(2, tokenB, tokenC, parseEther("1000"), parseEther("2200")),
-      pair(3, tokenC, tokenA, parseEther("1000"), parseEther("2200")),
+      pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200")),
+      pair(2, tokenB, tokenC, tokenAmount("1000"), tokenAmount("2200")),
+      pair(3, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")),
     ]);
 
     const opportunities = graph.findOpportunities({
@@ -57,9 +58,9 @@ describe("V2 arbitrage graph", () => {
 
   test("does not report a route when fees make the cycle unprofitable", () => {
     const graph = buildGraph([
-      pair(1, tokenA, tokenB, parseEther("1000"), parseEther("1000")),
-      pair(2, tokenB, tokenC, parseEther("1000"), parseEther("1000")),
-      pair(3, tokenC, tokenA, parseEther("1000"), parseEther("1000")),
+      pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("1000")),
+      pair(2, tokenB, tokenC, tokenAmount("1000"), tokenAmount("1000")),
+      pair(3, tokenC, tokenA, tokenAmount("1000"), tokenAmount("1000")),
     ]);
 
     const opportunities = graph.findOpportunities({
@@ -73,7 +74,7 @@ describe("V2 arbitrage graph", () => {
 
   test("does not reuse the same pair to manufacture a false two-hop cycle", () => {
     const graph = buildGraph([
-      pair(1, tokenA, tokenB, parseEther("1000"), parseEther("5000")),
+      pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("5000")),
     ]);
 
     const opportunities = graph.findOpportunities({
@@ -85,9 +86,9 @@ describe("V2 arbitrage graph", () => {
 
   test("keeps bigint precision for a tiny but real reserve imbalance", () => {
     const graph = buildGraph([
-      pair(1, tokenA, tokenB, parseEther("1000000"), parseEther("1003000"), 1),
-      pair(2, tokenB, tokenC, parseEther("1000000"), parseEther("1003000"), 1),
-      pair(3, tokenC, tokenA, parseEther("1000000"), parseEther("1003000"), 1),
+      pair(1, tokenA, tokenB, tokenAmount("1000000"), tokenAmount("1003000"), 1),
+      pair(2, tokenB, tokenC, tokenAmount("1000000"), tokenAmount("1003000"), 1),
+      pair(3, tokenC, tokenA, tokenAmount("1000000"), tokenAmount("1003000"), 1),
     ]);
 
     const opportunities = graph.findOpportunities({
@@ -99,14 +100,14 @@ describe("V2 arbitrage graph", () => {
   });
 
   test("event-local search only returns routes touching affected pairs", () => {
-    const changedPair = pair(1, tokenA, tokenB, parseEther("1000"), parseEther("2200"));
+    const changedPair = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200"));
     const graph = buildGraph([
       changedPair,
-      pair(2, tokenB, tokenC, parseEther("1000"), parseEther("2200")),
-      pair(3, tokenC, tokenA, parseEther("1000"), parseEther("2200")),
-      pair(4, tokenA, tokenB, parseEther("1000"), parseEther("3000")),
-      pair(5, tokenB, tokenC, parseEther("1000"), parseEther("3000")),
-      pair(6, tokenC, tokenA, parseEther("1000"), parseEther("3000")),
+      pair(2, tokenB, tokenC, tokenAmount("1000"), tokenAmount("2200")),
+      pair(3, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")),
+      pair(4, tokenA, tokenB, tokenAmount("1000"), tokenAmount("3000")),
+      pair(5, tokenB, tokenC, tokenAmount("1000"), tokenAmount("3000")),
+      pair(6, tokenC, tokenA, tokenAmount("1000"), tokenAmount("3000")),
     ]);
 
     const opportunities = graph.findOpportunities({
