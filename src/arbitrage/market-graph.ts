@@ -4,15 +4,22 @@ import { feeMultiplier } from '../values';
 import { compareFractions, FEE_DENOMINATOR } from './v2-math';
 import { type Edge, type PairInfo } from './types';
 
-type EdgeKey = `${string}-${string}`;
+type PairEdges = {
+  token0ToToken1: Edge;
+  token1ToToken0: Edge;
+};
+
+type RankedEdgeCache = {
+  limit: number;
+  edges: Edge[];
+};
 
 export class MarketGraph {
   private graph: Map<Address, Edge[]> = new Map();
   private tokens: Set<Address> = new Set();
   private pairs: Map<Address, PairInfo> = new Map();
-  private edgeIndex: Map<EdgeKey, Edge> = new Map();
-  private rankedEdgesCache: Map<Address, Edge[]> = new Map();
-  private tokenToHighestReservePair: Map<Address, { pairAddress: Address; reserves: bigint; fee: number }> = new Map();
+  private pairEdges: Map<Address, PairEdges> = new Map();
+  private rankedEdgesCache: Map<Address, RankedEdgeCache> = new Map();
 
   addPair(pair: PairInfo): void {
     if (pair.reserve0 === 0n || pair.reserve1 === 0n) return;
@@ -49,27 +56,19 @@ export class MarketGraph {
 
   rankedEdges(token: Address, limit: number): Edge[] {
     const cached = this.rankedEdgesCache.get(token);
-    if (cached) return cached.slice(0, limit);
+    if (cached && cached.limit >= limit) return cached.edges;
 
-    const ranked = [...(this.graph.get(token) || [])].sort((a, b) => {
-      const rateCompare = compareFractions(
-        b.reserveOut * feeMultiplier(b.fee),
-        b.reserveIn * FEE_DENOMINATOR,
-        a.reserveOut * feeMultiplier(a.fee),
-        a.reserveIn * FEE_DENOMINATOR
-      );
+    const ranked = this.selectTopEdges(this.graph.get(token) || [], limit);
+    this.rankedEdgesCache.set(token, { limit, edges: ranked });
+    return ranked;
+  }
 
-      if (rateCompare !== 0) return rateCompare;
-
-      const aLiquidity = a.reserveIn < a.reserveOut ? a.reserveIn : a.reserveOut;
-      const bLiquidity = b.reserveIn < b.reserveOut ? b.reserveIn : b.reserveOut;
-      if (bLiquidity > aLiquidity) return 1;
-      if (bLiquidity < aLiquidity) return -1;
-      return 0;
-    });
-
-    this.rankedEdgesCache.set(token, ranked);
-    return ranked.slice(0, limit);
+  edgeForTokenPair(token: Address, pairAddress: Address): Edge | null {
+    const edges = this.pairEdges.get(pairAddress);
+    if (!edges) return null;
+    if (this.pairs.get(pairAddress)?.token0 === token) return edges.token0ToToken1;
+    if (this.pairs.get(pairAddress)?.token1 === token) return edges.token1ToToken0;
+    return null;
   }
 
   pair(pairAddress: Address): PairInfo | null {
@@ -93,80 +92,127 @@ export class MarketGraph {
     amountIn: bigint,
     excludePairs: Address[] = []
   ): { pairAddress: Address; fee: number } | null {
-    const bestPair = this.tokenToHighestReservePair.get(token);
-    if (!bestPair) return null;
-    if (excludePairs.includes(bestPair.pairAddress)) return null;
-    if (bestPair.reserves < amountIn * 3n) return null;
+    const excluded = new Set(excludePairs.map(pair => pair.toLowerCase()));
+    let bestPair: { pairAddress: Address; reserves: bigint; fee: number } | null = null;
 
-    return {
-      pairAddress: bestPair.pairAddress,
-      fee: bestPair.fee,
-    };
+    for (const edge of this.graph.get(token) || []) {
+      if (excluded.has(edge.pairAddress.toLowerCase())) continue;
+      if (edge.reserveIn < amountIn * 3n) continue;
+
+      if (!bestPair || edge.reserveIn > bestPair.reserves) {
+        bestPair = {
+          pairAddress: edge.pairAddress,
+          reserves: edge.reserveIn,
+          fee: edge.fee,
+        };
+      }
+    }
+
+    return bestPair ? { pairAddress: bestPair.pairAddress, fee: bestPair.fee } : null;
   }
 
   clear(): void {
     this.graph.clear();
     this.tokens.clear();
     this.pairs.clear();
-    this.edgeIndex.clear();
+    this.pairEdges.clear();
     this.rankedEdgesCache.clear();
-    this.tokenToHighestReservePair.clear();
-  }
-
-  private createEdgeKey(fromToken: Address, pairAddress: Address): EdgeKey {
-    return `${fromToken}-${pairAddress}`;
   }
 
   private updateEdges(pair: PairInfo): void {
     if (pair.reserve0 === 0n || pair.reserve1 === 0n) return;
 
-    this.updateHighestReservePair(pair.token0, pair.pairAddress, pair.reserve0, pair.fee);
-    this.updateHighestReservePair(pair.token1, pair.pairAddress, pair.reserve1, pair.fee);
+    const existing = this.pairEdges.get(pair.pairAddress);
+    if (existing) {
+      existing.token0ToToken1.fee = pair.fee;
+      existing.token0ToToken1.reserveIn = pair.reserve0;
+      existing.token0ToToken1.reserveOut = pair.reserve1;
+      existing.token1ToToken0.fee = pair.fee;
+      existing.token1ToToken0.reserveIn = pair.reserve1;
+      existing.token1ToToken0.reserveOut = pair.reserve0;
+      this.rankedEdgesCache.delete(pair.token0);
+      this.rankedEdgesCache.delete(pair.token1);
+      return;
+    }
 
-    this.upsertEdge(pair.token0, {
+    const token0ToToken1: Edge = {
       to: pair.token1,
       pairAddress: pair.pairAddress,
       direction: 'token0ToToken1',
       fee: pair.fee,
       reserveIn: pair.reserve0,
       reserveOut: pair.reserve1,
-    });
+    };
 
-    this.upsertEdge(pair.token1, {
+    const token1ToToken0: Edge = {
       to: pair.token0,
       pairAddress: pair.pairAddress,
       direction: 'token1ToToken0',
       fee: pair.fee,
       reserveIn: pair.reserve1,
       reserveOut: pair.reserve0,
-    });
+    };
+
+    this.pairEdges.set(pair.pairAddress, { token0ToToken1, token1ToToken0 });
+    this.pushEdge(pair.token0, token0ToToken1);
+    this.pushEdge(pair.token1, token1ToToken0);
+    this.rankedEdgesCache.delete(pair.token0);
+    this.rankedEdgesCache.delete(pair.token1);
   }
 
-  private updateHighestReservePair(token: Address, pairAddress: Address, reserves: bigint, fee: number): void {
-    const currentBest = this.tokenToHighestReservePair.get(token);
-    if (!currentBest || reserves > currentBest.reserves) {
-      this.tokenToHighestReservePair.set(token, { pairAddress, reserves, fee });
+  private pushEdge(token: Address, edge: Edge): void {
+    const edges = this.graph.get(token);
+    if (edges) {
+      edges.push(edge);
+      return;
     }
+
+    this.graph.set(token, [edge]);
   }
 
-  private upsertEdge(fromToken: Address, edge: Edge): void {
-    const edgeKey = this.createEdgeKey(fromToken, edge.pairAddress);
-    const existing = this.edgeIndex.get(edgeKey);
+  private selectTopEdges(edges: Edge[], limit: number): Edge[] {
+    if (limit <= 0 || edges.length === 0) return [];
 
-    if (existing) {
-      existing.reserveIn = edge.reserveIn;
-      existing.reserveOut = edge.reserveOut;
-      existing.fee = edge.fee;
-    } else {
-      if (!this.graph.has(fromToken)) {
-        this.graph.set(fromToken, []);
+    const top: Edge[] = [];
+    for (const edge of edges) {
+      if (top.length < limit) {
+        top.push(edge);
+        this.moveEdgeIntoRank(top, top.length - 1);
+        continue;
       }
 
-      this.graph.get(fromToken)!.push(edge);
-      this.edgeIndex.set(edgeKey, edge);
+      if (this.compareEdgeRank(edge, top[top.length - 1]) < 0) continue;
+      top[top.length - 1] = edge;
+      this.moveEdgeIntoRank(top, top.length - 1);
     }
 
-    this.rankedEdgesCache.delete(fromToken);
+    return top;
+  }
+
+  private moveEdgeIntoRank(edges: Edge[], index: number): void {
+    while (index > 0 && this.compareEdgeRank(edges[index], edges[index - 1]) > 0) {
+      const previous = edges[index - 1];
+      edges[index - 1] = edges[index];
+      edges[index] = previous;
+      index--;
+    }
+  }
+
+  private compareEdgeRank(a: Edge, b: Edge): number {
+    const rateCompare = compareFractions(
+      a.reserveOut * feeMultiplier(a.fee),
+      a.reserveIn * FEE_DENOMINATOR,
+      b.reserveOut * feeMultiplier(b.fee),
+      b.reserveIn * FEE_DENOMINATOR
+    );
+
+    if (rateCompare !== 0) return rateCompare;
+
+    const aLiquidity = a.reserveIn < a.reserveOut ? a.reserveIn : a.reserveOut;
+    const bLiquidity = b.reserveIn < b.reserveOut ? b.reserveIn : b.reserveOut;
+    if (aLiquidity > bLiquidity) return 1;
+    if (aLiquidity < bLiquidity) return -1;
+    return 0;
   }
 }
 

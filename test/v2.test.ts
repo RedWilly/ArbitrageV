@@ -10,6 +10,10 @@ function pairAddress(id: number): Address {
   return `0x${id.toString(16).padStart(40, "0")}` as Address;
 }
 
+function tokenAddress(id: number): Address {
+  return `0x${(100000 + id).toString(16).padStart(40, "0")}` as Address;
+}
+
 function pair(
   id: number,
   token0: Address,
@@ -99,6 +103,54 @@ describe("V2 arbitrage graph", () => {
     expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
   });
 
+  test("keeps bigint precision with reserves larger than Number safe integer range", () => {
+    const hugeReserve = 10n ** 40n;
+    const graph = buildGraph([
+      pair(1, tokenA, tokenB, hugeReserve, hugeReserve * 2n, 1),
+      pair(2, tokenB, tokenC, hugeReserve, hugeReserve * 2n, 1),
+      pair(3, tokenC, tokenA, hugeReserve, hugeReserve * 2n, 1),
+    ]);
+
+    const opportunities = graph.findOpportunities({
+      startTokens: [tokenA],
+    });
+
+    expect(opportunities.paths.length).toBeGreaterThan(0);
+    expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
+    expect(opportunities.optimalAmounts[0]).toBeGreaterThan(9007199254740991n);
+    expect(typeof opportunities.profits[0]).toBe("bigint");
+    expect(typeof opportunities.optimalAmounts[0]).toBe("bigint");
+  });
+
+  test("keeps the profitable route visible with many irrelevant outgoing pairs", () => {
+    const distractors: PairInfo[] = [];
+    for (let i = 0; i < 500; i++) {
+      distractors.push(
+        pair(
+          1000 + i,
+          tokenA,
+          tokenAddress(i),
+          tokenAmount("1000000"),
+          tokenAmount("999000"),
+        )
+      );
+    }
+
+    const graph = buildGraph([
+      ...distractors,
+      pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200")),
+      pair(2, tokenB, tokenC, tokenAmount("1000"), tokenAmount("2200")),
+      pair(3, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")),
+    ]);
+
+    const opportunities = graph.findOpportunities({
+      startTokens: [tokenA],
+    });
+
+    expect(opportunities.paths.length).toBeGreaterThan(0);
+    expect(opportunities.paths[0]).toEqual([tokenA, tokenB, tokenC, tokenA]);
+  });
+
   test("event-local search only returns routes touching affected pairs", () => {
     const changedPair = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200"));
     const graph = buildGraph([
@@ -108,6 +160,39 @@ describe("V2 arbitrage graph", () => {
       pair(4, tokenA, tokenB, tokenAmount("1000"), tokenAmount("3000")),
       pair(5, tokenB, tokenC, tokenAmount("1000"), tokenAmount("3000")),
       pair(6, tokenC, tokenA, tokenAmount("1000"), tokenAmount("3000")),
+    ]);
+
+    const opportunities = graph.findOpportunities({
+      startTokens: [tokenA],
+      changedPairs: [changedPair.pairAddress],
+    });
+
+    expect(opportunities.paths.length).toBeGreaterThan(0);
+    for (const routePairs of opportunities.pairs) {
+      expect(routePairs).toContain(changedPair.pairAddress);
+    }
+  });
+
+  test("event-local search keeps an affected pair even when it is outside the normal beam", () => {
+    const distractors: PairInfo[] = [];
+    for (let i = 0; i < 20; i++) {
+      distractors.push(
+        pair(
+          2000 + i,
+          tokenA,
+          tokenAddress(1000 + i),
+          tokenAmount("1000"),
+          tokenAmount("5000"),
+        )
+      );
+    }
+
+    const changedPair = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("1100"));
+    const graph = buildGraph([
+      ...distractors,
+      changedPair,
+      pair(2, tokenB, tokenC, tokenAmount("1000"), tokenAmount("2200")),
+      pair(3, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")),
     ]);
 
     const opportunities = graph.findOpportunities({
