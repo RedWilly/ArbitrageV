@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parseEther, type Address } from "viem";
-import { ArbitrageGraph, type PairInfo } from "../src/graph";
+import { V2ArbitrageEngine, type PairInfo } from "../src/arbitrage";
 import { ADDRESSES, minProfits } from "../src/constants";
 
 const [tokenA, tokenB, tokenC] = ADDRESSES.map(({ address }) => address);
@@ -27,8 +27,8 @@ function pair(
   };
 }
 
-function buildGraph(pairs: PairInfo[]): ArbitrageGraph {
-  const graph = new ArbitrageGraph();
+function buildGraph(pairs: PairInfo[]): V2ArbitrageEngine {
+  const graph = new V2ArbitrageEngine();
   for (const pool of pairs) {
     graph.addPair(pool);
   }
@@ -43,7 +43,7 @@ describe("V2 arbitrage graph", () => {
       pair(3, tokenC, tokenA, parseEther("1000"), parseEther("2200")),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+    const opportunities = graph.findOpportunities({
       startTokens: [tokenA],
     });
 
@@ -62,7 +62,7 @@ describe("V2 arbitrage graph", () => {
       pair(3, tokenC, tokenA, parseEther("1000"), parseEther("1000")),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+    const opportunities = graph.findOpportunities({
       startTokens: [tokenA],
     });
 
@@ -76,7 +76,7 @@ describe("V2 arbitrage graph", () => {
       pair(1, tokenA, tokenB, parseEther("1000"), parseEther("5000")),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+    const opportunities = graph.findOpportunities({
       startTokens: [tokenA],
     });
 
@@ -90,7 +90,7 @@ describe("V2 arbitrage graph", () => {
       pair(3, tokenC, tokenA, parseEther("1000000"), parseEther("1003000"), 1),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+    const opportunities = graph.findOpportunities({
       startTokens: [tokenA],
     });
 
@@ -109,7 +109,7 @@ describe("V2 arbitrage graph", () => {
       pair(6, tokenC, tokenA, parseEther("1000"), parseEther("3000")),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+    const opportunities = graph.findOpportunities({
       startTokens: [tokenA],
       changedPairs: [changedPair.pairAddress],
     });

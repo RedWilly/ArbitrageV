@@ -1,7 +1,7 @@
 import { type Address, createPublicClient, http, parseAbiItem, formatUnits, decodeEventLog, type PublicClient } from 'viem';
-import { ArbitrageGraph } from './graph';
+import { V2ArbitrageEngine } from './arbitrage';
 import { DEBUG, ADDRESSES, WSS_ENABLED } from './constants';
-import { findAndLogArbitrageOpportunities } from "./opp";
+import { OpportunityWorkflow } from './arbitrage/opportunity-workflow';
 
 // ABI for both types of Sync events
 const SYNC_EVENT_ABI = [
@@ -28,7 +28,8 @@ type ReserveUpdate = {
 export class EventMonitor {
     private client: PublicClient;
     private wsClient?: PublicClient; // WebSocket client
-    private graph: ArbitrageGraph;
+    private graph: V2ArbitrageEngine;
+    private opportunities: OpportunityWorkflow;
     private isRunning: boolean = false;
     private isCheckingArbitrage: boolean = false;
     private unwatchFn: any;
@@ -38,9 +39,10 @@ export class EventMonitor {
     private wsReconnectAttempts: number = 0;
     private reconnecting: boolean = false;
 
-    constructor(graph: ArbitrageGraph, networkConfig: any) {
+    constructor(graph: V2ArbitrageEngine, networkConfig: any) {
         this.graph = graph;
         this.networkConfig = networkConfig;
+        this.opportunities = new OpportunityWorkflow(graph, networkConfig);
         this.client = networkConfig.client;
         
         // Use WebSocket client if available
@@ -248,7 +250,7 @@ export class EventMonitor {
             
             // Update all reserves at once using batch update
             try {
-                this.graph.updatePairReservesBatch(updates);
+                this.graph.updateReserves(updates);
                 if (DEBUG) console.log(`Successfully updated ${updates.length} pairs`);
             } catch (error) {
                 console.error('Failed to update reserves:', error);
@@ -275,8 +277,7 @@ export class EventMonitor {
 
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
         try {
-            // Search for arbitrage opportunities
-            await findAndLogArbitrageOpportunities(this.graph, this.networkConfig, { affectedPairs });
+            await this.opportunities.scanAndExecute({ changedPairs: affectedPairs });
         } catch (error) {
             console.error('Error checking arbitrage opportunities:', error);
         }

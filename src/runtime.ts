@@ -1,10 +1,10 @@
 import { DEBUG } from './constants';
 import { EventMonitor } from './event';
 import { getAllPairsInfo } from './getinfo';
-import { ArbitrageGraph } from './graph';
+import { V2ArbitrageEngine } from './arbitrage';
+import { OpportunityWorkflow } from './arbitrage/opportunity-workflow';
 import { initializeNetwork } from './network';
 import { createNonceManager } from './nonce';
-import { findAndLogArbitrageOpportunities } from './opp';
 
 export async function runArbitrageBot(): Promise<void> {
   console.log('Initializing network...');
@@ -22,13 +22,13 @@ export async function runArbitrageBot(): Promise<void> {
   }
 
   console.log('Building arbitrage graph...');
-  const graph = new ArbitrageGraph();
+  const graph = new V2ArbitrageEngine();
   for (const pair of pairs) {
     graph.addPair(pair);
   }
 
   console.log('Searching for initial arbitrage opportunities...');
-  await findAndLogArbitrageOpportunities(graph, network);
+  await new OpportunityWorkflow(graph, network).scanAndExecute();
 
   console.log('\nStarting event monitor...');
   const monitor = new EventMonitor(graph, network);
