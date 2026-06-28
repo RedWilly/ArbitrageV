@@ -1,10 +1,12 @@
 import { MarketGraph } from './market-graph';
-import { V2_SEARCH_POLICY } from './search-policy';
 import { calculateRouteProfit, reservesForDirection } from './v2-math';
-import { type CandidateRoute, type PairInfo } from './types';
+import { type CandidateRoute, type PairInfo, type V2SearchPolicy } from './types';
 
 export class TradeSizer {
-  constructor(private readonly market: MarketGraph) {}
+  constructor(
+    private readonly market: MarketGraph,
+    private readonly policy: V2SearchPolicy
+  ) {}
 
   size(route: CandidateRoute): { profit: bigint; optimalInput: bigint } {
     const pairs = route.pairs.map(pairAddress => {
@@ -20,7 +22,7 @@ export class TradeSizer {
       return { profit: 0n, optimalInput: 0n };
     }
 
-    for (let i = 0; i < V2_SEARCH_POLICY.optimizationIterations && high - low > 3n; i++) {
+    for (let i = 0; i < this.policy.optimizationIterations && high - low > 3n; i++) {
       const third = (high - low) / 3n;
       if (third === 0n) break;
 
@@ -44,7 +46,7 @@ export class TradeSizer {
 
     for (let i = 0; i < pairs.length; i++) {
       const { reserveIn } = reservesForDirection(pairs[i], route.directions[i]);
-      const candidate = reserveIn / V2_SEARCH_POLICY.maxInputReserveFraction;
+      const candidate = reserveIn / this.policy.maxInputReserveFraction;
       if (candidate <= 0n) return 0n;
       bound = bound === null || candidate < bound ? candidate : bound;
     }

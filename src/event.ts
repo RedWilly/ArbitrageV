@@ -1,6 +1,6 @@
-import { type Address, createPublicClient, http, parseAbiItem, formatUnits, decodeEventLog, type PublicClient } from 'viem';
+import { type Address, parseAbiItem, decodeEventLog, type PublicClient } from 'viem';
 import { V2ArbitrageEngine } from './arbitrage';
-import { DEBUG, ADDRESSES, WSS_ENABLED } from './constants';
+import { DEBUG, WSS_ENABLED } from './constants';
 import { OpportunityWorkflow } from './arbitrage/opportunity-workflow';
 
 // ABI for both types of Sync events
@@ -14,8 +14,6 @@ const SYNC_EVENT_ABI = [
 // Sync event topics
 const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1';
 const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4917f982149848a';
-const SYNC_TOPIC_V3 = '0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67';
-
 // Maximum WebSocket reconnection attempts before falling back to HTTP
 const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 3;
 

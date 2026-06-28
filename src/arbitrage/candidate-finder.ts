@@ -1,9 +1,7 @@
 import { type Address } from 'viem';
-import { NERK } from '../constants';
 import { MarketGraph } from './market-graph';
-import { V2_SEARCH_POLICY } from './search-policy';
 import { compareFractions, FEE_DENOMINATOR } from './v2-math';
-import { type CandidateRoute, type SwapDirection } from './types';
+import { type CandidateRoute, type SwapDirection, type V2SearchPolicy } from './types';
 
 type RouteState = CandidateRoute & {
   rateNumerator: bigint;
@@ -16,7 +14,10 @@ type CandidateSearchRequest = {
 };
 
 export class CandidateFinder {
-  constructor(private readonly market: MarketGraph) {}
+  constructor(
+    private readonly market: MarketGraph,
+    private readonly policy: V2SearchPolicy
+  ) {}
 
   findCandidates(request: CandidateSearchRequest): CandidateRoute[] {
     const changedPairs = new Set((request.changedPairs || []).map(pair => pair.toLowerCase()));
@@ -34,12 +35,12 @@ export class CandidateFinder {
       }]);
     }
 
-    for (let step = 1; step <= V2_SEARCH_POLICY.maxRouteEdges; step++) {
+    for (let step = 1; step <= this.policy.maxRouteEdges; step++) {
       statesByStep[step] = new Map();
       let expanded = false;
 
       for (const [currentToken, entries] of statesByStep[step - 1].entries()) {
-        const edges = this.market.rankedEdges(currentToken, V2_SEARCH_POLICY.beamWidth);
+        const edges = this.market.rankedEdges(currentToken, this.policy.beamWidth);
 
         for (const entry of entries) {
           for (const edge of edges) {
@@ -88,7 +89,7 @@ export class CandidateFinder {
         a.rateDenominator
       );
     });
-    states.splice(V2_SEARCH_POLICY.beamWidth);
+    states.splice(this.policy.beamWidth);
   }
 
   private isRelevantCandidate(
@@ -104,7 +105,7 @@ export class CandidateFinder {
 
     const originToken = state.path[0];
     const targetToken = state.path[state.path.length - 1];
-    return NERK
+    return this.policy.routeMode === 'cross-token'
       ? startTokens.includes(originToken) && startTokens.includes(targetToken)
       : targetToken === originToken;
   }

@@ -18,9 +18,9 @@ export const UNISWAP_FLASH_QUERY_CONTRACT =
  * List of tokens used for arbitrage operations
  * 
  * IMPORTANT: The order of this array is significant:
- * - The first TOP_TOKENS_FOR_ARBITRAGE tokens will be used as starting points for arbitrage
+ * - The first V2_SEARCH_POLICY.topTokens tokens will be used as starting points for arbitrage
  * - Each token that is used for arbitrage must have a corresponding entry in the minProfits array
- * - For example, if TOP_TOKENS_FOR_ARBITRAGE = 3, then the first 3 tokens (WCRO, USDC, USDT) will be used
+ * - For example, if V2_SEARCH_POLICY.topTokens = 3, then the first 3 tokens will be used
  * 
  * Each token object contains:
  * - name: A human-readable name for the token
@@ -64,7 +64,7 @@ export const FACTORY: { name: string; address: `0x${string}`; fee: number; volat
 /**
  * Token-specific minimum profit thresholds
  * 
- * IMPORTANT: This array MUST be equal to TOP_TOKENS_FOR_ARBITRAGE elements.
+ * IMPORTANT: This array MUST cover every token allowed by V2_SEARCH_POLICY.topTokens.
  * Each element corresponds to a token in the ADDRESSES array in the same order.
  * 
  * For example:
@@ -85,19 +85,18 @@ export const minProfits = [
     parseEther("42000000"), //0.1 bone
 ];
 
-
-/**
- * Number of top tokens to consider for arbitrage
- * IMPORTANT: This value must not exceed the length of the minProfits array.
- * If you increase this number, make sure to add corresponding entries to the minProfits array.
- * NOTE - the more token you add - it increase the speed +100ms when searching(e.g if 3 means 300ms total)
- */
-export const TOP_TOKENS_FOR_ARBITRAGE = 2;
+export const V2_SEARCH_POLICY = {
+    topTokens: 2,
+    routeMode: 'circular',
+    maxRouteEdges: 6,
+    beamWidth: 10,
+    optimizationIterations: 160,
+    maxInputReserveFraction: 3n,
+    maxOpportunities: 20,
+} as const;
 
 export const DEBUG = false;
 export const WSS_ENABLED = false; //enable this only when you are on a chain with wss support or better wss
-export const NERK = false;
-
 
 export const BATCH_SIZE = 200;
 

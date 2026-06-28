@@ -4,15 +4,10 @@ import { getAllPairsInfo } from './getinfo';
 import { V2ArbitrageEngine } from './arbitrage';
 import { OpportunityWorkflow } from './arbitrage/opportunity-workflow';
 import { initializeNetwork } from './network';
-import { createNonceManager } from './nonce';
 
 export async function runArbitrageBot(): Promise<void> {
   console.log('Initializing network...');
   const network = await initializeNetwork();
-
-  console.log('Initializing nonce manager...');
-  const nonceManager = createNonceManager(network.account);
-  await nonceManager.initialize(network.client);
 
   console.log('Fetching pairs information...');
   const pairs = await getAllPairsInfo(network.client);

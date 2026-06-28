@@ -1,9 +1,17 @@
-import { type Address, formatUnits } from 'viem';
-import { ARB_CONTRACT, DEBUG, GAS_LIMIT, LEGACY, BASE_FEE } from './constants';
+import TelegramBot from 'node-telegram-bot-api';
+import { formatEther, type Address, formatUnits } from 'viem';
+import {
+    ADDRESSES,
+    ARB_CONTRACT,
+    BASE_FEE,
+    DEBUG,
+    GAS_LIMIT,
+    LEGACY,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID,
+} from './constants';
 import ArbABI from './ABI/Arb.json';
 import { type NetworkConfig } from './network';
-import { NonceManager, createNonceManager } from './nonce';
-import { notificationService } from './Notify';
 
 interface ArbitrageOpportunity {
     path: Address[];
@@ -21,20 +29,77 @@ type FlashLoanPairLookup = {
     ): { pairAddress: Address; fee: number } | null;
 };
 
+class NonceTracker {
+    private currentNonce: number | null = null;
+
+    constructor(private readonly networkConfig: NetworkConfig) {}
+
+    async next(): Promise<number> {
+        if (this.currentNonce === null) {
+            this.currentNonce = Number(await this.networkConfig.client.getTransactionCount({
+                address: this.networkConfig.account.address,
+            }));
+
+            if (DEBUG) {
+                console.log(`Initialized nonce tracker with nonce: ${this.currentNonce}`);
+            }
+        }
+
+        const nonce = this.currentNonce;
+        this.currentNonce++;
+        return nonce;
+    }
+}
+
+class TransactionNotifier {
+    private bot: TelegramBot | null = TELEGRAM_BOT_TOKEN
+        ? new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false })
+        : null;
+
+    async transactionSent(
+        hash: string,
+        type: 'flashswap' | 'direct',
+        expectedProfit: bigint,
+        tokenAddress?: Address
+    ): Promise<void> {
+        if (!this.bot || !TELEGRAM_CHAT_ID) return;
+
+        const tokenName = this.resolveTokenName(tokenAddress);
+        const status = expectedProfit > 0n ? 'PROFIT' : 'WARNING';
+        const message =
+            `<b>${status}: Arbitrage Transaction</b>\n\n` +
+            `<b>Type:</b> ${type === 'flashswap' ? 'Flash Swap' : 'Direct Swap'}\n` +
+            `<b>Expected Profit:</b> ${formatEther(expectedProfit)} ${tokenName}\n\n` +
+            `<b>Transaction:</b>\n` +
+            `<code>${hash}</code>\n\n` +
+            `<a href="https://www.shibariumscan.io/tx/${hash}">View on Explorer</a>`;
+
+        try {
+            await this.bot.sendMessage(TELEGRAM_CHAT_ID, message, {
+                parse_mode: 'HTML',
+                disable_web_page_preview: true,
+            });
+        } catch (error) {
+            console.error('Failed to send Telegram notification:', error);
+        }
+    }
+
+    private resolveTokenName(tokenAddress?: Address): string {
+        if (!tokenAddress) return ADDRESSES[0]?.name || 'Unknown';
+
+        const token = ADDRESSES.find(addr => addr.address.toLowerCase() === tokenAddress.toLowerCase());
+        return token?.name || 'Unknown';
+    }
+}
+
 // Keeps track of executed pairs to avoid conflicts
 export class OpportunityManager {
     private usedPairs: Set<string> = new Set();
-    private networkConfig: NetworkConfig;
-    private nonceManager: NonceManager;
+    private nonceTracker: NonceTracker;
+    private notifier = new TransactionNotifier();
 
-    constructor(networkConfig: NetworkConfig) {
-        this.networkConfig = networkConfig;
-        this.nonceManager = createNonceManager(networkConfig.account);
-    }
-
-    async initialize(): Promise<void> {
-        // Initialize nonce manager
-        await this.nonceManager.initialize(this.networkConfig.client);
+    constructor(private readonly networkConfig: NetworkConfig) {
+        this.nonceTracker = new NonceTracker(networkConfig);
     }
 
     // Check if an opportunity conflicts with already executed pairs
@@ -144,8 +209,7 @@ export class OpportunityManager {
             });
         }
 
-        // Get next nonce
-        const nonce = this.nonceManager.getAndIncrement();
+        const nonce = await this.nonceTracker.next();
 
         // Calculate dynamic gas fees based on opportunity's expected profit
         const { maxFeePerGas, maxPriorityFeePerGas } = this.calculateGasFees(opportunity.expectedProfit);
@@ -180,8 +244,7 @@ export class OpportunityManager {
             });
         }
 
-        // Send notification
-        await notificationService.sendTransactionNotification(
+        await this.notifier.transactionSent(
             hash,
             'flashswap',
             opportunity.expectedProfit,
@@ -202,8 +265,7 @@ export class OpportunityManager {
             });
         }
 
-        // Get next nonce
-        const nonce = this.nonceManager.getAndIncrement();
+        const nonce = await this.nonceTracker.next();
 
         // Calculate dynamic gas fees based on opportunity's expected profit
         const { maxFeePerGas, maxPriorityFeePerGas } = this.calculateGasFees(opportunity.expectedProfit);
@@ -236,8 +298,7 @@ export class OpportunityManager {
             });
         }
 
-        // Send notification
-        await notificationService.sendTransactionNotification(
+        await this.notifier.transactionSent(
             hash,
             'direct',
             opportunity.expectedProfit,

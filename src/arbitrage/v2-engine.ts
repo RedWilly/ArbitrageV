@@ -1,20 +1,25 @@
 import { type Address } from 'viem';
-import { ADDRESSES, minProfits } from '../constants';
+import { ADDRESSES, minProfits, V2_SEARCH_POLICY } from '../constants';
 import { CandidateFinder } from './candidate-finder';
 import { MarketGraph } from './market-graph';
-import { V2_SEARCH_POLICY } from './search-policy';
 import { TradeSizer } from './trade-sizer';
 import {
   type ArbitrageSearchResult,
   type CandidateRoute,
   type FindOpportunitiesRequest,
   type PairInfo,
+  type V2SearchPolicy,
 } from './types';
 
 export class V2ArbitrageEngine {
   private readonly market = new MarketGraph();
-  private readonly candidates = new CandidateFinder(this.market);
-  private readonly sizer = new TradeSizer(this.market);
+  private readonly candidates: CandidateFinder;
+  private readonly sizer: TradeSizer;
+
+  constructor(private readonly policy: V2SearchPolicy = V2_SEARCH_POLICY) {
+    this.candidates = new CandidateFinder(this.market, policy);
+    this.sizer = new TradeSizer(this.market, policy);
+  }
 
   addPair(pair: PairInfo): void {
     this.market.addPair(pair);
@@ -44,7 +49,7 @@ export class V2ArbitrageEngine {
         if (b.profit < a.profit) return -1;
         return 0;
       })
-      .slice(0, V2_SEARCH_POLICY.maxOpportunities);
+      .slice(0, this.policy.maxOpportunities);
 
     return {
       paths: opportunities.map(opportunity => opportunity.path),

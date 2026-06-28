@@ -1,4 +1,4 @@
-import { createPublicClient, http, webSocket, createWalletClient, type Account, type Transport } from 'viem';
+import { createPublicClient, http, webSocket, createWalletClient, type Account } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { shibarium } from 'viem/chains';
 import { RPC_URL, WSS_URL, PRIVATE_KEY, CHAIN_ID, WSS_ENABLED } from './constants';
