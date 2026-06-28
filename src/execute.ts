@@ -1,5 +1,4 @@
-import { type Address, createPublicClient, http, parseAbiItem, formatUnits, parseGwei } from 'viem';
-import { ArbitrageGraph } from './graph';
+import { type Address, formatUnits } from 'viem';
 import { ARB_CONTRACT, DEBUG, GAS_LIMIT, LEGACY, BASE_FEE } from './constants';
 import ArbABI from './ABI/Arb.json';
 import { type NetworkConfig } from './network';
@@ -13,6 +12,14 @@ interface ArbitrageOpportunity {
     optimalAmount: bigint;
     expectedProfit: bigint;
 }
+
+type FlashLoanPairLookup = {
+    findBestPairForToken(
+        token: Address,
+        amountIn: bigint,
+        excludePairs?: Address[]
+    ): { pairAddress: Address; fee: number } | null;
+};
 
 // Keeps track of executed pairs to avoid conflicts
 export class OpportunityManager {
@@ -41,13 +48,15 @@ export class OpportunityManager {
 
     // Process and execute a batch of opportunities
     async processOpportunities(
-        graph: ArbitrageGraph,
+        graph: FlashLoanPairLookup,
         opportunities: ArbitrageOpportunity[]
     ): Promise<void> {
         // Sort opportunities by expected profit (descending)
-        const sortedOpps = [...opportunities].sort((a, b) => 
-            Number(b.expectedProfit - a.expectedProfit)
-        );
+        const sortedOpps = [...opportunities].sort((a, b) => {
+            if (b.expectedProfit > a.expectedProfit) return 1;
+            if (b.expectedProfit < a.expectedProfit) return -1;
+            return 0;
+        });
 
         if (DEBUG) {
             console.log(`Processing ${sortedOpps.length} opportunities in profit order`);
@@ -88,7 +97,7 @@ export class OpportunityManager {
     }
 
     private async executeArbitrageOpportunity(
-        graph: ArbitrageGraph,
+        graph: FlashLoanPairLookup,
         opportunity: ArbitrageOpportunity
     ): Promise<void> {
         const startToken = opportunity.path[0];
@@ -103,7 +112,7 @@ export class OpportunityManager {
     }
 
     private async executeWithFlashswap(
-        graph: ArbitrageGraph,
+        graph: FlashLoanPairLookup,
         opportunity: ArbitrageOpportunity
     ): Promise<void> {
         if (!ARB_CONTRACT || !ARB_CONTRACT.match(/^0x[a-fA-F0-9]{40}$/)) {

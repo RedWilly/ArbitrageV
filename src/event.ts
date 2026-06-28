@@ -259,7 +259,7 @@ export class EventMonitor {
             this.isCheckingArbitrage = true;
             // if (DEBUG) 
             console.log('Starting arbitrage check after batch update...');
-            await this.checkArbitrageOpportunities();
+            await this.checkArbitrageOpportunities(updates.map(update => update.pairAddress));
 
             // Process any pending updates that came during arbitrage check
             if (this.pendingUpdates.length > 0) {
@@ -273,10 +273,10 @@ export class EventMonitor {
         }
     }
 
-    private async checkArbitrageOpportunities() {
+    private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
         try {
             // Search for arbitrage opportunities
-            await findAndLogArbitrageOpportunities(this.graph, this.networkConfig);
+            await findAndLogArbitrageOpportunities(this.graph, this.networkConfig, { affectedPairs });
         } catch (error) {
             console.error('Error checking arbitrage opportunities:', error);
         }
@@ -301,11 +301,8 @@ export class EventMonitor {
         // Clean up WebSocket connection if it was being used
         if (this.usingWebSocket && this.wsClient) {
             try {
-                // The viem WebSocket transport automatically handles cleanup
-                // when the client is no longer referenced, but we can log it
                 console.log('Cleaning up WebSocket connection');
-                // Set to undefined to allow garbage collection
-                this.wsClient = undefined;
+                delete this.wsClient;
             } catch (error) {
                 console.error('Error cleaning up WebSocket connection:', error);
             }

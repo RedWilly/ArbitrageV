@@ -43,26 +43,29 @@ export async function initializeNetwork(): Promise<NetworkConfig> {
     account,
   });
 
+  const config = {
+    client,
+    walletClient,
+    account,
+  };
+
   // Create WebSocket client if enabled and WSS_URL is available
-  let wsClient: ReturnType<typeof createPublicClient> | undefined;
-  
   if (WSS_ENABLED && WSS_URL) {
     try {
-      wsClient = createPublicClient({
+      const wsClient = createPublicClient({
         chain: chainConfig,
         transport: webSocket(WSS_URL),
       });
       console.log('WebSocket client initialized successfully');
+      return {
+        ...config,
+        wsClient,
+      };
     } catch (error) {
       console.error('Failed to initialize WebSocket client:', error);
       console.warn('Falling back to HTTP client for events');
     }
   }
 
-  return {
-    client,
-    wsClient,
-    walletClient,
-    account,
-  };
+  return config;
 }

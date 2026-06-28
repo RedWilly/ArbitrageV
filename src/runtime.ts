@@ -1,0 +1,42 @@
+import { DEBUG } from './constants';
+import { EventMonitor } from './event';
+import { getAllPairsInfo } from './getinfo';
+import { ArbitrageGraph } from './graph';
+import { initializeNetwork } from './network';
+import { createNonceManager } from './nonce';
+import { findAndLogArbitrageOpportunities } from './opp';
+
+export async function runArbitrageBot(): Promise<void> {
+  console.log('Initializing network...');
+  const network = await initializeNetwork();
+
+  console.log('Initializing nonce manager...');
+  const nonceManager = createNonceManager(network.account);
+  await nonceManager.initialize(network.client);
+
+  console.log('Fetching pairs information...');
+  const pairs = await getAllPairsInfo(network.client);
+
+  if (DEBUG) {
+    console.log(`Found ${pairs.length} pairs`);
+  }
+
+  console.log('Building arbitrage graph...');
+  const graph = new ArbitrageGraph();
+  for (const pair of pairs) {
+    graph.addPair(pair);
+  }
+
+  console.log('Searching for initial arbitrage opportunities...');
+  await findAndLogArbitrageOpportunities(graph, network);
+
+  console.log('\nStarting event monitor...');
+  const monitor = new EventMonitor(graph, network);
+  await monitor.start();
+
+  process.on('SIGINT', async () => {
+    console.log('\nStopping event monitor...');
+    await monitor.stop();
+    process.exit();
+  });
+}

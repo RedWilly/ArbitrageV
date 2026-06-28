@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { parseEther, parseGwei, parseUnits } from "viem";
+import { parseEther, parseGwei } from "viem";
 dotenv.config();
 
 export const CHAIN_ID = 109;
@@ -85,12 +85,6 @@ export const minProfits = [
     parseEther("42000000"), //0.1 bone
 ];
 
-// Legacy minProfit for backward compatibility - findArbitrageOpportunities
-export const minProfit = parseEther("3");
-
-export const maxIterations = 100;
-export const maxHops = 20;
-export const MAX_ENTRIES_PER_TOKEN = 10;
 
 /**
  * Number of top tokens to consider for arbitrage

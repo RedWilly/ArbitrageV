@@ -43,7 +43,9 @@ describe("V2 arbitrage graph", () => {
       pair(3, tokenC, tokenA, parseEther("1000"), parseEther("2200")),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities([tokenA], 3);
+    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+      startTokens: [tokenA],
+    });
 
     expect(opportunities.paths.length).toBeGreaterThan(0);
     expect(opportunities.paths[0]).toEqual([tokenA, tokenB, tokenC, tokenA]);
@@ -60,7 +62,9 @@ describe("V2 arbitrage graph", () => {
       pair(3, tokenC, tokenA, parseEther("1000"), parseEther("1000")),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities([tokenA], 3);
+    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+      startTokens: [tokenA],
+    });
 
     expect(opportunities.paths).toEqual([]);
     expect(opportunities.profits).toEqual([]);
@@ -72,7 +76,9 @@ describe("V2 arbitrage graph", () => {
       pair(1, tokenA, tokenB, parseEther("1000"), parseEther("5000")),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities([tokenA], 2);
+    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+      startTokens: [tokenA],
+    });
 
     expect(opportunities.paths).toEqual([]);
   });
@@ -84,9 +90,33 @@ describe("V2 arbitrage graph", () => {
       pair(3, tokenC, tokenA, parseEther("1000000"), parseEther("1003000"), 1),
     ]);
 
-    const opportunities = graph.findMultiTokenArbitrageOpportunities([tokenA], 3);
+    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+      startTokens: [tokenA],
+    });
 
     expect(opportunities.paths.length).toBeGreaterThan(0);
     expect(opportunities.profits[0]).toBeGreaterThan(minProfits[0]);
+  });
+
+  test("event-local search only returns routes touching affected pairs", () => {
+    const changedPair = pair(1, tokenA, tokenB, parseEther("1000"), parseEther("2200"));
+    const graph = buildGraph([
+      changedPair,
+      pair(2, tokenB, tokenC, parseEther("1000"), parseEther("2200")),
+      pair(3, tokenC, tokenA, parseEther("1000"), parseEther("2200")),
+      pair(4, tokenA, tokenB, parseEther("1000"), parseEther("3000")),
+      pair(5, tokenB, tokenC, parseEther("1000"), parseEther("3000")),
+      pair(6, tokenC, tokenA, parseEther("1000"), parseEther("3000")),
+    ]);
+
+    const opportunities = graph.findMultiTokenArbitrageOpportunities({
+      startTokens: [tokenA],
+      changedPairs: [changedPair.pairAddress],
+    });
+
+    expect(opportunities.paths.length).toBeGreaterThan(0);
+    for (const routePairs of opportunities.pairs) {
+      expect(routePairs).toContain(changedPair.pairAddress);
+    }
   });
 });
