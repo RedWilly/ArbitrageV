@@ -31,7 +31,7 @@ export class EventMonitor {
     private isRunning: boolean = false;
     private isCheckingArbitrage: boolean = false;
     private unwatchFn: any;
-    private pendingUpdates: ReserveUpdate[] = [];
+    private pendingUpdates: Map<string, ReserveUpdate> = new Map();
     private networkConfig: any;
     private usingWebSocket: boolean = false;
     private wsReconnectAttempts: number = 0;
@@ -225,14 +225,6 @@ export class EventMonitor {
                 updates.push({ pairAddress, reserve0, reserve1 });
             }
 
-            // If we're currently checking arbitrage, add these updates to pending queue
-            if (this.isCheckingArbitrage) {
-                if (RUNTIME.debug) console.log(`Adding ${updates.length} updates to pending queue`);
-                this.pendingUpdates.push(...updates);
-                return;
-            }
-
-            // Process all updates at once
             await this.processUpdates(updates);
 
         } catch (error) {
@@ -240,34 +232,51 @@ export class EventMonitor {
         }
     }
 
+    private updateKey(pairAddress: Address): string {
+        return pairAddress.toLowerCase();
+    }
+
+    private mergePendingUpdates(updates: ReserveUpdate[]): void {
+        for (const update of updates) {
+            this.pendingUpdates.set(this.updateKey(update.pairAddress), update);
+        }
+    }
+
+    private drainPendingUpdates(): ReserveUpdate[] {
+        const updates = Array.from(this.pendingUpdates.values());
+        this.pendingUpdates.clear();
+        return updates;
+    }
+
     private async processUpdates(updates: ReserveUpdate[]) {
         if (updates.length === 0) return;
+        this.mergePendingUpdates(updates);
+
+        if (this.isCheckingArbitrage) {
+            if (RUNTIME.debug) console.log(`Merged ${updates.length} updates into ${this.pendingUpdates.size} pending pairs`);
+            return;
+        }
+
+        this.isCheckingArbitrage = true;
 
         try {
-            if (RUNTIME.debug) console.log(`Processing ${updates.length} reserve updates`);
-            
-            // Update all reserves at once using batch update
-            try {
-                this.graph.updateReserves(updates);
-                if (RUNTIME.debug) console.log(`Successfully updated ${updates.length} pairs`);
-            } catch (error) {
-                console.error('Failed to update reserves:', error);
-                return;
+            while (this.pendingUpdates.size > 0) {
+                const batch = this.drainPendingUpdates();
+                if (RUNTIME.debug) console.log(`Processing ${batch.length} latest reserve updates`);
+                
+                // Update all reserves at once using batch update
+                try {
+                    this.graph.updateReserves(batch);
+                    if (RUNTIME.debug) console.log(`Successfully updated ${batch.length} pairs`);
+                } catch (error) {
+                    console.error('Failed to update reserves:', error);
+                    continue;
+                }
+
+                // Check for arbitrage opportunities only once after all updates
+                console.log('Starting arbitrage check after batch update...');
+                await this.checkArbitrageOpportunities(batch.map(update => update.pairAddress));
             }
-
-            // Check for arbitrage opportunities only once after all updates
-            this.isCheckingArbitrage = true;
-            // if (RUNTIME.debug) 
-            console.log('Starting arbitrage check after batch update...');
-            await this.checkArbitrageOpportunities(updates.map(update => update.pairAddress));
-
-            // Process any pending updates that came during arbitrage check
-            if (this.pendingUpdates.length > 0) {
-                const pendingUpdates = [...this.pendingUpdates];
-                this.pendingUpdates = [];
-                await this.processUpdates(pendingUpdates);
-            }
-
         } finally {
             this.isCheckingArbitrage = false;
         }
@@ -308,7 +317,7 @@ export class EventMonitor {
         }
         
         // Clear any pending updates
-        this.pendingUpdates = [];
+        this.pendingUpdates.clear();
     }
 
     private async restart() {
