@@ -3,7 +3,9 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "start": "bun run index.ts"
+    "start": "bun run index.ts",
+    "test": "bun test",
+    "test:stress": "bun test test/v2.stress.test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
