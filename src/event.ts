@@ -1,7 +1,9 @@
 import { type Address, parseAbiItem, decodeEventLog, type PublicClient } from 'viem';
-import { V2ArbitrageEngine } from './arbitrage';
 import { RUNTIME } from './constants';
-import { OpportunityWorkflow } from './arbitrage/opportunity-workflow';
+import { type ReserveUpdate } from './market/v2-types';
+import { OpportunityEngine } from './opportunities/opportunity-engine';
+import { OpportunityWorkflow } from './opportunities/opportunity-workflow';
+import { ReserveUpdateScheduler } from './runtime/event-scheduler';
 
 // ABI for both types of Sync events
 const SYNC_EVENT_ABI = [
@@ -17,30 +19,24 @@ const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4
 // Maximum WebSocket reconnection attempts before falling back to HTTP
 const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 3;
 
-type ReserveUpdate = {
-    pairAddress: Address;
-    reserve0: bigint;
-    reserve1: bigint;
-};
-
 export class EventMonitor {
     private client: PublicClient;
     private wsClient?: PublicClient; // WebSocket client
-    private graph: V2ArbitrageEngine;
+    private graph: OpportunityEngine;
     private opportunities: OpportunityWorkflow;
     private isRunning: boolean = false;
-    private isCheckingArbitrage: boolean = false;
     private unwatchFn: any;
-    private pendingUpdates: Map<string, ReserveUpdate> = new Map();
+    private scheduler: ReserveUpdateScheduler;
     private networkConfig: any;
     private usingWebSocket: boolean = false;
     private wsReconnectAttempts: number = 0;
     private reconnecting: boolean = false;
 
-    constructor(graph: V2ArbitrageEngine, networkConfig: any) {
+    constructor(graph: OpportunityEngine, networkConfig: any) {
         this.graph = graph;
         this.networkConfig = networkConfig;
         this.opportunities = new OpportunityWorkflow(graph, networkConfig);
+        this.scheduler = new ReserveUpdateScheduler(this.processReserveUpdateBatch.bind(this));
         this.client = networkConfig.client;
         
         // Use WebSocket client if available
@@ -232,54 +228,23 @@ export class EventMonitor {
         }
     }
 
-    private updateKey(pairAddress: Address): string {
-        return pairAddress.toLowerCase();
-    }
-
-    private mergePendingUpdates(updates: ReserveUpdate[]): void {
-        for (const update of updates) {
-            this.pendingUpdates.set(this.updateKey(update.pairAddress), update);
-        }
-    }
-
-    private drainPendingUpdates(): ReserveUpdate[] {
-        const updates = Array.from(this.pendingUpdates.values());
-        this.pendingUpdates.clear();
-        return updates;
-    }
-
     private async processUpdates(updates: ReserveUpdate[]) {
-        if (updates.length === 0) return;
-        this.mergePendingUpdates(updates);
+        await this.scheduler.submit(updates);
+    }
 
-        if (this.isCheckingArbitrage) {
-            if (RUNTIME.debug) console.log(`Merged ${updates.length} updates into ${this.pendingUpdates.size} pending pairs`);
+    private async processReserveUpdateBatch(batch: ReserveUpdate[]): Promise<void> {
+        if (RUNTIME.debug) console.log(`Processing ${batch.length} latest reserve updates`);
+
+        try {
+            this.graph.updateReserves(batch);
+            if (RUNTIME.debug) console.log(`Successfully updated ${batch.length} pairs`);
+        } catch (error) {
+            console.error('Failed to update reserves:', error);
             return;
         }
 
-        this.isCheckingArbitrage = true;
-
-        try {
-            while (this.pendingUpdates.size > 0) {
-                const batch = this.drainPendingUpdates();
-                if (RUNTIME.debug) console.log(`Processing ${batch.length} latest reserve updates`);
-                
-                // Update all reserves at once using batch update
-                try {
-                    this.graph.updateReserves(batch);
-                    if (RUNTIME.debug) console.log(`Successfully updated ${batch.length} pairs`);
-                } catch (error) {
-                    console.error('Failed to update reserves:', error);
-                    continue;
-                }
-
-                // Check for arbitrage opportunities only once after all updates
-                console.log('Starting arbitrage check after batch update...');
-                await this.checkArbitrageOpportunities(batch.map(update => update.pairAddress));
-            }
-        } finally {
-            this.isCheckingArbitrage = false;
-        }
+        console.log('Starting arbitrage check after batch update...');
+        await this.checkArbitrageOpportunities(batch.map(update => update.pairAddress));
     }
 
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
@@ -317,7 +282,7 @@ export class EventMonitor {
         }
         
         // Clear any pending updates
-        this.pendingUpdates.clear();
+        this.scheduler.clear();
     }
 
     private async restart() {

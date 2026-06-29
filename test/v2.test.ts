@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
-import { V2ArbitrageEngine, type PairInfo } from "../src/arbitrage";
 import { TOKENS } from "../src/constants";
+import { type PairInfo } from "../src/market/v2-types";
+import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { tokenAmount } from "../src/values";
 
 const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
@@ -32,8 +33,8 @@ function pair(
   };
 }
 
-function buildGraph(pairs: PairInfo[]): V2ArbitrageEngine {
-  const graph = new V2ArbitrageEngine();
+function buildGraph(pairs: PairInfo[]): OpportunityEngine {
+  const graph = new OpportunityEngine();
   for (const pool of pairs) {
     graph.addPair(pool);
   }

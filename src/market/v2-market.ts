@@ -1,8 +1,8 @@
 import { type Address } from 'viem';
 import { RUNTIME } from '../constants';
 import { feeMultiplier } from '../values';
-import { compareFractions, FEE_DENOMINATOR } from './v2-math';
-import { type Edge, type PairInfo } from './types';
+import { compareFractions, FEE_DENOMINATOR } from '../pricing/v2-swap-math';
+import { type Edge, type PairInfo, type ReserveUpdate } from './v2-types';
 
 type PairEdges = {
   token0ToToken1: Edge;
@@ -14,7 +14,7 @@ type RankedEdgeCache = {
   edges: Edge[];
 };
 
-export class MarketGraph {
+export class V2Market {
   private graph: Map<Address, Edge[]> = new Map();
   private tokens: Set<Address> = new Set();
   private pairs: Map<Address, PairInfo> = new Map();
@@ -30,7 +30,7 @@ export class MarketGraph {
     this.updateEdges(pair);
   }
 
-  updateReserves(updates: { pairAddress: Address; reserve0: bigint; reserve1: bigint }[]): void {
+  updateReserves(updates: ReserveUpdate[]): void {
     const updatedPairs = new Set<PairInfo>();
 
     for (const update of updates) {

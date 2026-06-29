@@ -1,9 +1,9 @@
-import { RUNTIME } from './constants';
-import { EventMonitor } from './event';
-import { getAllPairsInfo } from './getinfo';
-import { V2ArbitrageEngine } from './arbitrage';
-import { OpportunityWorkflow } from './arbitrage/opportunity-workflow';
-import { initializeNetwork } from './network';
+import { RUNTIME } from '../constants';
+import { EventMonitor } from '../event';
+import { getAllPairsInfo } from '../getinfo';
+import { initializeNetwork } from '../network';
+import { OpportunityEngine } from '../opportunities/opportunity-engine';
+import { OpportunityWorkflow } from '../opportunities/opportunity-workflow';
 
 export async function runArbitrageBot(): Promise<void> {
   console.log('Initializing network...');
@@ -17,7 +17,7 @@ export async function runArbitrageBot(): Promise<void> {
   }
 
   console.log('Building arbitrage graph...');
-  const graph = new V2ArbitrageEngine();
+  const graph = new OpportunityEngine();
   for (const pair of pairs) {
     graph.addPair(pair);
   }

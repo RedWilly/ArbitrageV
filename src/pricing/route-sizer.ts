@@ -1,10 +1,11 @@
-import { MarketGraph } from './market-graph';
-import { calculateRouteProfit, reservesForDirection } from './v2-math';
-import { type CandidateRoute, type PairInfo, type V2SearchPolicy } from './types';
+import { V2Market } from '../market/v2-market';
+import { type PairInfo, type V2SearchPolicy } from '../market/v2-types';
+import { type CandidateRoute } from '../opportunities/opportunity-types';
+import { calculateRouteProfit, reservesForDirection } from './v2-swap-math';
 
-export class TradeSizer {
+export class RouteSizer {
   constructor(
-    private readonly market: MarketGraph,
+    private readonly market: V2Market,
     private readonly policy: V2SearchPolicy
   ) {}
 

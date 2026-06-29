@@ -1,36 +1,42 @@
 import { type Address } from 'viem';
 import { TOKENS, V2_SEARCH_POLICY } from '../constants';
-import { CandidateFinder } from './candidate-finder';
-import { MarketGraph } from './market-graph';
-import { TradeSizer } from './trade-sizer';
+import { V2Market } from '../market/v2-market';
+import { type PairInfo, type ReserveUpdate, type V2SearchPolicy } from '../market/v2-types';
+import { RouteSizer } from '../pricing/route-sizer';
+import { type OpportunityStrategy } from '../strategies/strategy';
+import { V2CircularArbitrageStrategy } from '../strategies/v2-circular-arb';
 import {
+  type ArbitrageOpportunity,
   type ArbitrageSearchResult,
   type CandidateRoute,
   type FindOpportunitiesRequest,
-  type PairInfo,
-  type V2SearchPolicy,
-} from './types';
+} from './opportunity-types';
 
-export class V2ArbitrageEngine {
-  private readonly market = new MarketGraph();
-  private readonly candidates: CandidateFinder;
-  private readonly sizer: TradeSizer;
+export class OpportunityEngine {
+  private readonly market: V2Market;
+  private readonly strategies: OpportunityStrategy[];
+  private readonly sizer: RouteSizer;
 
-  constructor(private readonly policy: V2SearchPolicy = V2_SEARCH_POLICY) {
-    this.candidates = new CandidateFinder(this.market, policy);
-    this.sizer = new TradeSizer(this.market, policy);
+  constructor(
+    private readonly policy: V2SearchPolicy = V2_SEARCH_POLICY,
+    market = new V2Market(),
+    strategies?: OpportunityStrategy[]
+  ) {
+    this.market = market;
+    this.strategies = strategies ?? [new V2CircularArbitrageStrategy(market, policy)];
+    this.sizer = new RouteSizer(market, policy);
   }
 
   addPair(pair: PairInfo): void {
     this.market.addPair(pair);
   }
 
-  updateReserves(updates: { pairAddress: Address; reserve0: bigint; reserve1: bigint }[]): void {
+  updateReserves(updates: ReserveUpdate[]): void {
     this.market.updateReserves(updates);
   }
 
   findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult {
-    const candidates = this.candidates.findCandidates(request);
+    const candidates = this.strategies.flatMap(strategy => strategy.findCandidates(request));
     const opportunities = candidates
       .map(candidate => this.sizeCandidate(candidate))
       .filter(opportunity => {
@@ -83,11 +89,7 @@ export class V2ArbitrageEngine {
     this.market.clear();
   }
 
-  private sizeCandidate(candidate: CandidateRoute): CandidateRoute & {
-    profit: bigint;
-    optimalInput: bigint;
-    fees: number[];
-  } {
+  private sizeCandidate(candidate: CandidateRoute): ArbitrageOpportunity {
     const { profit, optimalInput } = this.sizer.size(candidate);
     const fees = candidate.pairs.map(pairAddress => {
       const pair = this.market.pair(pairAddress);
@@ -103,4 +105,3 @@ export class V2ArbitrageEngine {
     };
   }
 }
-

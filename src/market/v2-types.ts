@@ -9,6 +9,12 @@ export type PairInfo = {
   fee: number;
 };
 
+export type ReserveUpdate = {
+  pairAddress: Address;
+  reserve0: bigint;
+  reserve1: bigint;
+};
+
 export type SwapDirection = 'token0ToToken1' | 'token1ToToken0';
 
 export type Edge = {
@@ -18,23 +24,6 @@ export type Edge = {
   fee: number;
   reserveIn: bigint;
   reserveOut: bigint;
-};
-
-export type CandidateRoute = {
-  path: Address[];
-  pairs: Address[];
-  directions: SwapDirection[];
-};
-
-export type ArbitrageOpportunity = CandidateRoute & {
-  profit: bigint;
-  optimalInput: bigint;
-  fees: number[];
-};
-
-export type FindOpportunitiesRequest = {
-  startTokens: Address[];
-  changedPairs?: Address[];
 };
 
 export type RouteMode = 'circular' | 'cross-token';
@@ -47,12 +36,4 @@ export type V2SearchPolicy = {
   optimizationIterations: number;
   maxInputReserveFraction: bigint;
   maxOpportunities: number;
-};
-
-export type ArbitrageSearchResult = {
-  paths: Address[][];
-  pairs: Address[][];
-  profits: bigint[];
-  optimalAmounts: bigint[];
-  fees: number[][];
 };

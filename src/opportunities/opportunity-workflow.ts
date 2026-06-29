@@ -3,7 +3,10 @@ import { RUNTIME, TOKENS, V2_SEARCH_POLICY } from '../constants';
 import { createOpportunityManager } from '../execute';
 import { type NetworkConfig } from '../network';
 import { basisPoints, formatBasisPoints, formatTokenAmountWithSymbol } from '../values';
-import { type ArbitrageSearchResult, type FindOpportunitiesRequest } from './types';
+import {
+  type ArbitrageSearchResult,
+  type FindOpportunitiesRequest,
+} from './opportunity-types';
 
 export type OpportunityWorkflowRequest = {
   changedPairs?: Address[];

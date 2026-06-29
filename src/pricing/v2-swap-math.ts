@@ -1,4 +1,4 @@
-import { type PairInfo, type SwapDirection } from './types';
+import { type PairInfo, type SwapDirection } from '../market/v2-types';
 import { feeMultiplier } from '../values';
 
 export const FEE_DENOMINATOR = 10000n;

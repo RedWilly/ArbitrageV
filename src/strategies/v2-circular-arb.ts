@@ -1,8 +1,13 @@
 import { type Address } from 'viem';
 import { feeMultiplier } from '../values';
-import { MarketGraph } from './market-graph';
-import { compareFractions, FEE_DENOMINATOR } from './v2-math';
-import { type CandidateRoute, type Edge, type SwapDirection, type V2SearchPolicy } from './types';
+import { V2Market } from '../market/v2-market';
+import { type Edge, type SwapDirection, type V2SearchPolicy } from '../market/v2-types';
+import {
+  type CandidateRoute,
+  type FindOpportunitiesRequest,
+} from '../opportunities/opportunity-types';
+import { compareFractions, FEE_DENOMINATOR } from '../pricing/v2-swap-math';
+import { type OpportunityStrategy } from './strategy';
 
 type RouteState = {
   token: Address;
@@ -15,18 +20,13 @@ type RouteState = {
   rateDenominator: bigint;
 };
 
-type CandidateSearchRequest = {
-  startTokens: Address[];
-  changedPairs?: Address[];
-};
-
-export class CandidateFinder {
+export class V2CircularArbitrageStrategy implements OpportunityStrategy {
   constructor(
-    private readonly market: MarketGraph,
+    private readonly market: V2Market,
     private readonly policy: V2SearchPolicy
   ) {}
 
-  findCandidates(request: CandidateSearchRequest): CandidateRoute[] {
+  findCandidates(request: FindOpportunitiesRequest): CandidateRoute[] {
     const changedPairList = request.changedPairs || [];
     const changedPairs = new Set(changedPairList.map(pair => pair.toLowerCase()));
     const candidates: CandidateRoute[] = [];
