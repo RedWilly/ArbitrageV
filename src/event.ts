@@ -1,17 +1,20 @@
 import { type Address, parseAbiItem, decodeEventLog, type PublicClient } from 'viem';
 import { RUNTIME } from './constants';
 import { type ReserveUpdate } from './market/v2-types';
+import { type V3PoolUpdate } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
 import { OpportunityWorkflow } from './opportunities/opportunity-workflow';
-import { ReserveUpdateScheduler } from './runtime/event-scheduler';
+import { ReserveUpdateScheduler, V3PoolUpdateScheduler } from './runtime/event-scheduler';
 
 // ABI for both types of Sync events
 const SYNC_EVENT_ABI = [
     parseAbiItem('event Sync(uint112 reserve0, uint112 reserve1)'),
     parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)')
 ];
-//dunno if am to add the v3 sync abi to the sync event yet
-// event Swap(address,address,int256,int256,uint160,uint128,int24)
+
+const V3_SWAP_EVENT_ABI = [
+    parseAbiItem('event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)')
+];
 
 // Sync event topics
 const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1';
@@ -25,8 +28,9 @@ export class EventMonitor {
     private graph: OpportunityEngine;
     private opportunities: OpportunityWorkflow;
     private isRunning: boolean = false;
-    private unwatchFn: any;
+    private unwatchFns: Array<() => void | Promise<void>> = [];
     private scheduler: ReserveUpdateScheduler;
+    private v3Scheduler: V3PoolUpdateScheduler;
     private networkConfig: any;
     private usingWebSocket: boolean = false;
     private wsReconnectAttempts: number = 0;
@@ -37,6 +41,7 @@ export class EventMonitor {
         this.networkConfig = networkConfig;
         this.opportunities = new OpportunityWorkflow(graph, networkConfig);
         this.scheduler = new ReserveUpdateScheduler(this.processReserveUpdateBatch.bind(this));
+        this.v3Scheduler = new V3PoolUpdateScheduler(this.processV3PoolUpdateBatch.bind(this));
         this.client = networkConfig.client;
         
         // Use WebSocket client if available
@@ -57,12 +62,14 @@ export class EventMonitor {
 
         this.isRunning = true;
 
-        // Get all pair addresses from graph for validation
+        // Get all pair/pool addresses from graph for validation
         const pairAddresses = this.graph.getPairAddresses();
+        const v3PoolAddresses = this.graph.getV3PoolAddresses();
         
-        console.log(`Starting event monitor for ${pairAddresses.length} pairs...`);
+        console.log(`Starting event monitor for ${pairAddresses.length} V2 pairs and ${v3PoolAddresses.length} V3 pools...`);
         if (RUNTIME.debug) {
-            console.log('Monitoring pairs:', pairAddresses);
+            console.log('Monitoring V2 pairs:', pairAddresses);
+            console.log('Monitoring V3 pools:', v3PoolAddresses);
         }
 
         try {
@@ -75,19 +82,31 @@ export class EventMonitor {
                 console.log('Using HTTP polling for event monitoring');
             }
             
-            // Watch for both types of Sync events, but only for pairs in our graph
-            const unwatch = await eventClient.watchContractEvent({
-                address: pairAddresses,
-                abi: SYNC_EVENT_ABI,
-                onLogs: this.handleSyncEvents.bind(this),
-                onError: this.onError.bind(this),
-                strict: true
-            });
+            this.unwatchFns = [];
+
+            if (pairAddresses.length > 0) {
+                const unwatchV2 = await eventClient.watchContractEvent({
+                    address: pairAddresses,
+                    abi: SYNC_EVENT_ABI,
+                    onLogs: this.handleSyncEvents.bind(this),
+                    onError: this.onError.bind(this),
+                    strict: true
+                });
+                this.unwatchFns.push(unwatchV2);
+            }
+
+            if (v3PoolAddresses.length > 0) {
+                const unwatchV3 = await eventClient.watchContractEvent({
+                    address: v3PoolAddresses,
+                    abi: V3_SWAP_EVENT_ABI,
+                    onLogs: this.handleV3SwapEvents.bind(this),
+                    onError: this.onError.bind(this),
+                    strict: true
+                });
+                this.unwatchFns.push(unwatchV3);
+            }
 
             console.log('Event monitoring started successfully');
-            
-            // Store unwatch function for cleanup
-            this.unwatchFn = unwatch;
             
             // Reset reconnect attempts counter on successful connection
             if (this.usingWebSocket) {
@@ -228,8 +247,80 @@ export class EventMonitor {
         }
     }
 
+    private decodeV3SwapEvent(log: any): { sqrtPriceX96: bigint, liquidity: bigint, tick: number } | null {
+        try {
+            if (!log.topics || !log.topics[0]) {
+                return null;
+            }
+
+            const decoded = decodeEventLog({
+                abi: V3_SWAP_EVENT_ABI,
+                data: log.data,
+                topics: log.topics
+            });
+
+            return {
+                sqrtPriceX96: decoded.args.sqrtPriceX96,
+                liquidity: decoded.args.liquidity,
+                tick: Number(decoded.args.tick),
+            };
+        } catch (error) {
+            console.error('Failed to decode V3 Swap event:', error);
+            return null;
+        }
+    }
+
     private async processUpdates(updates: ReserveUpdate[]) {
         await this.scheduler.submit(updates);
+    }
+
+    private async handleV3SwapEvents(logs: any[]) {
+        try {
+            if (RUNTIME.debug) console.log(`Received ${logs.length} V3 Swap events`);
+
+            const poolAddresses = this.graph.getV3PoolAddresses();
+            const validPools = new Set(poolAddresses.map(addr => addr.toLowerCase()));
+            const addressMap = new Map(poolAddresses.map(addr => [addr.toLowerCase(), addr]));
+            const updates: V3PoolUpdate[] = [];
+
+            for (const log of logs) {
+                const lowercaseAddress = log.address?.toLowerCase();
+                if (!validPools.has(lowercaseAddress)) {
+                    if (RUNTIME.debug) {
+                        console.log(`Skipping V3 event from unknown pool: ${lowercaseAddress}`);
+                    }
+                    continue;
+                }
+
+                const poolAddress = addressMap.get(lowercaseAddress) as Address;
+                const decodedEvent = this.decodeV3SwapEvent(log);
+                if (!decodedEvent) {
+                    if (RUNTIME.debug) console.log('Failed to decode V3 Swap event');
+                    continue;
+                }
+
+                if (RUNTIME.debug) console.log(`V3 Swap event from ${poolAddress}:`, {
+                    sqrtPriceX96: decodedEvent.sqrtPriceX96.toString(),
+                    liquidity: decodedEvent.liquidity.toString(),
+                    tick: decodedEvent.tick,
+                });
+
+                updates.push({
+                    poolAddress,
+                    sqrtPriceX96: decodedEvent.sqrtPriceX96,
+                    liquidity: decodedEvent.liquidity,
+                    tick: decodedEvent.tick,
+                });
+            }
+
+            await this.processV3Updates(updates);
+        } catch (error) {
+            console.error('Error handling V3 Swap events:', error);
+        }
+    }
+
+    private async processV3Updates(updates: V3PoolUpdate[]) {
+        await this.v3Scheduler.submit(updates);
     }
 
     private async processReserveUpdateBatch(batch: ReserveUpdate[]): Promise<void> {
@@ -247,6 +338,17 @@ export class EventMonitor {
         await this.checkArbitrageOpportunities(batch.map(update => update.pairAddress));
     }
 
+    private async processV3PoolUpdateBatch(batch: V3PoolUpdate[]): Promise<void> {
+        if (RUNTIME.debug) console.log(`Processing ${batch.length} latest V3 pool updates`);
+
+        try {
+            this.graph.updateV3PoolStates(batch);
+            if (RUNTIME.debug) console.log(`Successfully updated ${batch.length} V3 pools`);
+        } catch (error) {
+            console.error('Failed to update V3 pool states:', error);
+        }
+    }
+
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
         try {
             await this.opportunities.scanAndExecute({ changedPairs: affectedPairs });
@@ -262,13 +364,16 @@ export class EventMonitor {
         if (RUNTIME.debug) console.log('Stopping event monitor...');
         
         // Unsubscribe from events
-        if (this.unwatchFn) {
-            try {
-                await this.unwatchFn();
-                if (RUNTIME.debug) console.log('Successfully unsubscribed from events');
-            } catch (error) {
-                console.error('Error unsubscribing from events:', error);
+        if (this.unwatchFns.length > 0) {
+            for (const unwatch of this.unwatchFns) {
+                try {
+                    await unwatch();
+                } catch (error) {
+                    console.error('Error unsubscribing from events:', error);
+                }
             }
+            this.unwatchFns = [];
+            if (RUNTIME.debug) console.log('Successfully unsubscribed from events');
         }
         
         // Clean up WebSocket connection if it was being used
@@ -283,6 +388,7 @@ export class EventMonitor {
         
         // Clear any pending updates
         this.scheduler.clear();
+        this.v3Scheduler.clear();
     }
 
     private async restart() {

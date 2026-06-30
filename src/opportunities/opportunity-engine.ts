@@ -2,6 +2,16 @@ import { type Address } from 'viem';
 import { TOKENS, V2_SEARCH_POLICY } from '../constants';
 import { V2Market } from '../market/v2-market';
 import { type PairInfo, type ReserveUpdate, type V2SearchPolicy } from '../market/v2-types';
+import { V3Market } from '../market/v3-market';
+import {
+  type V3BitmapWord,
+  type V3BitmapWordUpdate,
+  type V3PoolConfig,
+  type V3PoolInfo,
+  type V3PoolUpdate,
+  type V3Tick,
+  type V3TickUpdate,
+} from '../market/v3-types';
 import { RouteSizer } from '../pricing/route-sizer';
 import { type OpportunityStrategy } from '../strategies/strategy';
 import { V2CircularArbitrageStrategy } from '../strategies/v2-circular-arb';
@@ -14,15 +24,18 @@ import {
 
 export class OpportunityEngine {
   private readonly market: V2Market;
+  private readonly v3Market: V3Market;
   private readonly strategies: OpportunityStrategy[];
   private readonly sizer: RouteSizer;
 
   constructor(
     private readonly policy: V2SearchPolicy = V2_SEARCH_POLICY,
     market = new V2Market(),
+    v3Market = new V3Market(),
     strategies?: OpportunityStrategy[]
   ) {
     this.market = market;
+    this.v3Market = v3Market;
     this.strategies = strategies ?? [new V2CircularArbitrageStrategy(market, policy)];
     this.sizer = new RouteSizer(market, policy);
   }
@@ -33,6 +46,38 @@ export class OpportunityEngine {
 
   updateReserves(updates: ReserveUpdate[]): void {
     this.market.updateReserves(updates);
+  }
+
+  addV3Pool(pool: V3PoolConfig): void {
+    this.v3Market.addPool(pool);
+  }
+
+  updateV3PoolStates(updates: V3PoolUpdate[]): void {
+    this.v3Market.updatePoolStates(updates);
+  }
+
+  updateV3Ticks(updates: V3TickUpdate[]): void {
+    this.v3Market.updateTicks(updates);
+  }
+
+  updateV3BitmapWords(updates: V3BitmapWordUpdate[]): void {
+    this.v3Market.updateBitmapWords(updates);
+  }
+
+  getV3PoolAddresses(): Address[] {
+    return this.v3Market.poolAddresses();
+  }
+
+  getV3Pools(): V3PoolInfo[] {
+    return this.v3Market.allPools();
+  }
+
+  getV3InitializedTicks(poolAddress: Address): V3Tick[] {
+    return this.v3Market.initializedTicks(poolAddress);
+  }
+
+  getV3BitmapWords(poolAddress: Address): V3BitmapWord[] {
+    return this.v3Market.bitmapWords(poolAddress);
   }
 
   findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult {
@@ -87,6 +132,7 @@ export class OpportunityEngine {
 
   clear(): void {
     this.market.clear();
+    this.v3Market.clear();
   }
 
   private sizeCandidate(candidate: CandidateRoute): ArbitrageOpportunity {

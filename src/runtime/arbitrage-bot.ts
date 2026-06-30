@@ -1,6 +1,7 @@
 import { RUNTIME } from '../constants';
 import { EventMonitor } from '../event';
 import { getAllPairsInfo } from '../getinfo';
+import { loadConfiguredV3StartupState } from '../market/v3-loader';
 import { initializeNetwork } from '../network';
 import { OpportunityEngine } from '../opportunities/opportunity-engine';
 import { OpportunityWorkflow } from '../opportunities/opportunity-workflow';
@@ -21,6 +22,9 @@ export async function runArbitrageBot(): Promise<void> {
   for (const pair of pairs) {
     graph.addPair(pair);
   }
+
+  console.log('Loading configured V3 startup state...');
+  await loadConfiguredV3StartupState(network.client, graph);
 
   console.log('Searching for initial arbitrage opportunities...');
   await new OpportunityWorkflow(graph, network).scanAndExecute();
