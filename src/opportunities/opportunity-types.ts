@@ -1,6 +1,8 @@
 import { type Address } from 'viem';
 import { type SwapDirection } from '../market/v2-types';
 
+export type RouteKind = 'v2' | 'v3' | 'mixed';
+
 export type CandidateRoute = {
   path: Address[];
   pairs: Address[];
@@ -11,6 +13,7 @@ export type ArbitrageOpportunity = CandidateRoute & {
   profit: bigint;
   optimalInput: bigint;
   fees: number[];
+  routeKind: RouteKind;
 };
 
 export type FindOpportunitiesRequest = {
@@ -24,5 +27,5 @@ export type ArbitrageSearchResult = {
   profits: bigint[];
   optimalAmounts: bigint[];
   fees: number[][];
+  routeKinds: RouteKind[];
 };
-

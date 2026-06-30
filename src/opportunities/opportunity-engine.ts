@@ -15,6 +15,7 @@ import {
 import { RouteSizer } from '../pricing/route-sizer';
 import { type OpportunityStrategy } from '../strategies/strategy';
 import { V2CircularArbitrageStrategy } from '../strategies/v2-circular-arb';
+import { V3CircularArbitrageStrategy } from '../strategies/v3-circular-arb';
 import {
   type ArbitrageOpportunity,
   type ArbitrageSearchResult,
@@ -36,7 +37,10 @@ export class OpportunityEngine {
   ) {
     this.market = market;
     this.v3Market = v3Market;
-    this.strategies = strategies ?? [new V2CircularArbitrageStrategy(market, policy)];
+    this.strategies = strategies ?? [
+      new V2CircularArbitrageStrategy(market, policy),
+      new V3CircularArbitrageStrategy(v3Market, policy),
+    ];
     this.sizer = new RouteSizer(market, policy);
   }
 
@@ -81,9 +85,11 @@ export class OpportunityEngine {
   }
 
   findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult {
-    const candidates = this.strategies.flatMap(strategy => strategy.findCandidates(request));
+    const candidates = this.strategies.flatMap(strategy => strategy.findCandidates?.(request) ?? []);
+    const strategyOpportunities = this.strategies.flatMap(strategy => strategy.findOpportunities?.(request) ?? []);
     const opportunities = candidates
       .map(candidate => this.sizeCandidate(candidate))
+      .concat(strategyOpportunities)
       .filter(opportunity => {
         const originToken = opportunity.path[0];
         const token = TOKENS.find(addr => addr.address === originToken);
@@ -107,6 +113,7 @@ export class OpportunityEngine {
       profits: opportunities.map(opportunity => opportunity.profit),
       optimalAmounts: opportunities.map(opportunity => opportunity.optimalInput),
       fees: opportunities.map(opportunity => opportunity.fees),
+      routeKinds: opportunities.map(opportunity => opportunity.routeKind),
     };
   }
 
@@ -148,6 +155,7 @@ export class OpportunityEngine {
       profit,
       optimalInput,
       fees,
+      routeKind: 'v2',
     };
   }
 }

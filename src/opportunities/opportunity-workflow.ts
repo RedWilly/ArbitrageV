@@ -32,15 +32,20 @@ export class OpportunityWorkflow {
 
     this.log(opportunities);
 
-    if (opportunities.paths.length > 0) {
-      const manager = createOpportunityManager(this.networkConfig);
-      manager.processOpportunities(this.engine, opportunities.paths.map((path, index) => ({
+    const executableOpportunities = opportunities.paths
+      .map((path, index) => ({
         path,
         pairs: opportunities.pairs[index],
         fees: opportunities.fees[index],
         optimalAmount: opportunities.optimalAmounts[index],
         expectedProfit: opportunities.profits[index],
-      }))).catch(error => {
+        routeKind: opportunities.routeKinds[index],
+      }))
+      .filter(opportunity => opportunity.routeKind === 'v2');
+
+    if (executableOpportunities.length > 0) {
+      const manager = createOpportunityManager(this.networkConfig);
+      manager.processOpportunities(this.engine, executableOpportunities).catch(error => {
         if (RUNTIME.debug) {
           console.error('Error processing opportunities:', error);
         }
@@ -82,6 +87,7 @@ export class OpportunityWorkflow {
       const profit = opportunities.profits[index];
       const pairs = opportunities.pairs[index];
       const fees = opportunities.fees[index];
+      const routeKind = opportunities.routeKinds[index];
       const optimalAmount = opportunities.optimalAmounts[index];
       const profitBps = basisPoints(profit, optimalAmount);
       const startToken = path[0];
@@ -95,6 +101,7 @@ export class OpportunityWorkflow {
       console.log(`\nOpportunity #${index + 1}:`);
       console.log(`Path: ${path.join(' -> ')}`);
       console.log(`Expected profit: ${formatTokenAmountWithSymbol(profit, lastTokenInfo)}`);
+      console.log(`Route type: ${routeKind}`);
       console.log(`Optimal input amount: ${optimalAmount.toString()} wei || ${formatTokenAmountWithSymbol(optimalAmount, startTokenInfo)}`);
       console.log(`Profit percentage: ${formatBasisPoints(profitBps)}%`);
       console.log(`Pairs used: ${pairs.join(', ')}`);
