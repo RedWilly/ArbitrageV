@@ -3,326 +3,290 @@ pragma solidity ^0.8.0;
 
 import "./interfaces/Withdrawable.sol";
 
-/// @notice Minimal interface for a UniswapV2 pair.
 interface IUniswapV2Pair {
     function token0() external view returns (address);
     function token1() external view returns (address);
-    function swap(
-        uint amount0Out,
-        uint amount1Out,
-        address to,
-        bytes calldata data
-    ) external;
-    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast);
+    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external;
+    function getReserves() external view returns (uint112 reserve0, uint112 reserve1, uint32);
 }
 
-/// @dev Custom Errors
+interface IUniswapV3Pool {
+    function token0() external view returns (address);
+    function token1() external view returns (address);
+    function flash(address recipient, uint256 amount0, uint256 amount1, bytes calldata data) external;
+    function swap(
+        address recipient,
+        bool zeroForOne,
+        int256 amountSpecified,
+        uint160 sqrtPriceLimitX96,
+        bytes calldata data
+    ) external returns (int256 amount0, int256 amount1);
+}
+
 error ArrayLengthMismatch();
-error FinalTokenTransferFailed();
-error ArbitrageLoss();
 error StartTokenNotInFlashLoanPair();
 error ArbitrageMustReturnToStart();
 error RepaymentTransferFailed();
-error ProfitTransferFailed();
 error InsufficientFlashLoanRepayment();
 error SwapPathError();
 error InvalidReserves();
 error OutputExceedsReserve();
 error TokenTransferFailed();
-error InsufficientContractBalance();
+error UnsupportedProtocol();
+error InvalidV3SwapCallback();
+error InvalidV3SwapDelta();
+error InvalidFlashLoanCallback();
 
-/// @title Arbitrage Executor
-/// @notice Executes an arbitrage using a flash loan and a path of swaps.
 contract ArbitrageExecutor is Withdrawable {
+    uint8 private constant V2 = 0;
+    uint8 private constant V3 = 1;
     uint256 private constant FEE_DENOMINATOR = 10000;
+    uint160 private constant MIN_SQRT_RATIO_PLUS_ONE = 4295128740;
+    uint160 private constant MAX_SQRT_RATIO_MINUS_ONE =
+        1461446703485210103287273052203988822378723970341;
+
+    uint8 private pendingFlashProtocol;
+    address private pendingFlashPool;
+    address private pendingV3Pool;
+    address private pendingV3TokenIn;
+
+    struct FlashData {
+        address borrowedToken;
+        uint256 borrowedAmount;
+        bool borrowedToken0;
+        uint256 v2RepayFee;
+        address[] pools;
+        uint8[] protocols;
+        uint256[] fees;
+    }
+
+    struct ArbParams {
+        uint8 flashProtocol;
+        address flashPool;
+        address borrowToken;
+        uint256 borrowAmount;
+        uint256 v2RepayFee;
+        address[] pools;
+        uint8[] protocols;
+        uint256[] fees;
+    }
 
     constructor(address owner_) Withdrawable(owner_) {}
 
-    struct FlashLoanData {
-        address[] pairs;
-        uint256[] fees;
-        uint256 repayFee;
-        address originator;
-        address borrowedToken;
+    function executeArbitrage(ArbParams calldata params) external {
+        _checkRoute(params.pools, params.protocols, params.fees);
+        bool borrowToken0 = _isToken0(params.flashPool, params.borrowToken);
+        _startFlashLoan(params, borrowToken0, _flashData(params, borrowToken0));
     }
 
-    struct SwapState {
-        address token;
-        uint256 amount;
-    }
-
-    /// @notice Executes arbitrage using user-supplied funds (no flash loan).
-    /// Unlike the flash loan version, the arbitrage path need not return to the start token.
-    /// @param startToken The token to start arbitrage with.
-    /// @param startAmount The amount of startToken provided by the user.
-    /// @param arbPairs The addresses of the arbitrage pairs to swap through.
-    /// @param arbFees The fee in basis points for each arbitrage pair.
-    function executeArbitrageDirect(
-        address startToken,
-        uint256 startAmount,
-        address[] calldata arbPairs,
-        uint256[] calldata arbFees
-    ) external {
-        // ) external returns (address, uint256) {
-        if (arbPairs.length != arbFees.length) revert ArrayLengthMismatch();
-
-        // Ensure the contract has enough funds.
-        if (IERC20(startToken).balanceOf(address(this)) < startAmount)
-            revert InsufficientContractBalance();
-
-        // Execute the arbitrage path.
-        (, uint256 finalAmount) = _executeArbitragePathDirect(startToken, startAmount, arbPairs, arbFees);
-
-        if (finalAmount < startAmount) revert ArbitrageLoss();
-
-        //  return (finalToken, finalAmount);
-    }
-
-    /// @notice Initiates the flash loan arbitrage.
-    function executeArbitrage(
-        address flashLoanPair,
-        address startToken,
-        uint256 borrowAmount,
-        address[] calldata arbPairs,
-        uint256[] calldata arbFees,
-        uint256 repayFee
-    ) external {
-        if (arbPairs.length != arbFees.length) revert ArrayLengthMismatch();
-
-        IUniswapV2Pair pair = IUniswapV2Pair(flashLoanPair);
-        address token0 = pair.token0();
-        address token1 = pair.token1();
-        if (startToken != token0 && startToken != token1) revert StartTokenNotInFlashLoanPair();
-
-        uint256 amount0Out = startToken == token0 ? borrowAmount : 0;
-        uint256 amount1Out = startToken == token1 ? borrowAmount : 0;
-
-        bytes memory data = abi.encode(
-            FlashLoanData({
-                pairs: arbPairs,
-                fees: arbFees,
-                repayFee: repayFee,
-                originator: msg.sender,
-                borrowedToken: startToken
-            })
-        );
-
-        pair.swap(amount0Out, amount1Out, address(this), data);
-    }
-
-    // --- Callback Handlers ---
-    function uniswapV2Call(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function call(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function pancakeCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function chewyCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function hook(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function miniMeCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function netswapCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function dogeSwapV2Call(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function YodedexCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function baguetteCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function blazeSwapCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function enosysDexCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function pangolinCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function joeCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function VaporDEXCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function lydiaCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function forwardCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function elkCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function yetiswapCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function sicleCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function alligatorCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function hakuswapCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function tropicalCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function MeerkatCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function vvsCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function RyoshiCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function cronaCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function candyCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function cougarCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function annexCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function jwapCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function croDefiSwapCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function KayenCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function dragonswapCall(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function donkeV2Call(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-    function punchSwapV2Call(address sender, uint amount0, uint amount1, bytes calldata data) external {
-        _handleFlashLoan(sender, amount0, amount1, data);
-    }
-
-    function _handleFlashLoan(
-        address,
-        uint amount0,
-        uint amount1,
-        bytes calldata data
+    function _startFlashLoan(
+        ArbParams calldata params,
+        bool borrowToken0,
+        bytes memory data
     ) internal {
-        FlashLoanData memory loanData = abi.decode(data, (FlashLoanData));
+        pendingFlashProtocol = params.flashProtocol;
+        pendingFlashPool = params.flashPool;
+
+        if (params.flashProtocol == V2) {
+            IUniswapV2Pair(params.flashPool).swap(
+                borrowToken0 ? params.borrowAmount : 0,
+                borrowToken0 ? 0 : params.borrowAmount,
+                address(this),
+                data
+            );
+        } else if (params.flashProtocol == V3) {
+            IUniswapV3Pool(params.flashPool).flash(
+                address(this),
+                borrowToken0 ? params.borrowAmount : 0,
+                borrowToken0 ? 0 : params.borrowAmount,
+                data
+            );
+        } else {
+            revert UnsupportedProtocol();
+        }
+
+        pendingFlashProtocol = 0;
+        pendingFlashPool = address(0);
+    }
+
+    // ponytail: one generic fallback handles V2 callback name variants instead of dozens of wrappers.
+    fallback() external payable {
+        if (pendingFlashProtocol != V2 || msg.sender != pendingFlashPool || msg.data.length < 132) {
+            revert InvalidFlashLoanCallback();
+        }
+
+        (address sender, uint256 amount0, uint256 amount1, bytes memory data) =
+            abi.decode(msg.data[4:], (address, uint256, uint256, bytes));
+        if (sender != address(this)) revert InvalidFlashLoanCallback();
+
+        FlashData memory loan = abi.decode(data, (FlashData));
         uint256 borrowedAmount = amount0 > 0 ? amount0 : amount1;
+        if (borrowedAmount != loan.borrowedAmount) revert InvalidFlashLoanCallback();
 
-        uint256 finalAmount = _executeArbitragePath(loanData.borrowedToken, borrowedAmount, loanData.pairs, loanData.fees);
+        _finishFlashLoan(
+            loan,
+            borrowedAmount + ((borrowedAmount * loan.v2RepayFee) / (FEE_DENOMINATOR - loan.v2RepayFee)) + 1
+        );
+    }
 
-        uint256 feeAmount = ((borrowedAmount * loanData.repayFee) / (FEE_DENOMINATOR - loanData.repayFee)) + 1;
-        uint256 repayAmount = borrowedAmount + feeAmount;
+    function uniswapV3FlashCallback(uint256 fee0, uint256 fee1, bytes calldata data) external {
+        if (pendingFlashProtocol != V3 || msg.sender != pendingFlashPool) {
+            revert InvalidFlashLoanCallback();
+        }
+
+        FlashData memory loan = abi.decode(data, (FlashData));
+        _finishFlashLoan(loan, loan.borrowedAmount + (loan.borrowedToken0 ? fee0 : fee1));
+    }
+
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external {
+        data;
+        address tokenIn = pendingV3TokenIn;
+        if (msg.sender != pendingV3Pool || tokenIn == address(0)) revert InvalidV3SwapCallback();
+
+        if (amount0Delta > 0 && amount1Delta <= 0) {
+            _safeTransfer(tokenIn, msg.sender, uint256(amount0Delta));
+        } else if (amount1Delta > 0 && amount0Delta <= 0) {
+            _safeTransfer(tokenIn, msg.sender, uint256(amount1Delta));
+        } else {
+            revert InvalidV3SwapDelta();
+        }
+    }
+
+    function _finishFlashLoan(FlashData memory loan, uint256 repayAmount) internal {
+        uint256 finalAmount = _executeCircularRoute(
+            loan.borrowedToken,
+            loan.borrowedAmount,
+            loan.pools,
+            loan.protocols,
+            loan.fees
+        );
 
         if (finalAmount < repayAmount) revert InsufficientFlashLoanRepayment();
-        if (!IERC20(loanData.borrowedToken).transfer(msg.sender, repayAmount))
+        if (!IERC20(loan.borrowedToken).transfer(msg.sender, repayAmount)) {
             revert RepaymentTransferFailed();
+        }
     }
 
-    function _executeArbitragePath(
+    function _executeCircularRoute(
         address startToken,
         uint256 startAmount,
-        address[] memory pairs,
+        address[] memory pools,
+        uint8[] memory protocols,
         uint256[] memory fees
     ) internal returns (uint256) {
-        SwapState memory state = SwapState({
-            token: startToken,
-            amount: startAmount
-        });
+        address token = startToken;
+        uint256 amount = startAmount;
 
-        for (uint256 i = 0; i < pairs.length; ) {
-            address nextPair = i < pairs.length - 1 ? pairs[i + 1] : address(0);
-            (state.token, state.amount) = _executeSwapStep(state.token, state.amount, pairs[i], fees[i], nextPair);
-            unchecked { i++; }
+        for (uint256 i; i < pools.length; ) {
+            if (protocols[i] == V2) {
+                (token, amount) = _swapV2(token, amount, pools[i], fees[i]);
+            } else if (protocols[i] == V3) {
+                (token, amount) = _swapV3(token, amount, pools[i]);
+            } else {
+                revert UnsupportedProtocol();
+            }
+
+            unchecked { ++i; }
         }
-        if (state.token != startToken) revert ArbitrageMustReturnToStart();
-        return state.amount;
+
+        if (token != startToken) revert ArbitrageMustReturnToStart();
+        return amount;
     }
 
-    function _executeArbitragePathDirect(
-        address startToken,
-        uint256 startAmount,
-        address[] memory pairs,
-        uint256[] memory fees
-    ) internal returns (address finalToken, uint256 finalAmount) {
-        SwapState memory state = SwapState({
-            token: startToken,
-            amount: startAmount
-        });
-
-        for (uint256 i = 0; i < pairs.length; ) {
-            address nextPair = i < pairs.length - 1 ? pairs[i + 1] : address(0);
-            (state.token, state.amount) = _executeSwapStep(state.token, state.amount, pairs[i], fees[i], nextPair);
-            unchecked { i++; }
-        }
-        finalToken = state.token;
-        finalAmount = state.amount;
-    }
-
-    function _executeSwapStep(
-        address currentToken,
-        uint256 currentAmount,
+    function _swapV2(
+        address tokenIn,
+        uint256 amountIn,
         address pairAddr,
-        uint256 fee,
-        address nextPair
-    ) internal returns (address newToken, uint256 newAmount) {
-        // Get token addresses and validate
+        uint256 fee
+    ) internal returns (address tokenOut, uint256 amountOut) {
         IUniswapV2Pair pair = IUniswapV2Pair(pairAddr);
-        newToken = pair.token0();
-        bool isToken0 = (currentToken == newToken);
-        newToken = isToken0 ? pair.token1() : newToken;
-        
-        if (currentToken != pair.token0() && currentToken != pair.token1()) revert SwapPathError();
+        address token0 = pair.token0();
+        address token1 = pair.token1();
+        bool zeroForOne = tokenIn == token0;
+        if (!zeroForOne && tokenIn != token1) revert SwapPathError();
 
         (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
-        uint256 reserveIn = isToken0 ? reserve0 : reserve1;
-        uint256 reserveOut = isToken0 ? reserve1 : reserve0;
+        uint256 reserveIn = zeroForOne ? reserve0 : reserve1;
+        uint256 reserveOut = zeroForOne ? reserve1 : reserve0;
         if (reserveIn == 0 || reserveOut == 0) revert InvalidReserves();
 
-        _safeTransfer(currentToken, pairAddr, currentAmount);
+        amountOut = _v2AmountOut(amountIn, reserveIn, reserveOut, fee);
+        if (amountOut >= reserveOut) revert OutputExceedsReserve();
 
-        newAmount = _calculateSwapOutput(currentAmount, reserveIn, reserveOut, fee);
-        if (newAmount >= reserveOut) revert OutputExceedsReserve();
-
-        address to = nextPair != address(0) ? nextPair : address(this);
+        _safeTransfer(tokenIn, pairAddr, amountIn);
         pair.swap(
-            isToken0 ? 0 : newAmount,
-            isToken0 ? newAmount : 0,
-            to,
+            zeroForOne ? 0 : amountOut,
+            zeroForOne ? amountOut : 0,
+            address(this),
             new bytes(0)
         );
+
+        tokenOut = zeroForOne ? token1 : token0;
     }
 
-    function _calculateSwapOutput(
-        uint256 input,
-        uint256 inputReserve,
-        uint256 outputReserve,
+    function _swapV3(
+        address tokenIn,
+        uint256 amountIn,
+        address poolAddr
+    ) internal returns (address tokenOut, uint256 amountOut) {
+        IUniswapV3Pool pool = IUniswapV3Pool(poolAddr);
+        address token0 = pool.token0();
+        address token1 = pool.token1();
+        bool zeroForOne = tokenIn == token0;
+        if (!zeroForOne && tokenIn != token1) revert SwapPathError();
+
+        tokenOut = zeroForOne ? token1 : token0;
+        uint256 balanceBefore = IERC20(tokenOut).balanceOf(address(this));
+
+        pendingV3Pool = poolAddr;
+        pendingV3TokenIn = tokenIn;
+        pool.swap(
+            address(this),
+            zeroForOne,
+            int256(amountIn),
+            zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE,
+            new bytes(0)
+        );
+        pendingV3Pool = address(0);
+        pendingV3TokenIn = address(0);
+
+        amountOut = IERC20(tokenOut).balanceOf(address(this)) - balanceBefore;
+        if (amountOut == 0) revert SwapPathError();
+    }
+
+    function _isToken0(address pool, address token) internal view returns (bool) {
+        address token0 = IUniswapV2Pair(pool).token0();
+        if (token == token0) return true;
+        if (token != IUniswapV2Pair(pool).token1()) revert StartTokenNotInFlashLoanPair();
+        return false;
+    }
+
+    function _flashData(ArbParams calldata params, bool borrowedToken0) internal pure returns (bytes memory) {
+        return abi.encode(FlashData({
+            borrowedToken: params.borrowToken,
+            borrowedAmount: params.borrowAmount,
+            borrowedToken0: borrowedToken0,
+            v2RepayFee: params.v2RepayFee,
+            pools: params.pools,
+            protocols: params.protocols,
+            fees: params.fees
+        }));
+    }
+
+    function _v2AmountOut(
+        uint256 amountIn,
+        uint256 reserveIn,
+        uint256 reserveOut,
         uint256 fee
     ) internal pure returns (uint256) {
-        uint256 inputAmountWithFee = input * (FEE_DENOMINATOR - fee);
-        uint256 numerator = inputAmountWithFee * outputReserve;
-        uint256 denominator = (inputReserve * FEE_DENOMINATOR) + inputAmountWithFee;
-        return numerator / denominator;
+        uint256 amountInWithFee = amountIn * (FEE_DENOMINATOR - fee);
+        return (amountInWithFee * reserveOut) / ((reserveIn * FEE_DENOMINATOR) + amountInWithFee);
+    }
+
+    function _checkRoute(address[] calldata pools, uint8[] calldata protocols, uint256[] calldata fees) internal pure {
+        if (pools.length != protocols.length || pools.length != fees.length) {
+            revert ArrayLengthMismatch();
+        }
     }
 
     function _safeTransfer(address token, address to, uint256 amount) internal {
