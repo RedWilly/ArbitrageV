@@ -1,7 +1,7 @@
 import { type Address } from 'viem';
+import { type ArbitrageSearchPolicy } from '../market-graph/types';
 import { V3Market } from '../market/v3-market';
 import { type V3PoolInfo, type V3SwapDirection } from '../market/v3-types';
-import { type V2SearchPolicy } from '../market/v2-types';
 import { quoteV3MultiRangeExactInput } from './v3-swap-math';
 
 export type V3Route = {
@@ -26,7 +26,7 @@ export type V3SizedRoute = {
 export class V3RouteSizer {
   constructor(
     private readonly market: V3Market,
-    private readonly policy: V2SearchPolicy
+    private readonly policy: ArbitrageSearchPolicy
   ) {}
 
   quote(route: V3Route, amountIn: bigint): V3RouteQuote {

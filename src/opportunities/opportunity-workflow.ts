@@ -1,5 +1,5 @@
 import { type Address } from 'viem';
-import { RUNTIME, TOKENS, V2_SEARCH_POLICY } from '../constants';
+import { ARBITRAGE_SEARCH_POLICY, RUNTIME, TOKENS } from '../constants';
 import { createOpportunityManager } from '../execute';
 import { type NetworkConfig } from '../network';
 import { basisPoints, formatBasisPoints, formatTokenAmountWithSymbol } from '../values';
@@ -57,7 +57,7 @@ export class OpportunityWorkflow {
 
   private createSearchRequest(request: OpportunityWorkflowRequest): FindOpportunitiesRequest {
     const startTokens = TOKENS
-      .slice(0, Math.min(V2_SEARCH_POLICY.topTokens, TOKENS.length))
+      .slice(0, Math.min(ARBITRAGE_SEARCH_POLICY.topTokens, TOKENS.length))
       .map(addr => addr.address);
 
     if (RUNTIME.debug) {

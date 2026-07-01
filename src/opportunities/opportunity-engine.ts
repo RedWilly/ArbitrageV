@@ -1,7 +1,10 @@
 import { type Address } from 'viem';
-import { TOKENS, V2_SEARCH_POLICY } from '../constants';
+import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
+import { MarketGraph } from '../market-graph/market-graph';
+import { MarketRouteSizer } from '../market-graph/route-sizer';
+import { type ArbitrageSearchPolicy } from '../market-graph/types';
 import { V2Market } from '../market/v2-market';
-import { type PairInfo, type ReserveUpdate, type V2SearchPolicy } from '../market/v2-types';
+import { type PairInfo, type ReserveUpdate } from '../market/v2-types';
 import { V3Market } from '../market/v3-market';
 import {
   type V3BitmapWord,
@@ -12,10 +15,8 @@ import {
   type V3Tick,
   type V3TickUpdate,
 } from '../market/v3-types';
-import { RouteSizer } from '../pricing/route-sizer';
 import { type OpportunityStrategy } from '../strategies/strategy';
-import { V2CircularArbitrageStrategy } from '../strategies/v2-circular-arb';
-import { V3CircularArbitrageStrategy } from '../strategies/v3-circular-arb';
+import { CircularArbitrageStrategy } from '../strategies/circular-arbitrage';
 import {
   type ArbitrageOpportunity,
   type ArbitrageSearchResult,
@@ -24,64 +25,61 @@ import {
 } from './opportunity-types';
 
 export class OpportunityEngine {
-  private readonly market: V2Market;
-  private readonly v3Market: V3Market;
+  private readonly graph: MarketGraph;
   private readonly strategies: OpportunityStrategy[];
-  private readonly sizer: RouteSizer;
+  private readonly sizer: MarketRouteSizer;
 
   constructor(
-    private readonly policy: V2SearchPolicy = V2_SEARCH_POLICY,
-    market = new V2Market(),
+    private readonly policy: ArbitrageSearchPolicy = ARBITRAGE_SEARCH_POLICY,
+    market: V2Market | MarketGraph = new V2Market(),
     v3Market = new V3Market(),
     strategies?: OpportunityStrategy[]
   ) {
-    this.market = market;
-    this.v3Market = v3Market;
-    this.strategies = strategies ?? [
-      new V2CircularArbitrageStrategy(market, policy),
-      new V3CircularArbitrageStrategy(v3Market, policy),
-    ];
-    this.sizer = new RouteSizer(market, policy);
+    this.graph = market instanceof MarketGraph
+      ? market
+      : new MarketGraph(policy, market, v3Market);
+    this.strategies = strategies ?? [new CircularArbitrageStrategy(this.graph, policy)];
+    this.sizer = new MarketRouteSizer(this.graph, policy);
   }
 
   addPair(pair: PairInfo): void {
-    this.market.addPair(pair);
+    this.graph.addPair(pair);
   }
 
   updateReserves(updates: ReserveUpdate[]): void {
-    this.market.updateReserves(updates);
+    this.graph.updateReserves(updates);
   }
 
   addV3Pool(pool: V3PoolConfig): void {
-    this.v3Market.addPool(pool);
+    this.graph.addV3Pool(pool);
   }
 
   updateV3PoolStates(updates: V3PoolUpdate[]): void {
-    this.v3Market.updatePoolStates(updates);
+    this.graph.updateV3PoolStates(updates);
   }
 
   updateV3Ticks(updates: V3TickUpdate[]): void {
-    this.v3Market.updateTicks(updates);
+    this.graph.updateV3Ticks(updates);
   }
 
   updateV3BitmapWords(updates: V3BitmapWordUpdate[]): void {
-    this.v3Market.updateBitmapWords(updates);
+    this.graph.updateV3BitmapWords(updates);
   }
 
   getV3PoolAddresses(): Address[] {
-    return this.v3Market.poolAddresses();
+    return this.graph.getV3PoolAddresses();
   }
 
   getV3Pools(): V3PoolInfo[] {
-    return this.v3Market.allPools();
+    return this.graph.getV3Pools();
   }
 
   getV3InitializedTicks(poolAddress: Address): V3Tick[] {
-    return this.v3Market.initializedTicks(poolAddress);
+    return this.graph.getV3InitializedTicks(poolAddress);
   }
 
   getV3BitmapWords(poolAddress: Address): V3BitmapWord[] {
-    return this.v3Market.bitmapWords(poolAddress);
+    return this.graph.getV3BitmapWords(poolAddress);
   }
 
   findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult {
@@ -122,40 +120,51 @@ export class OpportunityEngine {
     amountIn: bigint,
     excludePairs: Address[] = []
   ): { pairAddress: Address; fee: number } | null {
-    return this.market.findBestPairForToken(token, amountIn, excludePairs);
+    return this.graph.findBestPairForToken(token, amountIn, excludePairs);
   }
 
   getTokens(): Address[] {
-    return this.market.tokensList();
+    return this.graph.getTokens();
   }
 
   getPairAddresses(): Address[] {
-    return this.market.pairAddresses();
+    return this.graph.getPairAddresses();
   }
 
   getAllPairs(): PairInfo[] {
-    return this.market.allPairs();
+    return this.graph.getAllPairs();
   }
 
   clear(): void {
-    this.market.clear();
-    this.v3Market.clear();
+    this.graph.clear();
   }
 
   private sizeCandidate(candidate: CandidateRoute): ArbitrageOpportunity {
-    const { profit, optimalInput } = this.sizer.size(candidate);
-    const fees = candidate.pairs.map(pairAddress => {
-      const pair = this.market.pair(pairAddress);
-      if (!pair) throw new Error(`Missing pair info for ${pairAddress}`);
-      return pair.fee;
+    if (!candidate.edgeIds || !candidate.protocols) {
+      throw new Error('Candidate route is missing unified market edge metadata.');
+    }
+
+    const { profit, optimalInput, complete } = this.sizer.size({
+      path: candidate.path,
+      pools: candidate.pairs,
+      directions: candidate.directions,
+      edgeIds: candidate.edgeIds,
+      protocols: candidate.protocols,
     });
+    const fees = candidate.edgeIds.map(edgeId => {
+      const edge = this.graph.edge(edgeId);
+      if (!edge) throw new Error(`Missing market edge ${edgeId}`);
+      return edge.fee;
+    });
+
+    const uniqueProtocols = new Set(candidate.protocols);
 
     return {
       ...candidate,
-      profit,
-      optimalInput,
+      profit: complete ? profit : 0n,
+      optimalInput: complete ? optimalInput : 0n,
       fees,
-      routeKind: 'v2',
+      routeKind: uniqueProtocols.size === 1 ? candidate.protocols[0] : 'mixed',
     };
   }
 }

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
-import { type PairInfo, type ReserveUpdate, type V2SearchPolicy } from "../src/market/v2-types";
+import { type PairInfo, type ReserveUpdate } from "../src/market/v2-types";
+import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { ReserveUpdateScheduler } from "../src/runtime/event-scheduler";
 import { tokenAmount } from "../src/values";
@@ -12,9 +13,11 @@ const STRESS_PAIR_COUNT = Number(process.env.V2_STRESS_PAIRS ?? 25_000);
 const STRESS_SEARCH_LIMIT_MS = Number(process.env.V2_STRESS_SEARCH_LIMIT_MS ?? 1_000);
 const STRESS_SCHEDULER_UPDATES = Number(process.env.V2_STRESS_UPDATES ?? 50_000);
 
-const stressPolicy: V2SearchPolicy = {
+const stressPolicy: ArbitrageSearchPolicy = {
   topTokens: 1,
   routeMode: "circular",
+  allowedProtocols: ["v2", "v3"],
+  allowProtocolMixing: true,
   maxRouteEdges: 4,
   beamWidth: 8,
   optimizationIterations: 80,

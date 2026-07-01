@@ -1,7 +1,7 @@
 import { type Address, parseAbiItem, decodeEventLog, type PublicClient } from 'viem';
 import { RUNTIME } from './constants';
 import { type ReserveUpdate } from './market/v2-types';
-import { type V3PoolUpdate } from './market/v3-types';
+import { type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
 import { OpportunityWorkflow } from './opportunities/opportunity-workflow';
 import { ReserveUpdateScheduler, V3PoolUpdateScheduler } from './runtime/event-scheduler';
@@ -14,6 +14,11 @@ const SYNC_EVENT_ABI = [
 
 const V3_SWAP_EVENT_ABI = [
     parseAbiItem('event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)')
+];
+
+const V3_LIQUIDITY_EVENT_ABI = [
+    parseAbiItem('event Mint(address sender, address indexed owner, int24 indexed tickLower, int24 indexed tickUpper, uint128 amount, uint256 amount0, uint256 amount1)'),
+    parseAbiItem('event Burn(address indexed owner, int24 indexed tickLower, int24 indexed tickUpper, uint128 amount, uint256 amount0, uint256 amount1)')
 ];
 
 // Sync event topics
@@ -104,6 +109,15 @@ export class EventMonitor {
                     strict: true
                 });
                 this.unwatchFns.push(unwatchV3);
+
+                const unwatchV3Liquidity = await eventClient.watchContractEvent({
+                    address: v3PoolAddresses,
+                    abi: V3_LIQUIDITY_EVENT_ABI,
+                    onLogs: this.handleV3LiquidityEvents.bind(this),
+                    onError: this.onError.bind(this),
+                    strict: true
+                });
+                this.unwatchFns.push(unwatchV3Liquidity);
             }
 
             console.log('Event monitoring started successfully');
@@ -270,6 +284,26 @@ export class EventMonitor {
         }
     }
 
+    private decodeV3LiquidityEvent(log: any): { kind: 'mint' | 'burn'; tickLower: number; tickUpper: number; amount: bigint } | null {
+        try {
+            const decoded = decodeEventLog({
+                abi: V3_LIQUIDITY_EVENT_ABI,
+                data: log.data,
+                topics: log.topics
+            });
+
+            return {
+                kind: decoded.eventName === 'Mint' ? 'mint' : 'burn',
+                tickLower: Number(decoded.args.tickLower),
+                tickUpper: Number(decoded.args.tickUpper),
+                amount: decoded.args.amount,
+            };
+        } catch (error) {
+            console.error('Failed to decode V3 liquidity event:', error);
+            return null;
+        }
+    }
+
     private async processUpdates(updates: ReserveUpdate[]) {
         await this.scheduler.submit(updates);
     }
@@ -319,6 +353,54 @@ export class EventMonitor {
         }
     }
 
+    private async handleV3LiquidityEvents(logs: any[]) {
+        try {
+            if (RUNTIME.debug) console.log(`Received ${logs.length} V3 liquidity events`);
+
+            const poolAddresses = this.graph.getV3PoolAddresses();
+            const validPools = new Set(poolAddresses.map(addr => addr.toLowerCase()));
+            const addressMap = new Map(poolAddresses.map(addr => [addr.toLowerCase(), addr]));
+            const affectedPools: Address[] = [];
+            const activeLiquidityUpdates: V3PoolUpdate[] = [];
+
+            for (const log of logs) {
+                const lowercaseAddress = log.address?.toLowerCase();
+                if (!validPools.has(lowercaseAddress)) continue;
+
+                const poolAddress = addressMap.get(lowercaseAddress) as Address;
+                const decoded = this.decodeV3LiquidityEvent(log);
+                if (!decoded) continue;
+
+                this.applyV3LiquidityUpdate(poolAddress, decoded);
+                affectedPools.push(poolAddress);
+
+                const pool = this.findV3Pool(poolAddress);
+                if (pool?.state && pool.state.tick >= decoded.tickLower && pool.state.tick < decoded.tickUpper) {
+                    const liquidity = decoded.kind === 'mint'
+                        ? pool.state.liquidity + decoded.amount
+                        : pool.state.liquidity > decoded.amount ? pool.state.liquidity - decoded.amount : 0n;
+
+                    activeLiquidityUpdates.push({
+                        poolAddress,
+                        sqrtPriceX96: pool.state.sqrtPriceX96,
+                        liquidity,
+                        tick: pool.state.tick,
+                    });
+                }
+            }
+
+            if (activeLiquidityUpdates.length > 0) {
+                await this.processV3Updates(activeLiquidityUpdates);
+            }
+
+            if (affectedPools.length > 0) {
+                await this.checkArbitrageOpportunities(affectedPools);
+            }
+        } catch (error) {
+            console.error('Error handling V3 liquidity events:', error);
+        }
+    }
+
     private async processV3Updates(updates: V3PoolUpdate[]) {
         await this.v3Scheduler.submit(updates);
     }
@@ -346,7 +428,50 @@ export class EventMonitor {
             if (RUNTIME.debug) console.log(`Successfully updated ${batch.length} V3 pools`);
         } catch (error) {
             console.error('Failed to update V3 pool states:', error);
+            return;
         }
+
+        console.log('Starting arbitrage check after V3 batch update...');
+        await this.checkArbitrageOpportunities(batch.map(update => update.poolAddress));
+    }
+
+    private applyV3LiquidityUpdate(
+        poolAddress: Address,
+        update: { kind: 'mint' | 'burn'; tickLower: number; tickUpper: number; amount: bigint }
+    ): void {
+        const ticks = this.graph.getV3InitializedTicks(poolAddress);
+        const grossDelta = update.kind === 'mint' ? update.amount : -update.amount;
+        const lower = this.nextTick(ticks, update.tickLower, grossDelta, update.kind === 'mint' ? update.amount : -update.amount);
+        const upper = this.nextTick(ticks, update.tickUpper, grossDelta, update.kind === 'mint' ? -update.amount : update.amount);
+        const nextTicks = [lower, upper].filter(tick => tick !== null);
+
+        if (nextTicks.length === 0) return;
+
+        this.graph.updateV3Ticks([{
+            poolAddress,
+            ticks: nextTicks,
+        }]);
+    }
+
+    private nextTick(ticks: V3Tick[], index: number, liquidityGrossDelta: bigint, liquidityNetDelta: bigint): V3Tick | null {
+        const current = ticks.find(tick => tick.index === index);
+        if (!current && liquidityGrossDelta < 0n) return null;
+
+        const liquidityGross = this.addSigned(current?.liquidityGross ?? 0n, liquidityGrossDelta);
+
+        return {
+            index,
+            liquidityGross,
+            liquidityNet: (current?.liquidityNet ?? 0n) + liquidityNetDelta,
+        };
+    }
+
+    private addSigned(value: bigint, delta: bigint): bigint {
+        return delta < 0n && value < -delta ? 0n : value + delta;
+    }
+
+    private findV3Pool(poolAddress: Address): V3PoolInfo | null {
+        return this.graph.getV3Pools().find(pool => pool.address === poolAddress) ?? null;
     }
 
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {

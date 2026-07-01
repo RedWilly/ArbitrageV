@@ -25,15 +25,3 @@ export type Edge = {
   reserveIn: bigint;
   reserveOut: bigint;
 };
-
-export type RouteMode = 'circular' | 'cross-token';
-
-export type V2SearchPolicy = {
-  topTokens: number;
-  routeMode: RouteMode;
-  maxRouteEdges: number;
-  beamWidth: number;
-  optimizationIterations: number;
-  maxInputReserveFraction: bigint;
-  maxOpportunities: number;
-};

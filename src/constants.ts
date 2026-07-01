@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { type Address } from 'viem';
 import { type V3PoolConfig, type V3StartupPolicy } from './market/v3-types';
+import { type ArbitrageSearchPolicy } from './market-graph/types';
 import { gasPrice, tokenAmount } from './values';
 
 dotenv.config();
@@ -247,18 +248,20 @@ export const V3_POOLS: V3PoolConfig[] = [
   }
 ];
 
-export const V3_STARTUP_POLICY: V3StartupPolicy = {
-    batchSize: 20,
-} as const;
-
-export const V2_SEARCH_POLICY = {
+export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
     topTokens: 1,
     routeMode: 'circular',
+    allowedProtocols: ['v2', 'v3'],
+    allowProtocolMixing: true,
     maxRouteEdges: 6,
     beamWidth: 10,
     optimizationIterations: 160,
     maxInputReserveFraction: 3n,
     maxOpportunities: 6,
+} as const;
+
+export const V3_STARTUP_POLICY: V3StartupPolicy = {
+    batchSize: 20,
 } as const;
 
 export const PAIR_DISCOVERY_POLICY = {
