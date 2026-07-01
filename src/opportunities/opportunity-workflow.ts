@@ -36,12 +36,13 @@ export class OpportunityWorkflow {
       .map((path, index) => ({
         path,
         pairs: opportunities.pairs[index],
+        protocols: opportunities.protocols[index],
         fees: opportunities.fees[index],
         optimalAmount: opportunities.optimalAmounts[index],
         expectedProfit: opportunities.profits[index],
         routeKind: opportunities.routeKinds[index],
       }))
-      .filter(opportunity => opportunity.routeKind === 'v2');
+      .filter(opportunity => opportunity.protocols.length === opportunity.pairs.length);
 
     if (executableOpportunities.length > 0) {
       const manager = createOpportunityManager(this.networkConfig);

@@ -108,6 +108,7 @@ export class OpportunityEngine {
     return {
       paths: opportunities.map(opportunity => opportunity.path),
       pairs: opportunities.map(opportunity => opportunity.pairs),
+      protocols: opportunities.map(opportunity => opportunity.protocols ?? []),
       profits: opportunities.map(opportunity => opportunity.profit),
       optimalAmounts: opportunities.map(opportunity => opportunity.optimalInput),
       fees: opportunities.map(opportunity => opportunity.fees),

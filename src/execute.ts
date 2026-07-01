@@ -8,24 +8,13 @@ import {
     TOKENS,
 } from './constants';
 import ArbABI from './ABI/Arb.json';
+import {
+    type ExecutableOpportunity,
+    ExecutionPlanner,
+    type FlashLoanPairLookup,
+} from './execution/execution-planner';
 import { type NetworkConfig } from './network';
 import { formatTokenAmountWithSymbol } from './values';
-
-interface ArbitrageOpportunity {
-    path: Address[];
-    pairs: Address[];
-    fees: number[];
-    optimalAmount: bigint;
-    expectedProfit: bigint;
-}
-
-type FlashLoanPairLookup = {
-    findBestPairForToken(
-        token: Address,
-        amountIn: bigint,
-        excludePairs?: Address[]
-    ): { pairAddress: Address; fee: number } | null;
-};
 
 class NonceTracker {
     private currentNonce: number | null = null;
@@ -95,6 +84,7 @@ export class OpportunityManager {
     private usedPairs: Set<string> = new Set();
     private nonceTracker: NonceTracker;
     private notifier = new TransactionNotifier();
+    private planner = new ExecutionPlanner();
 
     constructor(private readonly networkConfig: NetworkConfig) {
         this.nonceTracker = new NonceTracker(networkConfig);
@@ -112,7 +102,7 @@ export class OpportunityManager {
     // Process and execute a batch of opportunities
     async processOpportunities(
         graph: FlashLoanPairLookup,
-        opportunities: ArbitrageOpportunity[]
+        opportunities: ExecutableOpportunity[]
     ): Promise<void> {
         // Sort opportunities by expected profit (descending)
         const sortedOpps = [...opportunities].sort((a, b) => {
@@ -138,7 +128,8 @@ export class OpportunityManager {
             }
             try {
                 // Execute the opportunity
-                await this.executeArbitrageOpportunity(graph, opp);
+                const executed = await this.executeArbitrageOpportunity(graph, opp);
+                if (!executed) continue;
 
                 // Mark pairs as used only after successful execution
                 this.markPairsAsUsed(opp.pairs);
@@ -161,48 +152,33 @@ export class OpportunityManager {
 
     private async executeArbitrageOpportunity(
         graph: FlashLoanPairLookup,
-        opportunity: ArbitrageOpportunity
-    ): Promise<void> {
-        const startToken = opportunity.path[0];
-        const endToken = opportunity.path[opportunity.path.length - 1];
-        const isCircular = startToken.toLowerCase() === endToken.toLowerCase();
-
-        if (isCircular) {
-            await this.executeWithFlashswap(graph, opportunity);
-        } else {
-            await this.executeDirectly(opportunity);
-        }
-    }
-
-    private async executeWithFlashswap(
-        graph: FlashLoanPairLookup,
-        opportunity: ArbitrageOpportunity
-    ): Promise<void> {
+        opportunity: ExecutableOpportunity
+    ): Promise<boolean> {
         if (!CONTRACTS.arbitrage || !CONTRACTS.arbitrage.match(/^0x[a-fA-F0-9]{40}$/)) {
             throw new Error('Invalid CONTRACTS.arbitrage address');
         }
 
-        const startToken = opportunity.path[0];
-
-        // Find the best pair for flashswap
-        const flashLoanPair = graph.findBestPairForToken(
-            startToken,
-            opportunity.optimalAmount,
-            opportunity.pairs
-        );
-
-        if (!flashLoanPair) {
-            throw new Error(`No suitable flashswap pair found for token ${startToken}`);
+        const plan = this.planner.createPlan(graph, opportunity);
+        if (!plan) {
+            if (RUNTIME.debug) {
+                console.log('Skipping opportunity without executable plan:', {
+                    routeKind: opportunity.routeKind,
+                    path: opportunity.path,
+                    pairs: opportunity.pairs,
+                    protocols: opportunity.protocols,
+                });
+            }
+            return false;
         }
 
         if (RUNTIME.debug) {
-            console.log('Executing arbitrage with flashswap:', {
-                flashLoanPair: flashLoanPair.pairAddress,
-                startToken,
-                borrowAmount: opportunity.optimalAmount.toString(),
-                pairs: opportunity.pairs,
-                fees: opportunity.fees,
-                repayFee: flashLoanPair.fee,
+            console.log('Executing arbitrage:', {
+                params: {
+                    ...plan.params,
+                    borrowAmount: plan.params.borrowAmount.toString(),
+                    v2RepayFee: plan.params.v2RepayFee.toString(),
+                    fees: plan.params.fees.map(fee => fee.toString()),
+                },
                 expectedProfit: opportunity.expectedProfit.toString()
             });
         }
@@ -217,14 +193,7 @@ export class OpportunityManager {
             address: CONTRACTS.arbitrage as Address,
             abi: ArbABI,
             functionName: 'executeArbitrage',
-            args: [
-                flashLoanPair.pairAddress,    // flashLoanPair
-                startToken,                   // startToken
-                opportunity.optimalAmount,    // borrowAmount
-                opportunity.pairs,            // arbPairs
-                opportunity.fees,             // arbFees
-                flashLoanPair.fee             // repayFee
-            ],
+            args: [plan.params],
             chain: this.networkConfig.walletClient.chain,
             account: this.networkConfig.account,
             nonce,
@@ -248,60 +217,8 @@ export class OpportunityManager {
             opportunity.expectedProfit,
             opportunity.path[opportunity.path.length - 1]
         );
-    }
 
-    private async executeDirectly(
-        opportunity: ArbitrageOpportunity
-    ): Promise<void> {
-        if (RUNTIME.debug) {
-            console.log('Executing arbitrage directly:', {
-                startToken: opportunity.path[0],
-                startAmount: opportunity.optimalAmount.toString(),
-                pairs: opportunity.pairs,
-                fees: opportunity.fees,
-                expectedProfit: opportunity.expectedProfit.toString()
-            });
-        }
-
-        const nonce = await this.nonceTracker.next();
-
-        // Calculate dynamic gas fees based on opportunity's expected profit
-        const { maxFeePerGas, maxPriorityFeePerGas } = this.calculateGasFees(opportunity.expectedProfit);
-
-        // Send transaction directly with gas parameters
-        const hash = await this.networkConfig.walletClient.writeContract({
-            address: CONTRACTS.arbitrage as Address,
-            abi: ArbABI,
-            functionName: 'executeArbitrageDirect',
-            args: [
-                opportunity.path[0],          // startToken
-                opportunity.optimalAmount,    // startAmount
-                opportunity.pairs,            // arbPairs
-                opportunity.fees              // arbFees
-            ],
-            chain: this.networkConfig.walletClient.chain,
-            account: this.networkConfig.account,
-            nonce,
-            gas: EXECUTION_POLICY.gasLimit,
-            ...(EXECUTION_POLICY.legacy
-                ? { gasPrice: EXECUTION_POLICY.baseFee, type: 'legacy' as const }
-                : { maxFeePerGas, maxPriorityFeePerGas, type: 'eip1559' as const }),
-        });
-
-        if (RUNTIME.debug) {
-            console.log('Transaction sent:', {
-                hash,
-                nonce,
-                type: 'direct',
-            });
-        }
-
-        await this.notifier.transactionSent(
-            hash,
-            'direct',
-            opportunity.expectedProfit,
-            opportunity.path[opportunity.path.length - 1]
-        );
+        return true;
     }
 
     // Helper function to calculate dynamic gas fees based on expected profit

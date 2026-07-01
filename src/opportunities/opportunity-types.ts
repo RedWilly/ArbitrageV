@@ -28,6 +28,7 @@ export type FindOpportunitiesRequest = {
 export type ArbitrageSearchResult = {
   paths: Address[][];
   pairs: Address[][];
+  protocols: MarketProtocol[][];
   profits: bigint[];
   optimalAmounts: bigint[];
   fees: number[][];
