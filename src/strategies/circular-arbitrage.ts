@@ -7,7 +7,6 @@ import {
   type FindOpportunitiesRequest,
 } from '../opportunities/opportunity-types';
 import { compareFractions } from '../pricing/v2-swap-math';
-import { type OpportunityStrategy } from './strategy';
 
 type RouteStateStore = {
   tokens: Address[];
@@ -21,7 +20,7 @@ type RouteStateStore = {
 
 const NO_STATE = -1;
 
-export class CircularArbitrageStrategy implements OpportunityStrategy {
+export class CircularArbitrageStrategy {
   constructor(
     private readonly graph: MarketGraph,
     private readonly policy: ArbitrageSearchPolicy

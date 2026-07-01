@@ -15,9 +15,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "bignumber.js": "^9.1.2",
     "dotenv": "^16.4.7",
-    "mathjs": "^14.2.1",
     "node-telegram-bot-api": "^0.66.0",
     "viem": "^2.28.1"
   }

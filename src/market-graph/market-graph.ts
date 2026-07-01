@@ -212,14 +212,6 @@ export class MarketGraph {
     return this.v3Market.bitmapWords(poolAddress);
   }
 
-  findBestPairForToken(
-    token: Address,
-    amountIn: bigint,
-    excludePairs: Address[] = []
-  ): { pairAddress: Address; fee: number } | null {
-    return this.v2Market.findBestPairForToken(token, amountIn, excludePairs);
-  }
-
   findBestFlashPoolForToken(
     token: Address,
     amountIn: bigint,

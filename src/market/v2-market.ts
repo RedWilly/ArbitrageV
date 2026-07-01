@@ -87,30 +87,6 @@ export class V2Market {
     return Array.from(this.tokens);
   }
 
-  findBestPairForToken(
-    token: Address,
-    amountIn: bigint,
-    excludePairs: Address[] = []
-  ): { pairAddress: Address; fee: number } | null {
-    const excluded = new Set(excludePairs.map(pair => pair.toLowerCase()));
-    let bestPair: { pairAddress: Address; reserves: bigint; fee: number } | null = null;
-
-    for (const edge of this.graph.get(token) || []) {
-      if (excluded.has(edge.pairAddress.toLowerCase())) continue;
-      if (edge.reserveIn < amountIn * 3n) continue;
-
-      if (!bestPair || edge.reserveIn > bestPair.reserves) {
-        bestPair = {
-          pairAddress: edge.pairAddress,
-          reserves: edge.reserveIn,
-          fee: edge.fee,
-        };
-      }
-    }
-
-    return bestPair ? { pairAddress: bestPair.pairAddress, fee: bestPair.fee } : null;
-  }
-
   clear(): void {
     this.graph.clear();
     this.tokens.clear();

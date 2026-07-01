@@ -4,7 +4,11 @@ import { type ReserveUpdate } from './market/v2-types';
 import { type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
 import { OpportunityWorkflow } from './opportunities/opportunity-workflow';
-import { ReserveUpdateScheduler, V3PoolUpdateScheduler } from './runtime/event-scheduler';
+import {
+    createReserveUpdateScheduler,
+    createV3PoolUpdateScheduler,
+    type LatestUpdateScheduler,
+} from './runtime/event-scheduler';
 
 // ABI for both types of Sync events
 const SYNC_EVENT_ABI = [
@@ -34,8 +38,8 @@ export class EventMonitor {
     private opportunities: OpportunityWorkflow;
     private isRunning: boolean = false;
     private unwatchFns: Array<() => void | Promise<void>> = [];
-    private scheduler: ReserveUpdateScheduler;
-    private v3Scheduler: V3PoolUpdateScheduler;
+    private scheduler: LatestUpdateScheduler<ReserveUpdate>;
+    private v3Scheduler: LatestUpdateScheduler<V3PoolUpdate>;
     private networkConfig: any;
     private usingWebSocket: boolean = false;
     private wsReconnectAttempts: number = 0;
@@ -45,8 +49,8 @@ export class EventMonitor {
         this.graph = graph;
         this.networkConfig = networkConfig;
         this.opportunities = new OpportunityWorkflow(graph, networkConfig);
-        this.scheduler = new ReserveUpdateScheduler(this.processReserveUpdateBatch.bind(this));
-        this.v3Scheduler = new V3PoolUpdateScheduler(this.processV3PoolUpdateBatch.bind(this));
+        this.scheduler = createReserveUpdateScheduler(this.processReserveUpdateBatch.bind(this));
+        this.v3Scheduler = createV3PoolUpdateScheduler(this.processV3PoolUpdateBatch.bind(this));
         this.client = networkConfig.client;
         
         // Use WebSocket client if available

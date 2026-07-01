@@ -3,7 +3,7 @@ import { ARBITRAGE_SEARCH_POLICY, RUNTIME, TOKENS } from '../constants';
 import { createOpportunityManager } from '../execute';
 import { type NetworkConfig } from '../network';
 import { basisPoints, formatBasisPoints, formatTokenAmountWithSymbol } from '../values';
-import { type FlashPoolCandidate } from '../market-graph/types';
+import { type FlashPoolCandidate, type MarketProtocol } from '../market-graph/types';
 import {
   type ArbitrageSearchResult,
   type FindOpportunitiesRequest,
@@ -41,7 +41,6 @@ export class OpportunityWorkflow {
         fees: opportunities.fees[index],
         optimalAmount: opportunities.optimalAmounts[index],
         expectedProfit: opportunities.profits[index],
-        routeKind: opportunities.routeKinds[index],
       }))
       .filter(opportunity => opportunity.protocols.length === opportunity.pairs.length);
 
@@ -89,7 +88,7 @@ export class OpportunityWorkflow {
       const profit = opportunities.profits[index];
       const pairs = opportunities.pairs[index];
       const fees = opportunities.fees[index];
-      const routeKind = opportunities.routeKinds[index];
+      const routeKind = routeKindFromProtocols(opportunities.protocols[index]);
       const optimalAmount = opportunities.optimalAmounts[index];
       const profitBps = basisPoints(profit, optimalAmount);
       const startToken = path[0];
@@ -110,5 +109,10 @@ export class OpportunityWorkflow {
       console.log(`Fees: ${fees.map(fee => fee.toString()).join(', ')}`);
     });
   }
+}
+
+function routeKindFromProtocols(protocols: MarketProtocol[]): 'v2' | 'v3' | 'mixed' {
+  if (protocols.length === 0) return 'mixed';
+  return protocols.every(protocol => protocol === protocols[0]) ? protocols[0] : 'mixed';
 }
 

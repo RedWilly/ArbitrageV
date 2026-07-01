@@ -138,7 +138,7 @@ describe("Unified graph stress", () => {
     const elapsedMs = performance.now() - startedAt;
 
     expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.routeKinds[0]).toBe("mixed");
+    expect(new Set(opportunities.protocols[0]).size).toBeGreaterThan(1);
     expect(opportunities.pairs[0]).toContain(changedPair.pairAddress);
     expect(opportunities.pairs[0]).toContain(mixedPool.address);
     expect(typeof opportunities.profits[0]).toBe("bigint");

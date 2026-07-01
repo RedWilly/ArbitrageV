@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
-import { ExecutionPlanner } from "../src/execution/execution-planner";
+import { createExecutionPlan } from "../src/execution/execution-planner";
 import { TOKENS } from "../src/constants";
 
 const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
@@ -9,15 +9,14 @@ function address(id: number): Address {
   return `0x${(60_000_000 + id).toString(16).padStart(40, "0")}` as Address;
 }
 
-describe("ExecutionPlanner", () => {
+describe("createExecutionPlan", () => {
   test("builds ArbParams for a mixed V2/V3 circular route", () => {
     const flashPool = address(1);
     const v2Pool = address(2);
     const v3Pool = address(3);
     const closingPool = address(4);
-    const planner = new ExecutionPlanner();
 
-    const plan = planner.createPlan({
+    const plan = createExecutionPlan({
       findBestFlashPoolForToken(token, amountIn, excludePools) {
         expect(token).toBe(tokenA);
         expect(amountIn).toBe(1_000n);
@@ -31,7 +30,6 @@ describe("ExecutionPlanner", () => {
       fees: [30, 500, 30],
       optimalAmount: 1_000n,
       expectedProfit: 100n,
-      routeKind: "mixed",
     });
 
     expect(plan?.params).toEqual({
@@ -49,9 +47,8 @@ describe("ExecutionPlanner", () => {
   test("builds ArbParams with a V3 flash pool when it is the best flash source", () => {
     const flashPool = address(30);
     const routePool = address(31);
-    const planner = new ExecutionPlanner();
 
-    const plan = planner.createPlan({
+    const plan = createExecutionPlan({
       findBestFlashPoolForToken() {
         return { protocol: "v3", poolAddress: flashPool, fee: 500, liquidity: 10_000n };
       },
@@ -62,7 +59,6 @@ describe("ExecutionPlanner", () => {
       fees: [30, 500],
       optimalAmount: 1_000n,
       expectedProfit: 100n,
-      routeKind: "mixed",
     });
 
     expect(plan?.params.flashProtocol).toBe(1);
@@ -71,8 +67,7 @@ describe("ExecutionPlanner", () => {
   });
 
   test("does not create a plan for non-circular routes", () => {
-    const planner = new ExecutionPlanner();
-    const plan = planner.createPlan({
+    const plan = createExecutionPlan({
       findBestFlashPoolForToken() {
         throw new Error("flash loan lookup should not run");
       },
@@ -83,15 +78,13 @@ describe("ExecutionPlanner", () => {
       fees: [30, 500],
       optimalAmount: 1_000n,
       expectedProfit: 100n,
-      routeKind: "mixed",
     });
 
     expect(plan).toBeNull();
   });
 
   test("does not create a plan when route metadata lengths do not match", () => {
-    const planner = new ExecutionPlanner();
-    const plan = planner.createPlan({
+    const plan = createExecutionPlan({
       findBestFlashPoolForToken() {
         throw new Error("flash loan lookup should not run");
       },
@@ -102,7 +95,6 @@ describe("ExecutionPlanner", () => {
       fees: [30, 30],
       optimalAmount: 1_000n,
       expectedProfit: 100n,
-      routeKind: "mixed",
     });
 
     expect(plan).toBeNull();

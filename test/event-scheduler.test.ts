@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { type ReserveUpdate } from "../src/market/v2-types";
 import { type V3PoolUpdate } from "../src/market/v3-types";
-import { ReserveUpdateScheduler, V3PoolUpdateScheduler } from "../src/runtime/event-scheduler";
+import { createReserveUpdateScheduler, createV3PoolUpdateScheduler } from "../src/runtime/event-scheduler";
 
 function pairAddress(id: number): Address {
   return `0x${id.toString(16).padStart(40, "0")}` as Address;
@@ -25,13 +25,13 @@ function v3Update(id: number, sqrtPriceX96: bigint): V3PoolUpdate {
   };
 }
 
-describe("ReserveUpdateScheduler", () => {
+describe("LatestUpdateScheduler", () => {
   test("serializes processing and keeps only the latest update per pair", async () => {
     const batches: ReserveUpdate[][] = [];
-    let scheduler!: ReserveUpdateScheduler;
+    let scheduler!: ReturnType<typeof createReserveUpdateScheduler>;
     let submittedDuringProcessing = false;
 
-    scheduler = new ReserveUpdateScheduler(async batch => {
+    scheduler = createReserveUpdateScheduler(async batch => {
       batches.push(batch);
 
       if (!submittedDuringProcessing) {
@@ -55,7 +55,7 @@ describe("ReserveUpdateScheduler", () => {
 
   test("keeps only the latest V3 pool state per pool", async () => {
     const batches: V3PoolUpdate[][] = [];
-    const scheduler = new V3PoolUpdateScheduler(async batch => {
+    const scheduler = createV3PoolUpdateScheduler(async batch => {
       batches.push(batch);
     });
 

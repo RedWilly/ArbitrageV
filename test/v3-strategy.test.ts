@@ -4,9 +4,9 @@ import { TOKENS } from "../src/constants";
 import { V2Market } from "../src/market/v2-market";
 import { V3Market } from "../src/market/v3-market";
 import { type V3PoolConfig } from "../src/market/v3-types";
+import { MarketGraph } from "../src/market-graph/market-graph";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
-import { V3RouteSizer } from "../src/pricing/v3-route-sizer";
 import { Q96 } from "../src/pricing/v3-swap-math";
 import { type PairInfo } from "../src/market/v2-types";
 import { tokenAmount } from "../src/values";
@@ -83,12 +83,15 @@ describe("V3 arbitrage strategy", () => {
     const market = new V3Market([]);
     const configuredPool = pool(1, tokenA, tokenB);
     addLivePool(market, configuredPool, Q96, 1_000n);
-    const sizer = new V3RouteSizer(market, policy);
+    const graph = new MarketGraph(policy, new V2Market(), market);
+    const edge = graph.rankedEdges(tokenA, 1)[0];
 
-    const quote = sizer.quote({
+    const quote = graph.quote({
       path: [tokenA, tokenB],
       pools: [configuredPool.address],
       directions: ["token0ToToken1"],
+      edgeIds: [edge.id],
+      protocols: ["v3"],
     }, 10n ** 30n);
 
     expect(quote.complete).toBe(false);
@@ -110,7 +113,7 @@ describe("V3 arbitrage strategy", () => {
     });
 
     expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.routeKinds[0]).toBe("v3");
+    expect(opportunities.protocols[0]).toEqual(["v3", "v3", "v3"]);
     expect(opportunities.paths[0]).toEqual([tokenA, tokenB, tokenC, tokenA]);
     expect(opportunities.pairs[0]).toEqual([poolAB.address, poolBC.address, poolCA.address]);
     expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
@@ -134,7 +137,7 @@ describe("V3 arbitrage strategy", () => {
     });
 
     expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.routeKinds[0]).toBe("mixed");
+    expect(new Set(opportunities.protocols[0]).size).toBeGreaterThan(1);
     expect(opportunities.paths[0]).toEqual([tokenA, tokenB, tokenC, tokenA]);
     expect(opportunities.pairs[0]).toEqual([pairAB.pairAddress, poolBC.address, pairCA.pairAddress]);
     expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);

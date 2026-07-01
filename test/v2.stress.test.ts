@@ -4,7 +4,7 @@ import { TOKENS } from "../src/constants";
 import { type PairInfo, type ReserveUpdate } from "../src/market/v2-types";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
-import { ReserveUpdateScheduler } from "../src/runtime/event-scheduler";
+import { createReserveUpdateScheduler } from "../src/runtime/event-scheduler";
 import { tokenAmount } from "../src/values";
 
 const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
@@ -120,7 +120,7 @@ describe("V2 arbitrage stress", () => {
   test("scheduler collapses a large update burst to latest reserve per pair", async () => {
     const pairCount = 100;
     const processed: ReserveUpdate[][] = [];
-    const scheduler = new ReserveUpdateScheduler(async updates => {
+    const scheduler = createReserveUpdateScheduler(async updates => {
       processed.push(updates);
     });
 

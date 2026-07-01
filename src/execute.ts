@@ -9,8 +9,8 @@ import {
 } from './constants';
 import ArbABI from './ABI/Arb.json';
 import {
+    createExecutionPlan,
     type ExecutableOpportunity,
-    ExecutionPlanner,
     type FlashPoolLookup,
 } from './execution/execution-planner';
 import { type NetworkConfig } from './network';
@@ -84,7 +84,6 @@ export class OpportunityManager {
     private usedPairs: Set<string> = new Set();
     private nonceTracker: NonceTracker;
     private notifier = new TransactionNotifier();
-    private planner = new ExecutionPlanner();
 
     constructor(private readonly networkConfig: NetworkConfig) {
         this.nonceTracker = new NonceTracker(networkConfig);
@@ -158,11 +157,10 @@ export class OpportunityManager {
             throw new Error('Invalid CONTRACTS.arbitrage address');
         }
 
-        const plan = this.planner.createPlan(graph, opportunity);
+        const plan = createExecutionPlan(graph, opportunity);
         if (!plan) {
             if (RUNTIME.debug) {
                 console.log('Skipping opportunity without executable plan:', {
-                    routeKind: opportunity.routeKind,
                     path: opportunity.path,
                     pairs: opportunity.pairs,
                     protocols: opportunity.protocols,

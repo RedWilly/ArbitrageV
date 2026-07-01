@@ -15,7 +15,6 @@ import {
   type V3Tick,
   type V3TickUpdate,
 } from '../market/v3-types';
-import { type OpportunityStrategy } from '../strategies/strategy';
 import { CircularArbitrageStrategy } from '../strategies/circular-arbitrage';
 import {
   type ArbitrageOpportunity,
@@ -26,19 +25,18 @@ import {
 
 export class OpportunityEngine {
   private readonly graph: MarketGraph;
-  private readonly strategies: OpportunityStrategy[];
+  private readonly strategy: CircularArbitrageStrategy;
   private readonly sizer: MarketRouteSizer;
 
   constructor(
     private readonly policy: ArbitrageSearchPolicy = ARBITRAGE_SEARCH_POLICY,
     market: V2Market | MarketGraph = new V2Market(),
-    v3Market = new V3Market(),
-    strategies?: OpportunityStrategy[]
+    v3Market = new V3Market()
   ) {
     this.graph = market instanceof MarketGraph
       ? market
       : new MarketGraph(policy, market, v3Market);
-    this.strategies = strategies ?? [new CircularArbitrageStrategy(this.graph, policy)];
+    this.strategy = new CircularArbitrageStrategy(this.graph, policy);
     this.sizer = new MarketRouteSizer(this.graph, policy);
   }
 
@@ -83,11 +81,8 @@ export class OpportunityEngine {
   }
 
   findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult {
-    const candidates = this.strategies.flatMap(strategy => strategy.findCandidates?.(request) ?? []);
-    const strategyOpportunities = this.strategies.flatMap(strategy => strategy.findOpportunities?.(request) ?? []);
-    const opportunities = candidates
+    const opportunities = this.strategy.findCandidates(request)
       .map(candidate => this.sizeCandidate(candidate))
-      .concat(strategyOpportunities)
       .filter(opportunity => {
         const originToken = opportunity.path[0];
         const token = TOKENS.find(addr => addr.address === originToken);
@@ -112,16 +107,7 @@ export class OpportunityEngine {
       profits: opportunities.map(opportunity => opportunity.profit),
       optimalAmounts: opportunities.map(opportunity => opportunity.optimalInput),
       fees: opportunities.map(opportunity => opportunity.fees),
-      routeKinds: opportunities.map(opportunity => opportunity.routeKind),
     };
-  }
-
-  findBestPairForToken(
-    token: Address,
-    amountIn: bigint,
-    excludePairs: Address[] = []
-  ): { pairAddress: Address; fee: number } | null {
-    return this.graph.findBestPairForToken(token, amountIn, excludePairs);
   }
 
   findBestFlashPoolForToken(
@@ -166,14 +152,11 @@ export class OpportunityEngine {
       return edge.fee;
     });
 
-    const uniqueProtocols = new Set(candidate.protocols);
-
     return {
       ...candidate,
       profit: complete ? profit : 0n,
       optimalInput: complete ? optimalInput : 0n,
       fees,
-      routeKind: uniqueProtocols.size === 1 ? candidate.protocols[0] : 'mixed',
     };
   }
 }

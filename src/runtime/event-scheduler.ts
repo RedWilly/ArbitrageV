@@ -54,14 +54,14 @@ export class LatestUpdateScheduler<TUpdate> {
   }
 }
 
-export class ReserveUpdateScheduler extends LatestUpdateScheduler<ReserveUpdate> {
-  constructor(processBatch: UpdateHandler<ReserveUpdate>) {
-    super(processBatch, update => update.pairAddress.toLowerCase(), 'pairs');
-  }
+export function createReserveUpdateScheduler(
+  processBatch: UpdateHandler<ReserveUpdate>
+): LatestUpdateScheduler<ReserveUpdate> {
+  return new LatestUpdateScheduler(processBatch, update => update.pairAddress.toLowerCase(), 'pairs');
 }
 
-export class V3PoolUpdateScheduler extends LatestUpdateScheduler<V3PoolUpdate> {
-  constructor(processBatch: UpdateHandler<V3PoolUpdate>) {
-    super(processBatch, update => update.poolAddress.toLowerCase(), 'V3 pools');
-  }
+export function createV3PoolUpdateScheduler(
+  processBatch: UpdateHandler<V3PoolUpdate>
+): LatestUpdateScheduler<V3PoolUpdate> {
+  return new LatestUpdateScheduler(processBatch, update => update.poolAddress.toLowerCase(), 'V3 pools');
 }
