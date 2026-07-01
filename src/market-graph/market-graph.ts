@@ -22,6 +22,7 @@ import { feeMultiplier } from '../values';
 import {
   type AnyMarketEdge,
   type ArbitrageSearchPolicy,
+  type FlashPoolCandidate,
   type MarketEdgeId,
   type MarketRoute,
   type MarketRouteQuote,
@@ -217,6 +218,35 @@ export class MarketGraph {
     excludePairs: Address[] = []
   ): { pairAddress: Address; fee: number } | null {
     return this.v2Market.findBestPairForToken(token, amountIn, excludePairs);
+  }
+
+  findBestFlashPoolForToken(
+    token: Address,
+    amountIn: bigint,
+    excludePools: Address[] = []
+  ): FlashPoolCandidate | null {
+    const tokenIndex = this.tokenIndexes.get(this.addressKey(token));
+    if (tokenIndex === undefined) return null;
+
+    const excluded = new Set(excludePools.map(pool => this.addressKey(pool)));
+    let best: FlashPoolCandidate | null = null;
+
+    for (const edgeIndex of this.tokens[tokenIndex].edgeIndexes) {
+      const edge = this.edges[edgeIndex].edge;
+      if (excluded.has(this.addressKey(edge.poolAddress))) continue;
+      if (edge.liquidity < amountIn * 3n) continue;
+
+      if (!best || edge.liquidity > best.liquidity) {
+        best = {
+          protocol: edge.protocol,
+          poolAddress: edge.poolAddress,
+          fee: edge.fee,
+          liquidity: edge.liquidity,
+        };
+      }
+    }
+
+    return best;
   }
 
   clear(): void {

@@ -160,4 +160,22 @@ describe("V3 arbitrage strategy", () => {
 
     expect(opportunities.paths).toEqual([]);
   });
+
+  test("selects the best non-route flash pool across V2 and V3", () => {
+    const v2Market = new V2Market();
+    const routePair = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200"));
+    const fallbackPair = pair(2, tokenA, tokenC, tokenAmount("10000"), tokenAmount("10000"));
+    v2Market.addPair(routePair);
+    v2Market.addPair(fallbackPair);
+
+    const v3Market = new V3Market([]);
+    const v3FlashPool = pool(3, tokenA, tokenC);
+    addLivePool(v3Market, v3FlashPool, Q96, 10n ** 24n);
+
+    const engine = new OpportunityEngine(policy, v2Market, v3Market);
+    const flashPool = engine.findBestFlashPoolForToken(tokenA, 1_000n, [routePair.pairAddress]);
+
+    expect(flashPool?.protocol).toBe("v3");
+    expect(flashPool?.poolAddress).toBe(v3FlashPool.address);
+  });
 });

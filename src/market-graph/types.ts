@@ -67,6 +67,13 @@ export type MarketSizedRoute = {
   complete: boolean;
 };
 
+export type FlashPoolCandidate = {
+  protocol: MarketProtocol;
+  poolAddress: Address;
+  fee: number;
+  liquidity: bigint;
+};
+
 export function protocolAllowed(policy: ArbitrageSearchPolicy, protocol: MarketProtocol): boolean {
   return policy.allowedProtocols.includes(protocol);
 }

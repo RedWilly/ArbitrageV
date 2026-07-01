@@ -2,7 +2,7 @@ import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
 import { MarketGraph } from '../market-graph/market-graph';
 import { MarketRouteSizer } from '../market-graph/route-sizer';
-import { type ArbitrageSearchPolicy } from '../market-graph/types';
+import { type ArbitrageSearchPolicy, type FlashPoolCandidate } from '../market-graph/types';
 import { V2Market } from '../market/v2-market';
 import { type PairInfo, type ReserveUpdate } from '../market/v2-types';
 import { V3Market } from '../market/v3-market';
@@ -122,6 +122,14 @@ export class OpportunityEngine {
     excludePairs: Address[] = []
   ): { pairAddress: Address; fee: number } | null {
     return this.graph.findBestPairForToken(token, amountIn, excludePairs);
+  }
+
+  findBestFlashPoolForToken(
+    token: Address,
+    amountIn: bigint,
+    excludePools: Address[] = []
+  ): FlashPoolCandidate | null {
+    return this.graph.findBestFlashPoolForToken(token, amountIn, excludePools);
   }
 
   getTokens(): Address[] {

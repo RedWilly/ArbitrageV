@@ -11,7 +11,7 @@ import ArbABI from './ABI/Arb.json';
 import {
     type ExecutableOpportunity,
     ExecutionPlanner,
-    type FlashLoanPairLookup,
+    type FlashPoolLookup,
 } from './execution/execution-planner';
 import { type NetworkConfig } from './network';
 import { formatTokenAmountWithSymbol } from './values';
@@ -101,7 +101,7 @@ export class OpportunityManager {
 
     // Process and execute a batch of opportunities
     async processOpportunities(
-        graph: FlashLoanPairLookup,
+        graph: FlashPoolLookup,
         opportunities: ExecutableOpportunity[]
     ): Promise<void> {
         // Sort opportunities by expected profit (descending)
@@ -151,7 +151,7 @@ export class OpportunityManager {
     }
 
     private async executeArbitrageOpportunity(
-        graph: FlashLoanPairLookup,
+        graph: FlashPoolLookup,
         opportunity: ExecutableOpportunity
     ): Promise<boolean> {
         if (!CONTRACTS.arbitrage || !CONTRACTS.arbitrage.match(/^0x[a-fA-F0-9]{40}$/)) {

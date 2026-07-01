@@ -3,6 +3,7 @@ import { ARBITRAGE_SEARCH_POLICY, RUNTIME, TOKENS } from '../constants';
 import { createOpportunityManager } from '../execute';
 import { type NetworkConfig } from '../network';
 import { basisPoints, formatBasisPoints, formatTokenAmountWithSymbol } from '../values';
+import { type FlashPoolCandidate } from '../market-graph/types';
 import {
   type ArbitrageSearchResult,
   type FindOpportunitiesRequest,
@@ -14,11 +15,11 @@ export type OpportunityWorkflowRequest = {
 
 type OpportunityEngine = {
   findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult;
-  findBestPairForToken(
+  findBestFlashPoolForToken(
     token: Address,
     amountIn: bigint,
-    excludePairs?: Address[]
-  ): { pairAddress: Address; fee: number } | null;
+    excludePools?: Address[]
+  ): FlashPoolCandidate | null;
 };
 
 export class OpportunityWorkflow {
