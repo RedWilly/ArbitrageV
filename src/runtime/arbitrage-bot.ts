@@ -1,4 +1,4 @@
-import { RUNTIME } from '../constants';
+import { RUNTIME, V3_POOLS } from '../constants';
 import { EventMonitor } from '../event';
 import { getAllPairsInfo } from '../getinfo';
 import { loadConfiguredV3StartupState } from '../market/v3-loader';
@@ -37,8 +37,20 @@ export async function runArbitrageBot(): Promise<void> {
 
   console.log('Replaying buffered startup events...');
   const bufferedEvents = await startupBuffer.stop();
+  const v3RefreshPools = new Set(bufferedEvents.v3PoolsToRefresh.map(address => address.toLowerCase()));
   graph.updateReserves(bufferedEvents.v2ReserveUpdates);
-  graph.updateV3PoolStates(bufferedEvents.v3PoolUpdates);
+  graph.updateV3PoolStates(
+    bufferedEvents.v3PoolUpdates.filter(update => !v3RefreshPools.has(update.poolAddress.toLowerCase()))
+  );
+
+  if (bufferedEvents.v3PoolsToRefresh.length > 0) {
+    console.log(`Refreshing ${bufferedEvents.v3PoolsToRefresh.length} V3 pools touched by startup liquidity events...`);
+    await loadConfiguredV3StartupState(
+      network.client,
+      graph,
+      V3_POOLS.filter(pool => v3RefreshPools.has(pool.address.toLowerCase()))
+    );
+  }
 
   console.log('Searching for initial arbitrage opportunities...');
   await new OpportunityWorkflow(graph, network).scanAndExecute();

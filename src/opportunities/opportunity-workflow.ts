@@ -1,9 +1,10 @@
 import { type Address } from 'viem';
-import { ARBITRAGE_SEARCH_POLICY, RUNTIME, TOKENS } from '../constants';
-import { createOpportunityManager } from '../execute';
+import { ARBITRAGE_SEARCH_POLICY, EXECUTION_POLICY, RUNTIME, TOKENS } from '../constants';
+import { OpportunityManager } from '../execute';
 import { type NetworkConfig } from '../network';
 import { basisPoints, formatBasisPoints, formatTokenAmountWithSymbol } from '../values';
-import { type FlashPoolCandidate, type MarketProtocol } from '../market-graph/types';
+import { type MarketProtocol } from '../market-graph/types';
+import { type OpportunityEngine } from './opportunity-engine';
 import {
   type ArbitrageSearchResult,
   type FindOpportunitiesRequest,
@@ -13,40 +14,38 @@ export type OpportunityWorkflowRequest = {
   changedPairs?: Address[];
 };
 
-type OpportunityEngine = {
-  findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult;
-  findBestFlashPoolForToken(
-    token: Address,
-    amountIn: bigint,
-    excludePools?: Address[]
-  ): FlashPoolCandidate | null;
-};
-
 export class OpportunityWorkflow {
+  private readonly manager: OpportunityManager | null;
+
   constructor(
     private readonly engine: OpportunityEngine,
-    private readonly networkConfig: NetworkConfig
-  ) {}
+    networkConfig: NetworkConfig
+  ) {
+    this.manager = EXECUTION_POLICY.executeTrades
+      ? new OpportunityManager(networkConfig)
+      : null;
+  }
 
   async scanAndExecute(request: OpportunityWorkflowRequest = {}): Promise<ArbitrageSearchResult> {
     const opportunities = this.engine.findOpportunities(this.createSearchRequest(request));
 
     this.log(opportunities);
 
-    const executableOpportunities = opportunities.paths
-      .map((path, index) => ({
-        path,
-        pairs: opportunities.pairs[index],
-        protocols: opportunities.protocols[index],
-        fees: opportunities.fees[index],
-        optimalAmount: opportunities.optimalAmounts[index],
-        expectedProfit: opportunities.profits[index],
-      }))
-      .filter(opportunity => opportunity.protocols.length === opportunity.pairs.length);
+    if (this.manager && opportunities.paths.length > 0) {
+      const executableOpportunities = opportunities.paths
+        .map((path, index) => ({
+          path,
+          pairs: opportunities.pairs[index],
+          protocols: opportunities.protocols[index],
+          fees: opportunities.fees[index],
+          optimalAmount: opportunities.optimalAmounts[index],
+          expectedProfit: opportunities.profits[index],
+        }))
+        .filter(opportunity => opportunity.protocols.length === opportunity.pairs.length);
 
-    if (executableOpportunities.length > 0) {
-      const manager = createOpportunityManager(this.networkConfig);
-      manager.processOpportunities(this.engine, executableOpportunities).catch(error => {
+      if (executableOpportunities.length === 0) return opportunities;
+
+      this.manager.processOpportunities(this.engine, executableOpportunities).catch(error => {
         if (RUNTIME.debug) {
           console.error('Error processing opportunities:', error);
         }

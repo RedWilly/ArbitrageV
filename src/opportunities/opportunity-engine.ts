@@ -3,9 +3,7 @@ import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
 import { MarketGraph } from '../market-graph/market-graph';
 import { MarketRouteSizer } from '../market-graph/route-sizer';
 import { type ArbitrageSearchPolicy, type FlashPoolCandidate } from '../market-graph/types';
-import { V2Market } from '../market/v2-market';
 import { type PairInfo, type ReserveUpdate } from '../market/v2-types';
-import { V3Market } from '../market/v3-market';
 import {
   type V3BitmapWord,
   type V3BitmapWordUpdate,
@@ -30,12 +28,9 @@ export class OpportunityEngine {
 
   constructor(
     private readonly policy: ArbitrageSearchPolicy = ARBITRAGE_SEARCH_POLICY,
-    market: V2Market | MarketGraph = new V2Market(),
-    v3Market = new V3Market()
+    graph = new MarketGraph(policy)
   ) {
-    this.graph = market instanceof MarketGraph
-      ? market
-      : new MarketGraph(policy, market, v3Market);
+    this.graph = graph;
     this.strategy = new CircularArbitrageStrategy(this.graph, policy);
     this.sizer = new MarketRouteSizer(this.graph, policy);
   }
@@ -135,10 +130,6 @@ export class OpportunityEngine {
   }
 
   private sizeCandidate(candidate: CandidateRoute): ArbitrageOpportunity {
-    if (!candidate.edgeIds || !candidate.protocols) {
-      throw new Error('Candidate route is missing unified market edge metadata.');
-    }
-
     const { profit, optimalInput, complete } = this.sizer.size({
       path: candidate.path,
       pools: candidate.pairs,

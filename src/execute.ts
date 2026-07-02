@@ -59,7 +59,7 @@ class TransactionNotifier {
             `<b>Expected Profit:</b> ${formatTokenAmountWithSymbol(expectedProfit, token)}\n\n` +
             `<b>Transaction:</b>\n` +
             `<code>${hash}</code>\n\n` +
-            `<a href="https://www.shibariumscan.io/tx/${hash}">View on Explorer</a>`;
+            `<a href="https://seiscan.io/tx/${hash}">View on Explorer</a>`;
 
         try {
             await this.bot.sendMessage(TELEGRAM.chatId, message, {
@@ -235,10 +235,5 @@ export class OpportunityManager {
             maxPriorityFeePerGas
         };
     }
-}
-
-// Create and export the opportunity manager factory
-export function createOpportunityManager(networkConfig: NetworkConfig): OpportunityManager {
-    return new OpportunityManager(networkConfig);
 }
 

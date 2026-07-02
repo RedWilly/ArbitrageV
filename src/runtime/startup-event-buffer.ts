@@ -2,14 +2,11 @@ import { decodeEventLog, parseAbiItem, type Address, type PublicClient } from 'v
 import { RUNTIME } from '../constants';
 import { type ReserveUpdate } from '../market/v2-types';
 import { type V3PoolUpdate } from '../market/v3-types';
+import { V3_POOL_EVENT_ABI } from './v3-events';
 
 const SYNC_EVENT_ABI = [
   parseAbiItem('event Sync(uint112 reserve0, uint112 reserve1)'),
   parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)'),
-];
-
-const V3_SWAP_EVENT_ABI = [
-  parseAbiItem('event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)'),
 ];
 
 const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1';
@@ -18,12 +15,19 @@ const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4
 export type BufferedStartupEvents = {
   v2ReserveUpdates: ReserveUpdate[];
   v3PoolUpdates: V3PoolUpdate[];
+  v3PoolsToRefresh: Address[];
 };
+
+type DecodedV3StartupEvent =
+  | { kind: 'swap'; update: Omit<V3PoolUpdate, 'poolAddress'> }
+  | { kind: 'liquidity' }
+  | { kind: 'collect' };
 
 export class StartupEventBuffer {
   private readonly client: PublicClient;
   private readonly v2Updates = new Map<string, ReserveUpdate>();
   private readonly v3Updates = new Map<string, V3PoolUpdate>();
+  private readonly v3PoolsToRefresh = new Map<string, Address>();
   private readonly unwatchFns: Array<() => void | Promise<void>> = [];
 
   constructor(networkConfig: any) {
@@ -60,14 +64,18 @@ export class StartupEventBuffer {
     const addressMap = this.addressMap(poolAddresses);
     const unwatch = await this.client.watchContractEvent({
       address: poolAddresses,
-      abi: V3_SWAP_EVENT_ABI,
+      abi: V3_POOL_EVENT_ABI,
       strict: true,
       onLogs: logs => {
         for (const log of logs) {
           const poolAddress = addressMap.get(log.address?.toLowerCase() ?? '');
-          const decoded = poolAddress ? this.decodeV3Swap(log) : null;
-          if (poolAddress && decoded) {
-            this.v3Updates.set(poolAddress.toLowerCase(), { poolAddress, ...decoded });
+          const decoded = poolAddress ? this.decodeV3StartupEvent(log) : null;
+          if (!poolAddress || !decoded) continue;
+
+          if (decoded.kind === 'swap') {
+            this.v3Updates.set(poolAddress.toLowerCase(), { poolAddress, ...decoded.update });
+          } else if (decoded.kind === 'liquidity') {
+            this.v3PoolsToRefresh.set(poolAddress.toLowerCase(), poolAddress);
           }
         }
       },
@@ -87,6 +95,7 @@ export class StartupEventBuffer {
     return {
       v2ReserveUpdates: Array.from(this.v2Updates.values()),
       v3PoolUpdates: Array.from(this.v3Updates.values()),
+      v3PoolsToRefresh: Array.from(this.v3PoolsToRefresh.values()),
     };
   }
 
@@ -113,16 +122,28 @@ export class StartupEventBuffer {
     return null;
   }
 
-  private decodeV3Swap(log: any): Omit<V3PoolUpdate, 'poolAddress'> | null {
+  private decodeV3StartupEvent(log: any): DecodedV3StartupEvent | null {
     try {
-      const decoded = decodeEventLog({ abi: V3_SWAP_EVENT_ABI, data: log.data, topics: log.topics });
-      return {
-        sqrtPriceX96: decoded.args.sqrtPriceX96,
-        liquidity: decoded.args.liquidity,
-        tick: Number(decoded.args.tick),
-      };
+      const decoded = decodeEventLog({ abi: V3_POOL_EVENT_ABI, data: log.data, topics: log.topics });
+
+      if (decoded.eventName === 'Swap') {
+        return {
+          kind: 'swap',
+          update: {
+            sqrtPriceX96: decoded.args.sqrtPriceX96,
+            liquidity: decoded.args.liquidity,
+            tick: Number(decoded.args.tick),
+          },
+        };
+      }
+
+      if (decoded.eventName === 'Mint' || decoded.eventName === 'Burn') {
+        return { kind: 'liquidity' };
+      }
+
+      return { kind: 'collect' };
     } catch (error) {
-      console.error('Failed to decode startup V3 Swap event:', error);
+      console.error('Failed to decode startup V3 pool event:', error);
       return null;
     }
   }

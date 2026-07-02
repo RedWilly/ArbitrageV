@@ -22,7 +22,7 @@ export type DexFactoryConfig = {
 };
 
 export const NETWORK = {
-    chainId: 109,
+    chainId: 1329,
     rpcUrl: process.env.RPC_URL,
     wsUrl: process.env.WSS_URL,
     privateKey: process.env.PRIVATE_KEY,
@@ -33,6 +33,49 @@ export const CONTRACTS = {
     flashQuery: process.env.UNISWAP_FLASH_QUERY_CONTRACT_ADDRESS,
 } as const;
 
+export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
+    topTokens: 1,
+    routeMode: 'circular',
+    allowedProtocols: ['v2', 'v3'],
+    allowProtocolMixing: true,
+    maxRouteEdges: 6,
+    beamWidth: 10,
+    optimizationIterations: 160,
+    maxInputReserveFraction: 3n,
+    maxOpportunities: 6,
+} as const;
+
+export const V3_STARTUP_POLICY: V3StartupPolicy = {
+    batchSize: 5,
+} as const;
+
+export const PAIR_DISCOVERY_POLICY = {
+    batchSize: 200,
+    woofReserveBatchSize: 5,
+    maxPairAgeSeconds: 700 * 24 * 60 * 60,
+    minOtherTokenLiquidity: tokenAmount('500'),
+} as const;
+
+export const EXECUTION_POLICY = {
+    executeTrades: true,
+    gasLimit: 500000n,
+    baseFee: gasPrice('34.9'),
+    legacy: true,
+} as const;
+
+export const RUNTIME = {
+    debug: true,
+    websocketEnabled: true,
+} as const;
+
+export const TELEGRAM = {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    chatId: process.env.TELEGRAM_CHAT_ID || '',
+} as const;
+
+
+// dexes info
+// & tokens info>
 export const TOKENS: TokenConfig[] = [
     {
         name: 'WSEI',
@@ -175,10 +218,10 @@ export const V3_POOLS: V3PoolConfig[] = [
     enabled: true,
   },
   {
-    name: 'dragon-wsei-usdc.n',
+    name: 'dragon-usdc.n-wsei',
     address: '0x882f62fe8E9594470D1da0f70Bc85096F6c60423',
-    token0: '0xE30feDd158A2e3b13e9badaeABaFc5516e95e8C7',
-    token1: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
+    token0: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
+    token1: '0xE30feDd158A2e3b13e9badaeABaFc5516e95e8C7',
     fee: 3000,
     tickSpacing: 60,
     enabled: true,
@@ -193,10 +236,10 @@ export const V3_POOLS: V3PoolConfig[] = [
     enabled: true,
   },
   {
-    name: 'dragon-usdc-usdc.n',
+    name: 'dragon-usdc.n-usdc',
     address: '0x8b7bC59c92f77980d1120406a173D7C611060DA3',
-    token0: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
-    token1: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
+    token0: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
+    token1: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
     fee: 100,
     tickSpacing: 1,
     enabled: true,
@@ -211,78 +254,39 @@ export const V3_POOLS: V3PoolConfig[] = [
     enabled: true,
   },
   {
-    name: 'oku-usdc-usdc.n',
+    name: 'oku-usdc.n-usdc',
     address: '0xc53b65811e3D33AdA5a90d476dCF2063b53bcFB3',
-    token0: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
-    token1: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
+    token0: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
+    token1: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
     fee: 100,
     tickSpacing: 1,
     enabled: true,
   },
   {
-    name: 'oku-wsei-usdc.n',
+    name: 'oku-usdc-wsei.n',
     address: '0x5cFA8dB453C9904511C4eA9eb0bfc903E36b9F5F',
-    token0: '0xE30feDd158A2e3b13e9badaeABaFc5516e95e8C7',
-    token1: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
+    token0: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
+    token1: '0xE30feDd158A2e3b13e9badaeABaFc5516e95e8C7',
     fee: 500,
     tickSpacing: 10,
     enabled: true,
   },
-  {
-    name: 'unknown-weth-usdc',
-    address: '0x1C97a574b5bBDcbc70A0223e8e6DBBb0479c0570',
-    token0: '0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8',
-    token1: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
-    fee: 2500,
-    tickSpacing: 200,
-    enabled: true,
-  },
-  {
-    name: 'unknown-usdt0-usdc',
-    address: '0x3C2567b15FD9133Cf9101E043C58e2B444aF900b',
-    token0: '0x9151434b16b9763660705744891fA906F660EcC5',
-    token1: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
-    fee: 200,
-    tickSpacing: 50,
-    enabled: true,
-  }
+  // {
+  //   name: 'unknown-weth-usdc',
+  //   address: '0x1C97a574b5bBDcbc70A0223e8e6DBBb0479c0570',
+  //   token0: '0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8',
+  //   token1: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
+  //   fee: 2500,
+  //   tickSpacing: 200,
+  //   enabled: true,
+  // },
+  // {
+  //   name: 'unknown-usdt0-usdc',
+  //   address: '0x3C2567b15FD9133Cf9101E043C58e2B444aF900b',
+  //   token0: '0x9151434b16b9763660705744891fA906F660EcC5',
+  //   token1: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
+  //   fee: 200,
+  //   tickSpacing: 50,
+  //   enabled: true,
+  // }
 ];
-
-export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
-    topTokens: 1,
-    routeMode: 'circular',
-    allowedProtocols: ['v2', 'v3'],
-    allowProtocolMixing: true,
-    maxRouteEdges: 6,
-    beamWidth: 10,
-    optimizationIterations: 160,
-    maxInputReserveFraction: 3n,
-    maxOpportunities: 6,
-} as const;
-
-export const V3_STARTUP_POLICY: V3StartupPolicy = {
-    batchSize: 20,
-} as const;
-
-export const PAIR_DISCOVERY_POLICY = {
-    batchSize: 200,
-    woofReserveBatchSize: 5,
-    maxPairAgeSeconds: 700 * 24 * 60 * 60,
-    minOtherTokenLiquidity: tokenAmount('500'),
-} as const;
-
-export const EXECUTION_POLICY = {
-    gasLimit: 500000n,
-    baseFee: gasPrice('34.9'),
-    legacy: true,
-} as const;
-
-export const RUNTIME = {
-    debug: false,
-    websocketEnabled: false,
-} as const;
-
-export const TELEGRAM = {
-    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-    chatId: process.env.TELEGRAM_CHAT_ID || '',
-} as const;

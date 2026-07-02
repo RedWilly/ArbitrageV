@@ -2,9 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
 import { type PairInfo } from "../src/market/v2-types";
-import { V2Market } from "../src/market/v2-market";
-import { V3Market } from "../src/market/v3-market";
 import { type V3PoolConfig } from "../src/market/v3-types";
+import { MarketGraph } from "../src/market-graph/market-graph";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { Q96 } from "../src/pricing/v3-swap-math";
@@ -71,13 +70,13 @@ function pool(id: number, token0: Address, token1: Address, fee = 500): V3PoolCo
 }
 
 function addLivePool(
-  market: V3Market,
+  engine: OpportunityEngine,
   config: V3PoolConfig,
   sqrtPriceX96 = Q96,
   liquidity = 10n ** 24n,
 ): void {
-  market.addPool(config);
-  market.updatePoolStates([{
+  engine.addV3Pool(config);
+  engine.updateV3PoolStates([{
     poolAddress: config.address,
     sqrtPriceX96,
     liquidity,
@@ -90,11 +89,10 @@ function createUnifiedStressMarket(): {
   changedPair: PairInfo;
   mixedPool: V3PoolConfig;
 } {
-  const v2Market = new V2Market();
-  const v3Market = new V3Market([]);
+  const engine = new OpportunityEngine(stressPolicy, new MarketGraph(stressPolicy, []));
 
   for (let i = 0; i < UNIFIED_V2_DISTRACTORS; i++) {
-    v2Market.addPair(pair(
+    engine.addPair(pair(
       10_000 + i,
       tokenA,
       tokenAddress(i),
@@ -104,7 +102,7 @@ function createUnifiedStressMarket(): {
   }
 
   for (let i = 0; i < UNIFIED_V3_DISTRACTORS; i++) {
-    addLivePool(v3Market, pool(
+    addLivePool(engine, pool(
       20_000 + i,
       tokenA,
       tokenAddress(UNIFIED_V2_DISTRACTORS + i),
@@ -115,12 +113,12 @@ function createUnifiedStressMarket(): {
   const closingPair = pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200"));
   const mixedPool = pool(1, tokenB, tokenC);
 
-  v2Market.addPair(changedPair);
-  v2Market.addPair(closingPair);
-  addLivePool(v3Market, mixedPool, Q96 * 2n, 10n ** 24n);
+  engine.addPair(changedPair);
+  engine.addPair(closingPair);
+  addLivePool(engine, mixedPool, Q96 * 2n, 10n ** 24n);
 
   return {
-    engine: new OpportunityEngine(stressPolicy, v2Market, v3Market),
+    engine,
     changedPair,
     mixedPool,
   };
@@ -170,16 +168,13 @@ describe("Unified graph stress", () => {
 
   test("protocol mixing policy blocks mixed opportunities under load", () => {
     const { changedPair, mixedPool } = createUnifiedStressMarket();
-    const v2Market = new V2Market();
-    const v3Market = new V3Market([]);
-    v2Market.addPair(changedPair);
-    v2Market.addPair(pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")));
-    addLivePool(v3Market, mixedPool, Q96 * 2n, 10n ** 24n);
-
     const engine = new OpportunityEngine({
       ...stressPolicy,
       allowProtocolMixing: false,
-    }, v2Market, v3Market);
+    }, new MarketGraph({ ...stressPolicy, allowProtocolMixing: false }, []));
+    engine.addPair(changedPair);
+    engine.addPair(pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")));
+    addLivePool(engine, mixedPool, Q96 * 2n, 10n ** 24n);
 
     const opportunities = engine.findOpportunities({
       startTokens: [tokenA],

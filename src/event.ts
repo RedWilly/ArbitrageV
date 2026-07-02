@@ -9,20 +9,12 @@ import {
     createV3PoolUpdateScheduler,
     type LatestUpdateScheduler,
 } from './runtime/event-scheduler';
+import { V3_LIQUIDITY_EVENT_ABI, V3_SWAP_EVENT_ABI } from './runtime/v3-events';
 
 // ABI for both types of Sync events
 const SYNC_EVENT_ABI = [
     parseAbiItem('event Sync(uint112 reserve0, uint112 reserve1)'),
     parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)')
-];
-
-const V3_SWAP_EVENT_ABI = [
-    parseAbiItem('event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)')
-];
-
-const V3_LIQUIDITY_EVENT_ABI = [
-    parseAbiItem('event Mint(address sender, address indexed owner, int24 indexed tickLower, int24 indexed tickUpper, uint128 amount, uint256 amount0, uint256 amount1)'),
-    parseAbiItem('event Burn(address indexed owner, int24 indexed tickLower, int24 indexed tickUpper, uint128 amount, uint256 amount0, uint256 amount1)')
 ];
 
 // Sync event topics
@@ -108,20 +100,32 @@ export class EventMonitor {
                 const unwatchV3 = await eventClient.watchContractEvent({
                     address: v3PoolAddresses,
                     abi: V3_SWAP_EVENT_ABI,
+                    eventName: 'Swap',
                     onLogs: this.handleV3SwapEvents.bind(this),
                     onError: this.onError.bind(this),
                     strict: true
                 });
                 this.unwatchFns.push(unwatchV3);
 
-                const unwatchV3Liquidity = await eventClient.watchContractEvent({
+                const unwatchV3Mint = await eventClient.watchContractEvent({
                     address: v3PoolAddresses,
                     abi: V3_LIQUIDITY_EVENT_ABI,
+                    eventName: 'Mint',
                     onLogs: this.handleV3LiquidityEvents.bind(this),
                     onError: this.onError.bind(this),
                     strict: true
                 });
-                this.unwatchFns.push(unwatchV3Liquidity);
+                this.unwatchFns.push(unwatchV3Mint);
+
+                const unwatchV3Burn = await eventClient.watchContractEvent({
+                    address: v3PoolAddresses,
+                    abi: V3_LIQUIDITY_EVENT_ABI,
+                    eventName: 'Burn',
+                    onLogs: this.handleV3LiquidityEvents.bind(this),
+                    onError: this.onError.bind(this),
+                    strict: true
+                });
+                this.unwatchFns.push(unwatchV3Burn);
             }
 
             console.log('Event monitoring started successfully');
@@ -364,7 +368,6 @@ export class EventMonitor {
             const poolAddresses = this.graph.getV3PoolAddresses();
             const validPools = new Set(poolAddresses.map(addr => addr.toLowerCase()));
             const addressMap = new Map(poolAddresses.map(addr => [addr.toLowerCase(), addr]));
-            const affectedPools: Address[] = [];
             const activeLiquidityUpdates: V3PoolUpdate[] = [];
 
             for (const log of logs) {
@@ -376,7 +379,6 @@ export class EventMonitor {
                 if (!decoded) continue;
 
                 this.applyV3LiquidityUpdate(poolAddress, decoded);
-                affectedPools.push(poolAddress);
 
                 const pool = this.findV3Pool(poolAddress);
                 if (pool?.state && pool.state.tick >= decoded.tickLower && pool.state.tick < decoded.tickUpper) {
@@ -395,10 +397,6 @@ export class EventMonitor {
 
             if (activeLiquidityUpdates.length > 0) {
                 await this.processV3Updates(activeLiquidityUpdates);
-            }
-
-            if (affectedPools.length > 0) {
-                await this.checkArbitrageOpportunities(affectedPools);
             }
         } catch (error) {
             console.error('Error handling V3 liquidity events:', error);

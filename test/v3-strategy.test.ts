@@ -1,8 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
-import { V2Market } from "../src/market/v2-market";
-import { V3Market } from "../src/market/v3-market";
 import { type V3PoolConfig } from "../src/market/v3-types";
 import { MarketGraph } from "../src/market-graph/market-graph";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
@@ -64,13 +62,13 @@ function pool(id: number, token0: Address, token1: Address, fee = 500): V3PoolCo
 }
 
 function addLivePool(
-  market: V3Market,
+  target: Pick<MarketGraph | OpportunityEngine, "addV3Pool" | "updateV3PoolStates">,
   config: V3PoolConfig,
   sqrtPriceX96 = Q96 * 2n,
   liquidity = 10n ** 24n,
 ): void {
-  market.addPool(config);
-  market.updatePoolStates([{
+  target.addV3Pool(config);
+  target.updateV3PoolStates([{
     poolAddress: config.address,
     sqrtPriceX96,
     liquidity,
@@ -80,10 +78,9 @@ function addLivePool(
 
 describe("V3 arbitrage strategy", () => {
   test("marks a route quote incomplete when it runs beyond loaded tick data", () => {
-    const market = new V3Market([]);
+    const graph = new MarketGraph(policy, []);
     const configuredPool = pool(1, tokenA, tokenB);
-    addLivePool(market, configuredPool, Q96, 1_000n);
-    const graph = new MarketGraph(policy, new V2Market(), market);
+    addLivePool(graph, configuredPool, Q96, 1_000n);
     const edge = graph.rankedEdges(tokenA, 1)[0];
 
     const quote = graph.quote({
@@ -98,16 +95,15 @@ describe("V3 arbitrage strategy", () => {
   });
 
   test("finds a complete profitable V3 circular opportunity", () => {
-    const v3Market = new V3Market([]);
+    const engine = new OpportunityEngine(policy, new MarketGraph(policy, []));
     const poolAB = pool(1, tokenA, tokenB);
     const poolBC = pool(2, tokenB, tokenC);
     const poolCA = pool(3, tokenC, tokenA);
 
-    addLivePool(v3Market, poolAB);
-    addLivePool(v3Market, poolBC);
-    addLivePool(v3Market, poolCA);
+    addLivePool(engine, poolAB);
+    addLivePool(engine, poolBC);
+    addLivePool(engine, poolCA);
 
-    const engine = new OpportunityEngine(policy, new V2Market(), v3Market);
     const opportunities = engine.findOpportunities({
       startTokens: [tokenA],
     });
@@ -121,17 +117,15 @@ describe("V3 arbitrage strategy", () => {
   });
 
   test("finds a mixed V2 to V3 to V2 circular opportunity", () => {
-    const v2Market = new V2Market();
+    const engine = new OpportunityEngine(policy, new MarketGraph(policy, []));
     const pairAB = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200"));
     const pairCA = pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200"));
-    v2Market.addPair(pairAB);
-    v2Market.addPair(pairCA);
+    engine.addPair(pairAB);
+    engine.addPair(pairCA);
 
-    const v3Market = new V3Market([]);
     const poolBC = pool(1, tokenB, tokenC);
-    addLivePool(v3Market, poolBC);
+    addLivePool(engine, poolBC);
 
-    const engine = new OpportunityEngine(policy, v2Market, v3Market);
     const opportunities = engine.findOpportunities({
       startTokens: [tokenA],
     });
@@ -145,17 +139,13 @@ describe("V3 arbitrage strategy", () => {
   });
 
   test("blocks mixed routes when protocol mixing is disabled", () => {
-    const v2Market = new V2Market();
-    v2Market.addPair(pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200")));
-    v2Market.addPair(pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")));
-
-    const v3Market = new V3Market([]);
-    addLivePool(v3Market, pool(1, tokenB, tokenC));
-
     const engine = new OpportunityEngine({
       ...policy,
       allowProtocolMixing: false,
-    }, v2Market, v3Market);
+    }, new MarketGraph({ ...policy, allowProtocolMixing: false }, []));
+    engine.addPair(pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200")));
+    engine.addPair(pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")));
+    addLivePool(engine, pool(1, tokenB, tokenC));
 
     const opportunities = engine.findOpportunities({
       startTokens: [tokenA],
@@ -165,17 +155,15 @@ describe("V3 arbitrage strategy", () => {
   });
 
   test("selects the best non-route flash pool across V2 and V3", () => {
-    const v2Market = new V2Market();
+    const engine = new OpportunityEngine(policy, new MarketGraph(policy, []));
     const routePair = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200"));
     const fallbackPair = pair(2, tokenA, tokenC, tokenAmount("10000"), tokenAmount("10000"));
-    v2Market.addPair(routePair);
-    v2Market.addPair(fallbackPair);
+    engine.addPair(routePair);
+    engine.addPair(fallbackPair);
 
-    const v3Market = new V3Market([]);
     const v3FlashPool = pool(3, tokenA, tokenC);
-    addLivePool(v3Market, v3FlashPool, Q96, 10n ** 24n);
+    addLivePool(engine, v3FlashPool, Q96, 10n ** 24n);
 
-    const engine = new OpportunityEngine(policy, v2Market, v3Market);
     const flashPool = engine.findBestFlashPoolForToken(tokenA, 1_000n, [routePair.pairAddress]);
 
     expect(flashPool?.protocol).toBe("v3");

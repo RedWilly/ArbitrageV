@@ -1,12 +1,10 @@
 import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, V3_POOLS } from '../constants';
-import { V2Market } from '../market/v2-market';
 import {
   type PairInfo,
   type ReserveUpdate,
   type SwapDirection,
 } from '../market/v2-types';
-import { V3Market } from '../market/v3-market';
 import {
   type V3BitmapWord,
   type V3BitmapWordUpdate,
@@ -52,56 +50,90 @@ export class MarketGraph {
   private readonly edgeIndexes = new Map<MarketEdgeId, number>();
   private readonly edges: EdgeSlot[] = [];
   private readonly rankedEdgesCache = new Map<number, IndexedEdgeCache>();
+  private readonly pairs = new Map<string, PairInfo>();
+  private readonly v3Pools = new Map<string, V3PoolInfo>();
 
   constructor(
     private readonly policy: ArbitrageSearchPolicy = ARBITRAGE_SEARCH_POLICY,
-    private readonly v2Market = new V2Market(),
-    private readonly v3Market = new V3Market(V3_POOLS)
+    configuredV3Pools: readonly V3PoolConfig[] = V3_POOLS
   ) {
-    for (const pair of this.v2Market.allPairs()) {
-      this.upsertV2Edges(pair);
-    }
-
-    for (const pool of this.v3Market.allPools()) {
-      this.upsertV3Edges(pool);
-    }
+    for (const pool of configuredV3Pools) this.addV3Pool(pool);
   }
 
   addPair(pair: PairInfo): void {
-    this.v2Market.addPair(pair);
+    if (pair.reserve0 === 0n || pair.reserve1 === 0n) return;
+    this.pairs.set(this.addressKey(pair.pairAddress), pair);
     this.upsertV2Edges(pair);
   }
 
   updateReserves(updates: ReserveUpdate[]): void {
-    this.v2Market.updateReserves(updates);
-
     for (const update of updates) {
-      const pair = this.v2Market.pair(update.pairAddress);
-      if (pair) this.upsertV2Edges(pair);
+      const pair = this.pairs.get(this.addressKey(update.pairAddress));
+      if (!pair) continue;
+
+      pair.reserve0 = update.reserve0;
+      pair.reserve1 = update.reserve1;
+      this.upsertV2Edges(pair);
     }
   }
 
   addV3Pool(pool: V3PoolConfig): void {
-    this.v3Market.addPool(pool);
-    const poolInfo = this.v3Market.pool(pool.address);
-    if (poolInfo) this.upsertV3Edges(poolInfo);
+    if (!pool.enabled) return;
+
+    const existing = this.v3Pools.get(this.addressKey(pool.address));
+    const poolInfo: V3PoolInfo = {
+      ...pool,
+      state: existing?.state ?? null,
+      ticks: existing?.ticks ?? new Map(),
+      bitmapWords: existing?.bitmapWords ?? new Map(),
+    };
+
+    this.v3Pools.set(this.addressKey(pool.address), poolInfo);
+    this.upsertV3Edges(poolInfo);
   }
 
   updateV3PoolStates(updates: V3PoolUpdate[]): void {
-    this.v3Market.updatePoolStates(updates);
-
     for (const update of updates) {
-      const pool = this.v3Market.pool(update.poolAddress);
-      if (pool) this.upsertV3Edges(pool);
+      const pool = this.v3Pools.get(this.addressKey(update.poolAddress));
+      if (!pool) continue;
+
+      pool.state = {
+        sqrtPriceX96: update.sqrtPriceX96,
+        liquidity: update.liquidity,
+        tick: update.tick,
+      };
+      this.upsertV3Edges(pool);
     }
   }
 
   updateV3Ticks(updates: V3TickUpdate[]): void {
-    this.v3Market.updateTicks(updates);
+    for (const update of updates) {
+      const pool = this.v3Pools.get(this.addressKey(update.poolAddress));
+      if (!pool) continue;
+
+      for (const tick of update.ticks) {
+        if (tick.liquidityGross === 0n && tick.liquidityNet === 0n) {
+          pool.ticks.delete(tick.index);
+        } else {
+          pool.ticks.set(tick.index, tick);
+        }
+      }
+    }
   }
 
   updateV3BitmapWords(updates: V3BitmapWordUpdate[]): void {
-    this.v3Market.updateBitmapWords(updates);
+    for (const update of updates) {
+      const pool = this.v3Pools.get(this.addressKey(update.poolAddress));
+      if (!pool) continue;
+
+      for (const word of update.words) {
+        if (word.bitmap === 0n) {
+          pool.bitmapWords.delete(word.wordPosition);
+        } else {
+          pool.bitmapWords.set(word.wordPosition, word.bitmap);
+        }
+      }
+    }
   }
 
   rankedEdges(token: Address, limit: number): AnyMarketEdge[] {
@@ -189,27 +221,33 @@ export class MarketGraph {
   }
 
   getPairAddresses(): Address[] {
-    return this.v2Market.pairAddresses();
+    return Array.from(this.pairs.values(), pair => pair.pairAddress);
   }
 
   getAllPairs(): PairInfo[] {
-    return this.v2Market.allPairs();
+    return Array.from(this.pairs.values());
   }
 
   getV3PoolAddresses(): Address[] {
-    return this.v3Market.poolAddresses();
+    return Array.from(this.v3Pools.values(), pool => pool.address);
   }
 
   getV3Pools(): V3PoolInfo[] {
-    return this.v3Market.allPools();
+    return Array.from(this.v3Pools.values());
   }
 
   getV3InitializedTicks(poolAddress: Address): V3Tick[] {
-    return this.v3Market.initializedTicks(poolAddress);
+    const pool = this.v3Pools.get(this.addressKey(poolAddress));
+    if (!pool) return [];
+    return Array.from(pool.ticks.values()).sort((a, b) => a.index - b.index);
   }
 
   getV3BitmapWords(poolAddress: Address): V3BitmapWord[] {
-    return this.v3Market.bitmapWords(poolAddress);
+    const pool = this.v3Pools.get(this.addressKey(poolAddress));
+    if (!pool) return [];
+    return Array.from(pool.bitmapWords.entries())
+      .map(([wordPosition, bitmap]) => ({ wordPosition, bitmap }))
+      .sort((a, b) => a.wordPosition - b.wordPosition);
   }
 
   findBestFlashPoolForToken(
@@ -242,8 +280,8 @@ export class MarketGraph {
   }
 
   clear(): void {
-    this.v2Market.clear();
-    this.v3Market.clear();
+    this.pairs.clear();
+    this.v3Pools.clear();
     this.tokenIndexes.clear();
     this.tokens.length = 0;
     this.edgeIndexes.clear();
@@ -266,7 +304,7 @@ export class MarketGraph {
   }
 
   private quoteV3Edge(edge: Extract<AnyMarketEdge, { protocol: 'v3' }>, amountIn: bigint): MarketRouteQuote {
-    const pool = this.v3Market.pool(edge.poolAddress);
+    const pool = this.v3Pools.get(this.addressKey(edge.poolAddress));
     if (!pool?.state || pool.state.liquidity <= 0n) {
       return { amountIn, amountOut: 0n, profit: -1n, complete: false };
     }
@@ -278,7 +316,7 @@ export class MarketGraph {
       tick: pool.state.tick,
       fee: pool.fee,
       direction: edge.direction,
-      ticks: this.v3Market.initializedTicks(pool.address),
+      ticks: this.getV3InitializedTicks(pool.address),
     });
 
     if (quote.exhaustedLiquidity) {

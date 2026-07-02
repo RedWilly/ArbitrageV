@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
-import { TOKENS } from "../src/constants";
-import { V3Market } from "../src/market/v3-market";
+import { ARBITRAGE_SEARCH_POLICY, TOKENS } from "../src/constants";
 import { type V3PoolConfig } from "../src/market/v3-types";
+import { MarketGraph } from "../src/market-graph/market-graph";
 
 const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
 
@@ -28,47 +28,49 @@ function pool(
   };
 }
 
-describe("V3Market", () => {
+describe("MarketGraph V3 pools", () => {
   test("loads only explicitly configured enabled pools", () => {
     const enabledPool = pool(1, tokenA, tokenB, 3000);
     const disabledPool = pool(2, tokenA, tokenC, 500, false);
-    const market = new V3Market([enabledPool, disabledPool]);
+    const graph = new MarketGraph(ARBITRAGE_SEARCH_POLICY, [enabledPool, disabledPool]);
 
-    expect(market.poolAddresses()).toEqual([enabledPool.address]);
-    expect(market.tokensList()).toEqual([tokenA, tokenB]);
-    expect(market.pool(disabledPool.address)).toBeNull();
+    expect(graph.getV3PoolAddresses()).toEqual([enabledPool.address]);
+    expect(graph.getTokens()).toEqual([tokenA, tokenB]);
+    expect(graph.getV3Pools().some(pool => pool.address === disabledPool.address)).toBe(false);
   });
 
   test("updates configured pool state and exposes directional edges", () => {
     const configuredPool = pool(1, tokenA, tokenB, 3000);
-    const market = new V3Market([configuredPool]);
+    const graph = new MarketGraph(ARBITRAGE_SEARCH_POLICY, [configuredPool]);
 
-    market.updatePoolStates([{
+    graph.updateV3PoolStates([{
       poolAddress: configuredPool.address,
       sqrtPriceX96: 2n ** 96n,
       liquidity: 1_000_000n,
       tick: 0,
     }]);
 
-    const token0Edge = market.edgeForTokenPool(tokenA, configuredPool.address);
-    const token1Edge = market.edgeForTokenPool(tokenB, configuredPool.address);
+    const token0Edge = graph.edgesForTokenPool(tokenA, configuredPool.address)[0];
+    const token1Edge = graph.edgesForTokenPool(tokenB, configuredPool.address)[0];
 
+    expect(token0Edge?.protocol).toBe("v3");
     expect(token0Edge?.direction).toBe("token0ToToken1");
     expect(token0Edge?.to).toBe(tokenB);
-    expect(token0Edge?.sqrtPriceX96).toBe(2n ** 96n);
+    expect(token0Edge?.protocol === "v3" ? token0Edge.sqrtPriceX96 : 0n).toBe(2n ** 96n);
     expect(token0Edge?.liquidity).toBe(1_000_000n);
+    expect(token1Edge?.protocol).toBe("v3");
     expect(token1Edge?.direction).toBe("token1ToToken0");
     expect(token1Edge?.to).toBe(tokenA);
-    expect(token1Edge?.sqrtPriceX96).toBe(2n ** 96n);
+    expect(token1Edge?.protocol === "v3" ? token1Edge.sqrtPriceX96 : 0n).toBe(2n ** 96n);
   });
 
   test("ranks only pools with live liquidity", () => {
     const lowLiquidityPool = pool(1, tokenA, tokenB, 3000);
     const noStatePool = pool(2, tokenA, tokenC, 500);
     const highLiquidityPool = pool(3, tokenA, tokenC, 500);
-    const market = new V3Market([lowLiquidityPool, noStatePool, highLiquidityPool]);
+    const graph = new MarketGraph(ARBITRAGE_SEARCH_POLICY, [lowLiquidityPool, noStatePool, highLiquidityPool]);
 
-    market.updatePoolStates([
+    graph.updateV3PoolStates([
       {
         poolAddress: lowLiquidityPool.address,
         sqrtPriceX96: 2n ** 96n,
@@ -83,7 +85,7 @@ describe("V3Market", () => {
       },
     ]);
 
-    const ranked = market.rankedEdges(tokenA, 10);
+    const ranked = graph.rankedEdges(tokenA, 10);
 
     expect(ranked.map(edge => edge.poolAddress)).toEqual([
       highLiquidityPool.address,
@@ -94,9 +96,9 @@ describe("V3Market", () => {
 
   test("updates initialized ticks and removes empty ticks", () => {
     const configuredPool = pool(1, tokenA, tokenB, 3000);
-    const market = new V3Market([configuredPool]);
+    const graph = new MarketGraph(ARBITRAGE_SEARCH_POLICY, [configuredPool]);
 
-    market.updateTicks([{
+    graph.updateV3Ticks([{
       poolAddress: configuredPool.address,
       ticks: [
         { index: -120, liquidityGross: 1_000n, liquidityNet: 1_000n },
@@ -104,15 +106,15 @@ describe("V3Market", () => {
       ],
     }]);
 
-    expect(market.initializedTicks(configuredPool.address).map(tick => tick.index)).toEqual([-120, 120]);
+    expect(graph.getV3InitializedTicks(configuredPool.address).map(tick => tick.index)).toEqual([-120, 120]);
 
-    market.updateTicks([{
+    graph.updateV3Ticks([{
       poolAddress: configuredPool.address,
       ticks: [
         { index: -120, liquidityGross: 0n, liquidityNet: 0n },
       ],
     }]);
 
-    expect(market.initializedTicks(configuredPool.address).map(tick => tick.index)).toEqual([120]);
+    expect(graph.getV3InitializedTicks(configuredPool.address).map(tick => tick.index)).toEqual([120]);
   });
 });

@@ -2,16 +2,11 @@ import { type Address, createPublicClient } from 'viem';
 import { CONTRACTS, DEX_FACTORIES, PAIR_DISCOVERY_POLICY, RUNTIME, TOKENS } from './constants';
 import UniswapFlashQueryABI from './ABI/UniswapFlashQuery.json';
 import bannedTokens from './bannedtax.json';
+import { type PairInfo as MarketPairInfo } from './market/v2-types';
 
-export type PairInfo = {
-    pairAddress: Address;
-    token0: Address;
-    token1: Address;
-    reserve0: bigint;
-    reserve1: bigint;
+type DiscoveredPairInfo = MarketPairInfo & {
     lastTimestamp: number;
     factory: string;
-    fee: number;
 };
 
 /**
@@ -26,7 +21,7 @@ function isPairActive(lastTimestamp: number): boolean {
 /**
  * Check if a pair has sufficient liquidity for monitored tokens based on TOKENS configuration
  */
-function hasEnoughWethLiquidity(pair: PairInfo): boolean {
+function hasEnoughWethLiquidity(pair: DiscoveredPairInfo): boolean {
     let hasMonitoredToken = false;
     
     // First check if pair contains any monitored tokens and verify their liquidity
@@ -104,7 +99,7 @@ async function getPairsInRange(
     factory: typeof DEX_FACTORIES[number],
     start: number,
     stop: number
-): Promise<PairInfo[]> {
+): Promise<DiscoveredPairInfo[]> {
     try {
         const pairsData = await client.readContract({
             address: CONTRACTS.flashQuery as Address,
@@ -168,7 +163,7 @@ async function getPairsInRange(
  */
 async function filterVolatilePairs(
     client: ReturnType<typeof createPublicClient>,
-    pairs: PairInfo[]
+    pairs: DiscoveredPairInfo[]
 ): Promise<boolean[]> {
     try {
         const isVolatile = await client.readContract({
@@ -193,8 +188,8 @@ async function filterVolatilePairs(
  */
 async function getReservesForPairs(
     client: ReturnType<typeof createPublicClient>,
-    pairs: PairInfo[]
-): Promise<PairInfo[]> {
+    pairs: DiscoveredPairInfo[]
+): Promise<DiscoveredPairInfo[]> {
     try {
         const reserves = await client.readContract({
             address: CONTRACTS.flashQuery as Address,
@@ -222,12 +217,12 @@ async function getReservesForPairs(
  */
 async function getReservesWithRetry(
     client: ReturnType<typeof createPublicClient>,
-    pairs: PairInfo[]
-): Promise<PairInfo[]> {
-    const result: PairInfo[] = [];
+    pairs: DiscoveredPairInfo[]
+): Promise<DiscoveredPairInfo[]> {
+    const result: DiscoveredPairInfo[] = [];
     
     // Group pairs by factory
-    const pairsByFactory: { [factory: string]: PairInfo[] } = {};
+    const pairsByFactory: { [factory: string]: DiscoveredPairInfo[] } = {};
     
     for (const pair of pairs) {
         if (!pairsByFactory[pair.factory]) {
@@ -310,13 +305,13 @@ async function getReservesWithRetry(
  */
 export async function getAllPairsInfo(
     client: ReturnType<typeof createPublicClient>
-): Promise<PairInfo[]> {
+): Promise<MarketPairInfo[]> {
     try {
         // First get the total number of pairs for each factory
         console.log('Getting total pairs for each factory...');
         const pairsLength = await getPairsLength(client, DEX_FACTORIES);
         
-        let allPairs: PairInfo[] = [];
+        let allPairs: DiscoveredPairInfo[] = [];
 
         // Fetch pairs in batches for each factory
         for (const factory of DEX_FACTORIES) {
@@ -324,7 +319,7 @@ export async function getAllPairsInfo(
             console.log(`Found ${totalPairs} pairs for factory ${factory.name}`);
 
             // Get all pairs for this factory first
-            const factoryPairs: PairInfo[] = [];
+            const factoryPairs: DiscoveredPairInfo[] = [];
             for (let start = 0; start < totalPairs; start += PAIR_DISCOVERY_POLICY.batchSize) {
                 const stop = Math.min(start + PAIR_DISCOVERY_POLICY.batchSize, totalPairs);
                 console.log(`Fetching pairs ${start} to ${stop} for ${factory.name}...`);
