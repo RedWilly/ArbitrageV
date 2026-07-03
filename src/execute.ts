@@ -18,11 +18,14 @@ import { formatTokenAmountWithSymbol } from './values';
 
 class NonceTracker {
     private currentNonce: number | null = null;
+    private initialization: Promise<void> | null = null;
 
     constructor(private readonly networkConfig: NetworkConfig) {}
 
-    async next(): Promise<number> {
-        if (this.currentNonce === null) {
+    async initialize(): Promise<void> {
+        if (this.currentNonce !== null) return;
+
+        this.initialization ??= (async () => {
             this.currentNonce = Number(await this.networkConfig.client.getTransactionCount({
                 address: this.networkConfig.account.address,
             }));
@@ -30,10 +33,16 @@ class NonceTracker {
             if (RUNTIME.debug) {
                 console.log(`Initialized nonce tracker with nonce: ${this.currentNonce}`);
             }
-        }
+        })();
 
-        const nonce = this.currentNonce;
-        this.currentNonce++;
+        await this.initialization;
+    }
+
+    async next(): Promise<number> {
+        await this.initialize();
+
+        const nonce = this.currentNonce!;
+        this.currentNonce = nonce + 1;
         return nonce;
     }
 }
@@ -87,6 +96,10 @@ export class OpportunityManager {
 
     constructor(private readonly networkConfig: NetworkConfig) {
         this.nonceTracker = new NonceTracker(networkConfig);
+    }
+
+    warmNonce(): Promise<void> {
+        return this.nonceTracker.initialize();
     }
 
     // Check if an opportunity conflicts with already executed pairs
@@ -236,4 +249,3 @@ export class OpportunityManager {
         };
     }
 }
-

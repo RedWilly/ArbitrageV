@@ -24,6 +24,8 @@ export class OpportunityWorkflow {
     this.manager = EXECUTION_POLICY.executeTrades
       ? new OpportunityManager(networkConfig)
       : null;
+
+    void this.manager?.warmNonce();
   }
 
   async scanAndExecute(request: OpportunityWorkflowRequest = {}): Promise<ArbitrageSearchResult> {

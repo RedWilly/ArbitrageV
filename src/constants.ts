@@ -34,15 +34,15 @@ export const CONTRACTS = {
 } as const;
 
 export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
-    topTokens: 1,
+    topTokens: 6,
     routeMode: 'circular',
     allowedProtocols: ['v2', 'v3'],
     allowProtocolMixing: true,
-    maxRouteEdges: 6,
-    beamWidth: 10,
-    optimizationIterations: 160,
-    maxInputReserveFraction: 3n,
-    maxOpportunities: 6,
+    maxRouteEdges: 4,
+    beamWidth: 25,
+    optimizationIterations: 80,
+    maxInputReserveFraction: 5n,
+    maxOpportunities: 10,
 } as const;
 
 export const V3_STARTUP_POLICY: V3StartupPolicy = {
@@ -59,8 +59,8 @@ export const PAIR_DISCOVERY_POLICY = {
 export const EXECUTION_POLICY = {
     executeTrades: true,
     gasLimit: 500000n,
-    baseFee: gasPrice('34.9'),
-    legacy: true,
+    baseFee: gasPrice('50.9'),
+    legacy: false,
 } as const;
 
 export const RUNTIME = {
