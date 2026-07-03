@@ -109,11 +109,28 @@ contract ArbitrageExecutor is Withdrawable {
         pendingFlashPool = address(0);
     }
 
-    // ponytail: one generic fallback handles V2 callback name variants instead of dozens of wrappers.
+    // ponytail: one generic fallback handles callback name variants instead of dozens of wrappers.
     fallback() external payable {
-        if (pendingFlashProtocol != V2 || msg.sender != pendingFlashPool || msg.data.length < 132) {
+        if (msg.sender == pendingV3Pool && pendingV3TokenIn != address(0)) {
+            (int256 amount0Delta, int256 amount1Delta, ) =
+                abi.decode(msg.data[4:], (int256, int256, bytes));
+            _finishV3SwapCallback(amount0Delta, amount1Delta);
+            return;
+        }
+
+        if (msg.sender != pendingFlashPool || msg.data.length < 132) {
             revert InvalidFlashLoanCallback();
         }
+
+        if (pendingFlashProtocol == V3) {
+            (uint256 fee0, uint256 fee1, bytes memory flashPayload) =
+                abi.decode(msg.data[4:], (uint256, uint256, bytes));
+            FlashData memory v3Loan = abi.decode(flashPayload, (FlashData));
+            _finishFlashLoan(v3Loan, v3Loan.borrowedAmount + (v3Loan.borrowedToken0 ? fee0 : fee1));
+            return;
+        }
+
+        if (pendingFlashProtocol != V2) revert InvalidFlashLoanCallback();
 
         (address sender, uint256 amount0, uint256 amount1, bytes memory data) =
             abi.decode(msg.data[4:], (address, uint256, uint256, bytes));
@@ -140,6 +157,10 @@ contract ArbitrageExecutor is Withdrawable {
 
     function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external {
         data;
+        _finishV3SwapCallback(amount0Delta, amount1Delta);
+    }
+
+    function _finishV3SwapCallback(int256 amount0Delta, int256 amount1Delta) internal {
         address tokenIn = pendingV3TokenIn;
         if (msg.sender != pendingV3Pool || tokenIn == address(0)) revert InvalidV3SwapCallback();
 

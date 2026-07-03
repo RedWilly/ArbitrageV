@@ -14,6 +14,8 @@ export type OpportunityWorkflowRequest = {
   changedPairs?: Address[];
 };
 
+let sharedManager: OpportunityManager | null = null;
+
 export class OpportunityWorkflow {
   private readonly manager: OpportunityManager | null;
 
@@ -21,11 +23,12 @@ export class OpportunityWorkflow {
     private readonly engine: OpportunityEngine,
     networkConfig: NetworkConfig
   ) {
-    this.manager = EXECUTION_POLICY.executeTrades
-      ? new OpportunityManager(networkConfig)
-      : null;
+    if (EXECUTION_POLICY.executeTrades && !sharedManager) {
+      sharedManager = new OpportunityManager(networkConfig);
+      void sharedManager.warmNonce();
+    }
 
-    void this.manager?.warmNonce();
+    this.manager = sharedManager;
   }
 
   async scanAndExecute(request: OpportunityWorkflowRequest = {}): Promise<ArbitrageSearchResult> {

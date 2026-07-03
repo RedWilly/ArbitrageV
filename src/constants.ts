@@ -34,7 +34,7 @@ export const CONTRACTS = {
 } as const;
 
 export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
-    topTokens: 6,
+    topTokens: 7,
     routeMode: 'circular',
     allowedProtocols: ['v2', 'v3'],
     allowProtocolMixing: true,
@@ -60,7 +60,7 @@ export const EXECUTION_POLICY = {
     executeTrades: true,
     gasLimit: 500000n,
     baseFee: gasPrice('50.9'),
-    legacy: false,
+    legacy: true,
 } as const;
 
 export const RUNTIME = {
@@ -117,6 +117,13 @@ export const TOKENS: TokenConfig[] = [
         address: '0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8',
         liquidityAmount: tokenAmount('0.01238'),
         minProfit: tokenAmount('0.00006190'),
+        decimals: 18,
+    },
+        {
+        name: 'DRG',
+        address: '0x0a526e425809aEA71eb279d24ae22Dee6C92A4Fe',
+        liquidityAmount: tokenAmount('2100'),
+        minProfit: tokenAmount('10.50'),
         decimals: 18,
     },
 ];
