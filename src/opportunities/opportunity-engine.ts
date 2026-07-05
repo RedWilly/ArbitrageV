@@ -76,24 +76,20 @@ export class OpportunityEngine {
   }
 
   findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult {
-    const opportunities = this.strategy.findCandidates(request)
-      .map(candidate => this.sizeCandidate(candidate))
-      .filter(opportunity => {
-        const originToken = opportunity.path[0];
-        const token = TOKENS.find(addr => addr.address === originToken);
+    const opportunities: ArbitrageOpportunity[] = [];
 
-        if (!token) {
-          throw new Error(`No token config found for ${originToken}. Please update TOKENS in constants.ts.`);
-        }
+    for (const candidate of this.strategy.findCandidates(request)) {
+      const opportunity = this.sizeCandidate(candidate);
+      const originToken = opportunity.path[0];
+      const token = TOKENS.find(addr => addr.address === originToken);
 
-        return opportunity.profit > token.minProfit;
-      })
-      .sort((a, b) => {
-        if (b.profit > a.profit) return 1;
-        if (b.profit < a.profit) return -1;
-        return 0;
-      })
-      .slice(0, this.policy.maxOpportunities);
+      if (!token) {
+        throw new Error(`No token config found for ${originToken}. Please update TOKENS in constants.ts.`);
+      }
+
+      if (opportunity.profit <= token.minProfit) continue;
+      this.insertRankedOpportunity(opportunities, opportunity);
+    }
 
     return {
       paths: opportunities.map(opportunity => opportunity.path),
@@ -149,5 +145,21 @@ export class OpportunityEngine {
       optimalInput: complete ? optimalInput : 0n,
       fees,
     };
+  }
+
+  private insertRankedOpportunity(
+    opportunities: ArbitrageOpportunity[],
+    opportunity: ArbitrageOpportunity
+  ): void {
+    let index = opportunities.length;
+
+    while (index > 0 && opportunity.profit > opportunities[index - 1].profit) {
+      index--;
+    }
+
+    if (index >= this.policy.maxOpportunities) return;
+
+    opportunities.splice(index, 0, opportunity);
+    opportunities.length = Math.min(opportunities.length, this.policy.maxOpportunities);
   }
 }

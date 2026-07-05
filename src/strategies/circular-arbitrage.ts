@@ -106,6 +106,7 @@ export class CircularArbitrageStrategy {
   ): boolean {
     if (!transitionAllowed(this.policy, this.previousProtocol(states, entryIndex), edge.protocol)) return false;
     if (this.hasPool(states, entryIndex, edge.poolAddress)) return false;
+    if (!this.canStillYield(states, entryIndex, edge, step, startTokens, changedPools)) return false;
 
     const nextIndex = this.pushState(states, {
       token: edge.to,
@@ -124,6 +125,26 @@ export class CircularArbitrageStrategy {
     }
 
     return true;
+  }
+
+  private canStillYield(
+    states: RouteStateStore,
+    entryIndex: number,
+    edge: AnyMarketEdge,
+    step: number,
+    startTokens: Address[],
+    changedPools: Set<string>
+  ): boolean {
+    if (step !== this.policy.maxRouteEdges) return true;
+
+    const destinationAllowed = this.policy.routeMode === 'cross-token'
+      ? startTokens.includes(edge.to)
+      : edge.to === states.originTokens[entryIndex];
+
+    if (!destinationAllowed) return false;
+    if (changedPools.size === 0) return true;
+
+    return changedPools.has(edge.poolAddress.toLowerCase()) || this.hasChangedPool(states, entryIndex, changedPools);
   }
 
   private edgeAlreadyIncluded(edges: AnyMarketEdge[], edge: AnyMarketEdge): boolean {
