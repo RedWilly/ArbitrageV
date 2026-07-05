@@ -35,23 +35,59 @@ type TokenSlot = {
 type EdgeSlot = {
   edge: AnyMarketEdge;
   tokenIndex: number;
+  toTokenIndex: number;
+  poolIndex: number;
 };
 
 type IndexedEdgeCache = {
   limit: number;
-  edges: AnyMarketEdge[];
+  edgeIndexes: number[];
 };
 
 const Q192 = Q96 * Q96;
 
+class AddressRegistry {
+  private readonly indexes = new Map<string, number>();
+  private readonly addresses: Address[] = [];
+
+  get(address: Address): number | undefined {
+    return this.indexes.get(this.key(address));
+  }
+
+  getOrAdd(address: Address): number {
+    const key = this.key(address);
+    const existing = this.indexes.get(key);
+    if (existing !== undefined) return existing;
+
+    const index = this.addresses.length;
+    this.indexes.set(key, index);
+    this.addresses.push(address);
+    return index;
+  }
+
+  address(index: number): Address {
+    return this.addresses[index];
+  }
+
+  clear(): void {
+    this.indexes.clear();
+    this.addresses.length = 0;
+  }
+
+  key(address: Address): string {
+    return address.toLowerCase();
+  }
+}
+
 export class MarketGraph {
-  private readonly tokenIndexes = new Map<string, number>();
+  private readonly tokenRegistry = new AddressRegistry();
+  private readonly poolRegistry = new AddressRegistry();
   private readonly tokens: TokenSlot[] = [];
   private readonly edgeIndexes = new Map<MarketEdgeId, number>();
   private readonly edges: EdgeSlot[] = [];
   private readonly rankedEdgesCache = new Map<number, IndexedEdgeCache>();
-  private readonly pairs = new Map<string, PairInfo>();
-  private readonly v3Pools = new Map<string, V3PoolInfo>();
+  private readonly pairs: Array<PairInfo | undefined> = [];
+  private readonly v3Pools: Array<V3PoolInfo | undefined> = [];
 
   constructor(
     private readonly policy: ArbitrageSearchPolicy = ARBITRAGE_SEARCH_POLICY,
@@ -62,25 +98,30 @@ export class MarketGraph {
 
   addPair(pair: PairInfo): void {
     if (pair.reserve0 === 0n || pair.reserve1 === 0n) return;
-    this.pairs.set(this.addressKey(pair.pairAddress), pair);
-    this.upsertV2Edges(pair);
+    const poolIndex = this.poolIndex(pair.pairAddress);
+    this.pairs[poolIndex] = pair;
+    this.upsertV2Edges(pair, poolIndex);
   }
 
   updateReserves(updates: ReserveUpdate[]): void {
     for (const update of updates) {
-      const pair = this.pairs.get(this.addressKey(update.pairAddress));
+      const poolIndex = this.poolRegistry.get(update.pairAddress);
+      if (poolIndex === undefined) continue;
+
+      const pair = this.pairs[poolIndex];
       if (!pair) continue;
 
       pair.reserve0 = update.reserve0;
       pair.reserve1 = update.reserve1;
-      this.upsertV2Edges(pair);
+      this.upsertV2Edges(pair, poolIndex);
     }
   }
 
   addV3Pool(pool: V3PoolConfig): void {
     if (!pool.enabled) return;
 
-    const existing = this.v3Pools.get(this.addressKey(pool.address));
+    const poolIndex = this.poolIndex(pool.address);
+    const existing = this.v3Pools[poolIndex];
     const poolInfo: V3PoolInfo = {
       ...pool,
       state: existing?.state ?? null,
@@ -88,13 +129,16 @@ export class MarketGraph {
       bitmapWords: existing?.bitmapWords ?? new Map(),
     };
 
-    this.v3Pools.set(this.addressKey(pool.address), poolInfo);
-    this.upsertV3Edges(poolInfo);
+    this.v3Pools[poolIndex] = poolInfo;
+    this.upsertV3Edges(poolInfo, poolIndex);
   }
 
   updateV3PoolStates(updates: V3PoolUpdate[]): void {
     for (const update of updates) {
-      const pool = this.v3Pools.get(this.addressKey(update.poolAddress));
+      const poolIndex = this.poolRegistry.get(update.poolAddress);
+      if (poolIndex === undefined) continue;
+
+      const pool = this.v3Pools[poolIndex];
       if (!pool) continue;
 
       pool.state = {
@@ -102,13 +146,14 @@ export class MarketGraph {
         liquidity: update.liquidity,
         tick: update.tick,
       };
-      this.upsertV3Edges(pool);
+      this.upsertV3Edges(pool, poolIndex);
     }
   }
 
   updateV3Ticks(updates: V3TickUpdate[]): void {
     for (const update of updates) {
-      const pool = this.v3Pools.get(this.addressKey(update.poolAddress));
+      const poolIndex = this.poolRegistry.get(update.poolAddress);
+      const pool = poolIndex === undefined ? undefined : this.v3Pools[poolIndex];
       if (!pool) continue;
 
       for (const tick of update.ticks) {
@@ -123,7 +168,8 @@ export class MarketGraph {
 
   updateV3BitmapWords(updates: V3BitmapWordUpdate[]): void {
     for (const update of updates) {
-      const pool = this.v3Pools.get(this.addressKey(update.poolAddress));
+      const poolIndex = this.poolRegistry.get(update.poolAddress);
+      const pool = poolIndex === undefined ? undefined : this.v3Pools[poolIndex];
       if (!pool) continue;
 
       for (const word of update.words) {
@@ -137,33 +183,70 @@ export class MarketGraph {
   }
 
   rankedEdges(token: Address, limit: number): AnyMarketEdge[] {
-    const tokenIndex = this.tokenIndexes.get(this.addressKey(token));
+    const tokenIndex = this.tokenIndexOf(token);
     if (tokenIndex === undefined) return [];
 
-    const cached = this.rankedEdgesCache.get(tokenIndex);
-    if (cached && cached.limit >= limit) return cached.edges;
-
-    const ranked = this.selectTopEdges(this.tokens[tokenIndex].edgeIndexes, limit);
-    this.rankedEdgesCache.set(tokenIndex, { limit, edges: ranked });
-    return ranked;
+    return this.rankedEdgeIndexes(tokenIndex, limit)
+      .map(edgeIndex => this.edges[edgeIndex].edge);
   }
 
   edgesForTokenPool(token: Address, poolAddress: Address): AnyMarketEdge[] {
-    const tokenIndex = this.tokenIndexes.get(this.addressKey(token));
-    if (tokenIndex === undefined) return [];
+    const tokenIndex = this.tokenIndexOf(token);
+    const poolIndex = this.poolIndexOf(poolAddress);
+    if (tokenIndex === undefined || poolIndex === undefined) return [];
+
+    return this.edgeIndexesForTokenPool(tokenIndex, poolIndex)
+      .map(edgeIndex => this.edges[edgeIndex].edge);
+  }
+
+  rankedEdgeIndexes(tokenIndex: number, limit: number): number[] {
+    if (tokenIndex < 0 || tokenIndex >= this.tokens.length) return [];
+
+    const cached = this.rankedEdgesCache.get(tokenIndex);
+    if (cached && cached.limit >= limit) return cached.edgeIndexes;
+
+    const ranked = this.selectTopEdgeIndexes(this.tokens[tokenIndex].edgeIndexes, limit);
+    this.rankedEdgesCache.set(tokenIndex, { limit, edgeIndexes: ranked });
+    return ranked;
+  }
+
+  edgeIndexesForTokenPool(tokenIndex: number, poolIndex: number): number[] {
+    if (tokenIndex < 0 || tokenIndex >= this.tokens.length) return [];
 
     const edgeIndexes = this.tokens[tokenIndex].edgeIndexes;
-    const matches: AnyMarketEdge[] = [];
-    const lowerPoolAddress = poolAddress.toLowerCase();
+    const matches: number[] = [];
 
     for (const edgeIndex of edgeIndexes) {
-      const edge = this.edges[edgeIndex].edge;
-      if (edge.poolAddress.toLowerCase() === lowerPoolAddress) {
-        matches.push(edge);
+      if (this.edges[edgeIndex].poolIndex === poolIndex) {
+        matches.push(edgeIndex);
       }
     }
 
     return matches;
+  }
+
+  tokenIndexOf(token: Address): number | undefined {
+    return this.tokenRegistry.get(token);
+  }
+
+  poolIndexOf(pool: Address): number | undefined {
+    return this.poolRegistry.get(pool);
+  }
+
+  tokenAddress(tokenIndex: number): Address {
+    return this.tokenRegistry.address(tokenIndex);
+  }
+
+  edgeAt(edgeIndex: number): AnyMarketEdge | null {
+    return this.edges[edgeIndex]?.edge ?? null;
+  }
+
+  edgeToTokenIndex(edgeIndex: number): number {
+    return this.edges[edgeIndex].toTokenIndex;
+  }
+
+  edgePoolIndex(edgeIndex: number): number {
+    return this.edges[edgeIndex].poolIndex;
   }
 
   edge(edgeId: MarketEdgeId): AnyMarketEdge | null {
@@ -178,8 +261,10 @@ export class MarketGraph {
 
     let amount = amountIn;
 
-    for (const edgeId of route.edgeIds) {
-      const edge = this.edge(edgeId);
+    const edgeIndexes = route.edgeIndexes ?? route.edgeIds.map(edgeId => this.edgeIndexes.get(edgeId) ?? -1);
+
+    for (const edgeIndex of edgeIndexes) {
+      const edge = this.edgeAt(edgeIndex);
       if (!edge) return { amountIn, amountOut: 0n, profit: -1n, complete: false };
 
       const quote = edge.protocol === 'v2'
@@ -204,8 +289,10 @@ export class MarketGraph {
   maxInputForRoute(route: MarketRoute): bigint {
     let bound: bigint | null = null;
 
-    for (const edgeId of route.edgeIds) {
-      const edge = this.edge(edgeId);
+    const edgeIndexes = route.edgeIndexes ?? route.edgeIds.map(edgeId => this.edgeIndexes.get(edgeId) ?? -1);
+
+    for (const edgeIndex of edgeIndexes) {
+      const edge = this.edgeAt(edgeIndex);
       if (!edge) return 0n;
 
       const candidate = edge.liquidity / this.policy.maxInputReserveFraction;
@@ -217,33 +304,37 @@ export class MarketGraph {
   }
 
   getTokens(): Address[] {
-    return this.tokens.map(token => token.address);
+    return this.tokens.map((_, index) => this.tokenRegistry.address(index));
   }
 
   getPairAddresses(): Address[] {
-    return Array.from(this.pairs.values(), pair => pair.pairAddress);
+    return this.pairs.filter((pair): pair is PairInfo => pair !== undefined)
+      .map(pair => pair.pairAddress);
   }
 
   getAllPairs(): PairInfo[] {
-    return Array.from(this.pairs.values());
+    return this.pairs.filter((pair): pair is PairInfo => pair !== undefined);
   }
 
   getV3PoolAddresses(): Address[] {
-    return Array.from(this.v3Pools.values(), pool => pool.address);
+    return this.v3Pools.filter((pool): pool is V3PoolInfo => pool !== undefined)
+      .map(pool => pool.address);
   }
 
   getV3Pools(): V3PoolInfo[] {
-    return Array.from(this.v3Pools.values());
+    return this.v3Pools.filter((pool): pool is V3PoolInfo => pool !== undefined);
   }
 
   getV3InitializedTicks(poolAddress: Address): V3Tick[] {
-    const pool = this.v3Pools.get(this.addressKey(poolAddress));
+    const poolIndex = this.poolRegistry.get(poolAddress);
+    const pool = poolIndex === undefined ? undefined : this.v3Pools[poolIndex];
     if (!pool) return [];
     return Array.from(pool.ticks.values()).sort((a, b) => a.index - b.index);
   }
 
   getV3BitmapWords(poolAddress: Address): V3BitmapWord[] {
-    const pool = this.v3Pools.get(this.addressKey(poolAddress));
+    const poolIndex = this.poolRegistry.get(poolAddress);
+    const pool = poolIndex === undefined ? undefined : this.v3Pools[poolIndex];
     if (!pool) return [];
     return Array.from(pool.bitmapWords.entries())
       .map(([wordPosition, bitmap]) => ({ wordPosition, bitmap }))
@@ -255,15 +346,20 @@ export class MarketGraph {
     amountIn: bigint,
     excludePools: Address[] = []
   ): FlashPoolCandidate | null {
-    const tokenIndex = this.tokenIndexes.get(this.addressKey(token));
+    const tokenIndex = this.tokenIndexOf(token);
     if (tokenIndex === undefined) return null;
 
-    const excluded = new Set(excludePools.map(pool => this.addressKey(pool)));
+    const excluded = new Set<number>();
+    for (const pool of excludePools) {
+      const poolIndex = this.poolIndexOf(pool);
+      if (poolIndex !== undefined) excluded.add(poolIndex);
+    }
+
     let best: FlashPoolCandidate | null = null;
 
     for (const edgeIndex of this.tokens[tokenIndex].edgeIndexes) {
+      if (excluded.has(this.edges[edgeIndex].poolIndex)) continue;
       const edge = this.edges[edgeIndex].edge;
-      if (excluded.has(this.addressKey(edge.poolAddress))) continue;
       if (edge.liquidity < amountIn * 3n) continue;
 
       if (!best || edge.liquidity > best.liquidity) {
@@ -280,9 +376,10 @@ export class MarketGraph {
   }
 
   clear(): void {
-    this.pairs.clear();
-    this.v3Pools.clear();
-    this.tokenIndexes.clear();
+    this.pairs.length = 0;
+    this.v3Pools.length = 0;
+    this.tokenRegistry.clear();
+    this.poolRegistry.clear();
     this.tokens.length = 0;
     this.edgeIndexes.clear();
     this.edges.length = 0;
@@ -304,7 +401,8 @@ export class MarketGraph {
   }
 
   private quoteV3Edge(edge: Extract<AnyMarketEdge, { protocol: 'v3' }>, amountIn: bigint): MarketRouteQuote {
-    const pool = this.v3Pools.get(this.addressKey(edge.poolAddress));
+    const poolIndex = this.poolIndexOf(edge.poolAddress);
+    const pool = poolIndex === undefined ? undefined : this.v3Pools[poolIndex];
     if (!pool?.state || pool.state.liquidity <= 0n) {
       return { amountIn, amountOut: 0n, profit: -1n, complete: false };
     }
@@ -331,11 +429,14 @@ export class MarketGraph {
     };
   }
 
-  private upsertV2Edges(pair: PairInfo): void {
+  private upsertV2Edges(pair: PairInfo, poolIndex: number): void {
     if (pair.reserve0 === 0n || pair.reserve1 === 0n || !protocolAllowed(this.policy, 'v2')) return;
 
+    const token0Index = this.tokenIndex(pair.token0);
+    const token1Index = this.tokenIndex(pair.token1);
+
     this.upsertEdge({
-      id: this.edgeId('v2', pair.pairAddress, 'token0ToToken1'),
+      id: this.edgeId('v2', poolIndex, 'token0ToToken1'),
       protocol: 'v2',
       from: pair.token0,
       to: pair.token1,
@@ -347,10 +448,10 @@ export class MarketGraph {
       rateNumerator: pair.reserve1 * feeMultiplier(pair.fee),
       rateDenominator: pair.reserve0 * FEE_DENOMINATOR,
       liquidity: pair.reserve0 < pair.reserve1 ? pair.reserve0 : pair.reserve1,
-    });
+    }, token0Index, token1Index, poolIndex);
 
     this.upsertEdge({
-      id: this.edgeId('v2', pair.pairAddress, 'token1ToToken0'),
+      id: this.edgeId('v2', poolIndex, 'token1ToToken0'),
       protocol: 'v2',
       from: pair.token1,
       to: pair.token0,
@@ -362,12 +463,14 @@ export class MarketGraph {
       rateNumerator: pair.reserve0 * feeMultiplier(pair.fee),
       rateDenominator: pair.reserve1 * FEE_DENOMINATOR,
       liquidity: pair.reserve0 < pair.reserve1 ? pair.reserve0 : pair.reserve1,
-    });
+    }, token1Index, token0Index, poolIndex);
   }
 
-  private upsertV3Edges(pool: V3PoolInfo): void {
+  private upsertV3Edges(pool: V3PoolInfo, poolIndex: number): void {
     if (!protocolAllowed(this.policy, 'v3')) return;
 
+    const token0Index = this.tokenIndex(pool.token0);
+    const token1Index = this.tokenIndex(pool.token1);
     const state = pool.state ?? {
       sqrtPriceX96: 0n,
       liquidity: 0n,
@@ -377,7 +480,7 @@ export class MarketGraph {
     const priceNumerator = state.sqrtPriceX96 * state.sqrtPriceX96;
 
     this.upsertEdge({
-      id: this.edgeId('v3', pool.address, 'token0ToToken1'),
+      id: this.edgeId('v3', poolIndex, 'token0ToToken1'),
       protocol: 'v3',
       from: pool.token0,
       to: pool.token1,
@@ -390,10 +493,10 @@ export class MarketGraph {
       rateNumerator: priceNumerator * feeMultiplier,
       rateDenominator: Q192 * V3_FEE_DENOMINATOR,
       liquidity: state.liquidity,
-    });
+    }, token0Index, token1Index, poolIndex);
 
     this.upsertEdge({
-      id: this.edgeId('v3', pool.address, 'token1ToToken0'),
+      id: this.edgeId('v3', poolIndex, 'token1ToToken0'),
       protocol: 'v3',
       from: pool.token1,
       to: pool.token0,
@@ -406,53 +509,65 @@ export class MarketGraph {
       rateNumerator: Q192 * feeMultiplier,
       rateDenominator: priceNumerator * V3_FEE_DENOMINATOR,
       liquidity: state.liquidity,
-    });
+    }, token1Index, token0Index, poolIndex);
   }
 
-  private upsertEdge(edge: AnyMarketEdge): void {
-    const tokenIndex = this.tokenIndex(edge.from);
+  private upsertEdge(
+    edge: AnyMarketEdge,
+    tokenIndex: number,
+    toTokenIndex: number,
+    poolIndex: number
+  ): void {
     const existingIndex = this.edgeIndexes.get(edge.id);
 
     if (existingIndex !== undefined) {
+      const previousTokenIndex = this.edges[existingIndex].tokenIndex;
       Object.assign(this.edges[existingIndex].edge, edge);
-      this.rankedEdgesCache.delete(this.edges[existingIndex].tokenIndex);
+      this.edges[existingIndex].tokenIndex = tokenIndex;
+      this.edges[existingIndex].toTokenIndex = toTokenIndex;
+      this.edges[existingIndex].poolIndex = poolIndex;
+      this.rankedEdgesCache.delete(previousTokenIndex);
+      this.rankedEdgesCache.delete(tokenIndex);
       return;
     }
 
     const edgeIndex = this.edges.length;
     this.edgeIndexes.set(edge.id, edgeIndex);
-    this.edges.push({ edge, tokenIndex });
+    this.edges.push({ edge, tokenIndex, toTokenIndex, poolIndex });
     this.tokens[tokenIndex].edgeIndexes.push(edgeIndex);
     this.rankedEdgesCache.delete(tokenIndex);
   }
 
-  private selectTopEdges(edgeIndexes: number[], limit: number): AnyMarketEdge[] {
+  private selectTopEdgeIndexes(edgeIndexes: number[], limit: number): number[] {
     if (limit <= 0 || edgeIndexes.length === 0) return [];
 
-    const top: AnyMarketEdge[] = [];
+    const top: number[] = [];
     for (const edgeIndex of edgeIndexes) {
       const edge = this.edges[edgeIndex].edge;
       if (edge.liquidity <= 0n || edge.rateDenominator <= 0n) continue;
 
       if (top.length < limit) {
-        top.push(edge);
-        this.moveEdgeIntoRank(top, top.length - 1);
+        top.push(edgeIndex);
+        this.moveEdgeIndexIntoRank(top, top.length - 1);
         continue;
       }
 
-      if (this.compareEdgeRank(edge, top[top.length - 1]) < 0) continue;
-      top[top.length - 1] = edge;
-      this.moveEdgeIntoRank(top, top.length - 1);
+      if (this.compareEdgeRank(edge, this.edges[top[top.length - 1]].edge) < 0) continue;
+      top[top.length - 1] = edgeIndex;
+      this.moveEdgeIndexIntoRank(top, top.length - 1);
     }
 
     return top;
   }
 
-  private moveEdgeIntoRank(edges: AnyMarketEdge[], index: number): void {
-    while (index > 0 && this.compareEdgeRank(edges[index], edges[index - 1]) > 0) {
-      const previous = edges[index - 1];
-      edges[index - 1] = edges[index];
-      edges[index] = previous;
+  private moveEdgeIndexIntoRank(edgeIndexes: number[], index: number): void {
+    while (
+      index > 0 &&
+      this.compareEdgeRank(this.edges[edgeIndexes[index]].edge, this.edges[edgeIndexes[index - 1]].edge) > 0
+    ) {
+      const previous = edgeIndexes[index - 1];
+      edgeIndexes[index - 1] = edgeIndexes[index];
+      edgeIndexes[index] = previous;
       index--;
     }
   }
@@ -473,22 +588,17 @@ export class MarketGraph {
     return 0;
   }
 
-  private edgeId(protocol: 'v2' | 'v3', poolAddress: Address, direction: SwapDirection): MarketEdgeId {
-    return `${protocol}:${poolAddress.toLowerCase()}:${direction}`;
+  private edgeId(protocol: 'v2' | 'v3', poolIndex: number, direction: SwapDirection): MarketEdgeId {
+    return `${protocol}:${poolIndex}:${direction}`;
   }
 
   private tokenIndex(token: Address): number {
-    const key = this.addressKey(token);
-    const existing = this.tokenIndexes.get(key);
-    if (existing !== undefined) return existing;
-
-    const index = this.tokens.length;
-    this.tokenIndexes.set(key, index);
-    this.tokens.push({ address: token, edgeIndexes: [] });
+    const index = this.tokenRegistry.getOrAdd(token);
+    this.tokens[index] ??= { address: token, edgeIndexes: [] };
     return index;
   }
 
-  private addressKey(address: Address): string {
-    return address.toLowerCase();
+  private poolIndex(pool: Address): number {
+    return this.poolRegistry.getOrAdd(pool);
   }
 }

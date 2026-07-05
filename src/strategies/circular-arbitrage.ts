@@ -1,6 +1,6 @@
 import { type Address } from 'viem';
 import { MarketGraph } from '../market-graph/market-graph';
-import { type AnyMarketEdge, type ArbitrageSearchPolicy, type MarketProtocol } from '../market-graph/types';
+import { type ArbitrageSearchPolicy, type MarketProtocol } from '../market-graph/types';
 import { transitionAllowed } from '../market-graph/types';
 import {
   type CandidateRoute,
@@ -9,16 +9,17 @@ import {
 import { compareFractions } from '../pricing/v2-swap-math';
 
 type RouteStateStore = {
-  tokens: Address[];
-  originTokens: Address[];
+  tokenIndexes: number[];
+  originTokenIndexes: number[];
   previousIndexes: number[];
-  viaEdges: Array<AnyMarketEdge | null>;
+  viaEdgeIndexes: number[];
   depths: number[];
   rateNumerators: bigint[];
   rateDenominators: bigint[];
 };
 
 const NO_STATE = -1;
+const NO_EDGE = -1;
 type CandidateVisitor = (candidate: CandidateRoute) => void;
 
 export class CircularArbitrageStrategy {
@@ -34,59 +35,61 @@ export class CircularArbitrageStrategy {
   }
 
   visitCandidates(request: FindOpportunitiesRequest, visit: CandidateVisitor): void {
-    const changedPoolList = request.changedPairs || [];
-    const changedPools = new Set(changedPoolList.map(pool => pool.toLowerCase()));
+    const changedPoolIndexes = this.changedPoolIndexes(request.changedPairs || []);
+    const startTokenIndexes = request.startTokens
+      .map(token => this.graph.tokenIndexOf(token))
+      .filter((tokenIndex): tokenIndex is number => tokenIndex !== undefined);
     const states = this.createStateStore();
-    const statesByStep: Record<number, Map<Address, number[]>> = {};
+    const statesByStep: Record<number, Map<number, number[]>> = {};
 
     statesByStep[0] = new Map();
-    for (const startToken of request.startTokens) {
+    for (const startTokenIndex of startTokenIndexes) {
       const stateIndex = this.pushState(states, {
-        token: startToken,
-        originToken: startToken,
+        tokenIndex: startTokenIndex,
+        originTokenIndex: startTokenIndex,
         previousIndex: NO_STATE,
-        viaEdge: null,
+        viaEdgeIndex: NO_EDGE,
         depth: 0,
         rateNumerator: 1n,
         rateDenominator: 1n,
       });
-      statesByStep[0].set(startToken, [stateIndex]);
+      statesByStep[0].set(startTokenIndex, [stateIndex]);
     }
 
     for (let step = 1; step <= this.policy.maxRouteEdges; step++) {
       statesByStep[step] = new Map();
       let expanded = false;
 
-      for (const [currentToken, stateIndexes] of statesByStep[step - 1].entries()) {
-        const rankedEdges = this.graph.rankedEdges(currentToken, this.policy.beamWidth);
+      for (const [currentTokenIndex, stateIndexes] of statesByStep[step - 1].entries()) {
+        const rankedEdgeIndexes = this.graph.rankedEdgeIndexes(currentTokenIndex, this.policy.beamWidth);
 
         for (const stateIndex of stateIndexes) {
-          for (const edge of rankedEdges) {
+          for (const edgeIndex of rankedEdgeIndexes) {
             expanded = this.expandEdge(
               states,
               stateIndex,
-              edge,
+              edgeIndex,
               step,
               statesByStep[step],
-              request.startTokens,
-              changedPools,
+              startTokenIndexes,
+              changedPoolIndexes,
               visit
             ) || expanded;
           }
 
-          for (const poolAddress of changedPoolList) {
-            const affectedEdges = this.graph.edgesForTokenPool(currentToken, poolAddress);
-            for (const edge of affectedEdges) {
-              if (this.edgeAlreadyIncluded(rankedEdges, edge)) continue;
+          for (const poolIndex of changedPoolIndexes) {
+            const affectedEdgeIndexes = this.graph.edgeIndexesForTokenPool(currentTokenIndex, poolIndex);
+            for (const edgeIndex of affectedEdgeIndexes) {
+              if (this.edgeAlreadyIncluded(rankedEdgeIndexes, edgeIndex)) continue;
 
               expanded = this.expandEdge(
                 states,
                 stateIndex,
-                edge,
+                edgeIndex,
                 step,
                 statesByStep[step],
-                request.startTokens,
-                changedPools,
+                startTokenIndexes,
+                changedPoolIndexes,
                 visit
               ) || expanded;
             }
@@ -101,30 +104,32 @@ export class CircularArbitrageStrategy {
   private expandEdge(
     states: RouteStateStore,
     entryIndex: number,
-    edge: AnyMarketEdge,
+    edgeIndex: number,
     step: number,
-    nextStep: Map<Address, number[]>,
-    startTokens: Address[],
-    changedPools: Set<string>,
+    nextStep: Map<number, number[]>,
+    startTokenIndexes: number[],
+    changedPoolIndexes: Set<number>,
     visit: CandidateVisitor
   ): boolean {
+    const edge = this.graph.edgeAt(edgeIndex);
+    if (!edge) return false;
     if (!transitionAllowed(this.policy, this.previousProtocol(states, entryIndex), edge.protocol)) return false;
-    if (this.hasPool(states, entryIndex, edge.poolAddress)) return false;
-    if (!this.canStillYield(states, entryIndex, edge, step, startTokens, changedPools)) return false;
+    if (this.hasPool(states, entryIndex, this.graph.edgePoolIndex(edgeIndex))) return false;
+    if (!this.canStillYield(states, entryIndex, edgeIndex, step, startTokenIndexes, changedPoolIndexes)) return false;
 
     const nextIndex = this.pushState(states, {
-      token: edge.to,
-      originToken: states.originTokens[entryIndex],
+      tokenIndex: this.graph.edgeToTokenIndex(edgeIndex),
+      originTokenIndex: states.originTokenIndexes[entryIndex],
       previousIndex: entryIndex,
-      viaEdge: edge,
+      viaEdgeIndex: edgeIndex,
       depth: states.depths[entryIndex] + 1,
       rateNumerator: states.rateNumerators[entryIndex] * edge.rateNumerator,
       rateDenominator: states.rateDenominators[entryIndex] * edge.rateDenominator,
     });
 
-    this.keepBestState(states, nextStep, edge.to, nextIndex);
+    this.keepBestState(states, nextStep, this.graph.edgeToTokenIndex(edgeIndex), nextIndex);
 
-    if (step >= 2 && this.isRelevantCandidate(states, nextIndex, startTokens, changedPools)) {
+    if (step >= 2 && this.isRelevantCandidate(states, nextIndex, startTokenIndexes, changedPoolIndexes)) {
       visit(this.toRoute(states, nextIndex));
     }
 
@@ -134,41 +139,43 @@ export class CircularArbitrageStrategy {
   private canStillYield(
     states: RouteStateStore,
     entryIndex: number,
-    edge: AnyMarketEdge,
+    edgeIndex: number,
     step: number,
-    startTokens: Address[],
-    changedPools: Set<string>
+    startTokenIndexes: number[],
+    changedPoolIndexes: Set<number>
   ): boolean {
     if (step !== this.policy.maxRouteEdges) return true;
 
+    const toTokenIndex = this.graph.edgeToTokenIndex(edgeIndex);
     const destinationAllowed = this.policy.routeMode === 'cross-token'
-      ? startTokens.includes(edge.to)
-      : edge.to === states.originTokens[entryIndex];
+      ? startTokenIndexes.includes(toTokenIndex)
+      : toTokenIndex === states.originTokenIndexes[entryIndex];
 
     if (!destinationAllowed) return false;
-    if (changedPools.size === 0) return true;
+    if (changedPoolIndexes.size === 0) return true;
 
-    return changedPools.has(edge.poolAddress.toLowerCase()) || this.hasChangedPool(states, entryIndex, changedPools);
+    return changedPoolIndexes.has(this.graph.edgePoolIndex(edgeIndex)) ||
+      this.hasChangedPool(states, entryIndex, changedPoolIndexes);
   }
 
-  private edgeAlreadyIncluded(edges: AnyMarketEdge[], edge: AnyMarketEdge): boolean {
-    for (const included of edges) {
-      if (included.id === edge.id) return true;
+  private edgeAlreadyIncluded(edgeIndexes: number[], edgeIndex: number): boolean {
+    for (const included of edgeIndexes) {
+      if (included === edgeIndex) return true;
     }
     return false;
   }
 
   private keepBestState(
     store: RouteStateStore,
-    step: Map<Address, number[]>,
-    token: Address,
+    step: Map<number, number[]>,
+    tokenIndex: number,
     stateIndex: number
   ): void {
-    if (!step.has(token)) {
-      step.set(token, []);
+    if (!step.has(tokenIndex)) {
+      step.set(tokenIndex, []);
     }
 
-    const stateIndexes = step.get(token)!;
+    const stateIndexes = step.get(tokenIndex)!;
     stateIndexes.push(stateIndex);
     this.moveStateIntoRank(store, stateIndexes, stateIndexes.length - 1);
     stateIndexes.splice(this.policy.beamWidth);
@@ -193,20 +200,22 @@ export class CircularArbitrageStrategy {
   }
 
   private previousProtocol(states: RouteStateStore, stateIndex: number): MarketProtocol | null {
-    return states.viaEdges[stateIndex]?.protocol ?? null;
+    const edgeIndex = states.viaEdgeIndexes[stateIndex];
+    return edgeIndex === NO_EDGE ? null : this.graph.edgeAt(edgeIndex)?.protocol ?? null;
   }
 
-  private hasPool(states: RouteStateStore, stateIndex: number, poolAddress: Address): boolean {
+  private hasPool(states: RouteStateStore, stateIndex: number, poolIndex: number): boolean {
     for (let current = stateIndex; current !== NO_STATE; current = states.previousIndexes[current]) {
-      if (states.viaEdges[current]?.poolAddress === poolAddress) return true;
+      const edgeIndex = states.viaEdgeIndexes[current];
+      if (edgeIndex !== NO_EDGE && this.graph.edgePoolIndex(edgeIndex) === poolIndex) return true;
     }
     return false;
   }
 
-  private hasChangedPool(states: RouteStateStore, stateIndex: number, changedPools: Set<string>): boolean {
+  private hasChangedPool(states: RouteStateStore, stateIndex: number, changedPoolIndexes: Set<number>): boolean {
     for (let current = stateIndex; current !== NO_STATE; current = states.previousIndexes[current]) {
-      const edge = states.viaEdges[current];
-      if (edge && changedPools.has(edge.poolAddress.toLowerCase())) return true;
+      const edgeIndex = states.viaEdgeIndexes[current];
+      if (edgeIndex !== NO_EDGE && changedPoolIndexes.has(this.graph.edgePoolIndex(edgeIndex))) return true;
     }
     return false;
   }
@@ -214,20 +223,20 @@ export class CircularArbitrageStrategy {
   private isRelevantCandidate(
     states: RouteStateStore,
     stateIndex: number,
-    startTokens: Address[],
-    changedPools: Set<string>
+    startTokenIndexes: number[],
+    changedPoolIndexes: Set<number>
   ): boolean {
     if (states.rateNumerators[stateIndex] <= states.rateDenominators[stateIndex]) return false;
 
-    if (changedPools.size > 0 && !this.hasChangedPool(states, stateIndex, changedPools)) {
+    if (changedPoolIndexes.size > 0 && !this.hasChangedPool(states, stateIndex, changedPoolIndexes)) {
       return false;
     }
 
-    const originToken = states.originTokens[stateIndex];
-    const targetToken = states.tokens[stateIndex];
+    const originTokenIndex = states.originTokenIndexes[stateIndex];
+    const targetTokenIndex = states.tokenIndexes[stateIndex];
     return this.policy.routeMode === 'cross-token'
-      ? startTokens.includes(originToken) && startTokens.includes(targetToken)
-      : targetToken === originToken;
+      ? startTokenIndexes.includes(originTokenIndex) && startTokenIndexes.includes(targetTokenIndex)
+      : targetTokenIndex === originTokenIndex;
   }
 
   private toRoute(states: RouteStateStore, stateIndex: number): CandidateRoute {
@@ -236,31 +245,34 @@ export class CircularArbitrageStrategy {
     const pairs = new Array<Address>(depth);
     const directions = new Array<CandidateRoute['directions'][number]>(depth);
     const edgeIds = new Array<string>(depth);
+    const edgeIndexes = new Array<number>(depth);
     const protocols = new Array<MarketProtocol>(depth);
     let current = stateIndex;
 
     for (let index = depth; index >= 0; index--) {
-      path[index] = states.tokens[current];
+      path[index] = this.graph.tokenAddress(states.tokenIndexes[current]);
 
       if (index > 0) {
-        const edge = states.viaEdges[current]!;
+        const edgeIndex = states.viaEdgeIndexes[current];
+        const edge = this.graph.edgeAt(edgeIndex)!;
         pairs[index - 1] = edge.poolAddress;
         directions[index - 1] = edge.direction;
         edgeIds[index - 1] = edge.id;
+        edgeIndexes[index - 1] = edgeIndex;
         protocols[index - 1] = edge.protocol;
         current = states.previousIndexes[current];
       }
     }
 
-    return { path, pairs, directions, edgeIds, protocols };
+    return { path, pairs, directions, edgeIds, edgeIndexes, protocols };
   }
 
   private createStateStore(): RouteStateStore {
     return {
-      tokens: [],
-      originTokens: [],
+      tokenIndexes: [],
+      originTokenIndexes: [],
       previousIndexes: [],
-      viaEdges: [],
+      viaEdgeIndexes: [],
       depths: [],
       rateNumerators: [],
       rateDenominators: [],
@@ -270,23 +282,34 @@ export class CircularArbitrageStrategy {
   private pushState(
     states: RouteStateStore,
     state: {
-      token: Address;
-      originToken: Address;
+      tokenIndex: number;
+      originTokenIndex: number;
       previousIndex: number;
-      viaEdge: AnyMarketEdge | null;
+      viaEdgeIndex: number;
       depth: number;
       rateNumerator: bigint;
       rateDenominator: bigint;
     }
   ): number {
-    const index = states.tokens.length;
-    states.tokens.push(state.token);
-    states.originTokens.push(state.originToken);
+    const index = states.tokenIndexes.length;
+    states.tokenIndexes.push(state.tokenIndex);
+    states.originTokenIndexes.push(state.originTokenIndex);
     states.previousIndexes.push(state.previousIndex);
-    states.viaEdges.push(state.viaEdge);
+    states.viaEdgeIndexes.push(state.viaEdgeIndex);
     states.depths.push(state.depth);
     states.rateNumerators.push(state.rateNumerator);
     states.rateDenominators.push(state.rateDenominator);
     return index;
+  }
+
+  private changedPoolIndexes(changedPairs: Address[]): Set<number> {
+    const indexes = new Set<number>();
+
+    for (const pair of changedPairs) {
+      const poolIndex = this.graph.poolIndexOf(pair);
+      if (poolIndex !== undefined) indexes.add(poolIndex);
+    }
+
+    return indexes;
   }
 }

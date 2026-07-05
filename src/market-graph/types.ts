@@ -51,6 +51,7 @@ export type MarketRoute = {
   pools: Address[];
   directions: SwapDirection[];
   edgeIds: MarketEdgeId[];
+  edgeIndexes?: number[];
   protocols: MarketProtocol[];
 };
 

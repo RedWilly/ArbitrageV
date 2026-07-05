@@ -131,10 +131,13 @@ export class OpportunityEngine {
       pools: candidate.pairs,
       directions: candidate.directions,
       edgeIds: candidate.edgeIds,
+      edgeIndexes: candidate.edgeIndexes,
       protocols: candidate.protocols,
     });
-    const fees = candidate.edgeIds.map(edgeId => {
-      const edge = this.graph.edge(edgeId);
+    const fees = candidate.edgeIds.map((edgeId, index) => {
+      const edge = candidate.edgeIndexes
+        ? this.graph.edgeAt(candidate.edgeIndexes[index])
+        : this.graph.edge(edgeId);
       if (!edge) throw new Error(`Missing market edge ${edgeId}`);
       return edge.fee;
     });
