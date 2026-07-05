@@ -23,6 +23,18 @@ const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4
 // Maximum WebSocket reconnection attempts before falling back to HTTP
 const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 3;
 
+type V2WatchPool = {
+    pairAddress: Address;
+    token0: Address;
+    token1: Address;
+    fee: number;
+};
+
+type EventMonitorOptions = {
+    v2Pools?: readonly V2WatchPool[];
+    v3Pools?: readonly Address[];
+};
+
 export class EventMonitor {
     private client: PublicClient;
     private wsClient?: PublicClient; // WebSocket client
@@ -36,14 +48,20 @@ export class EventMonitor {
     private usingWebSocket: boolean = false;
     private wsReconnectAttempts: number = 0;
     private reconnecting: boolean = false;
+    private pairAddressMap = new Map<string, Address>();
+    private v3PoolAddressMap = new Map<string, Address>();
+    private v2PoolByAddress = new Map<string, V2WatchPool>();
 
-    constructor(graph: OpportunityEngine, networkConfig: any) {
+    constructor(graph: OpportunityEngine, networkConfig: any, private readonly options: EventMonitorOptions = {}) {
         this.graph = graph;
         this.networkConfig = networkConfig;
         this.opportunities = new OpportunityWorkflow(graph, networkConfig);
         this.scheduler = createReserveUpdateScheduler(this.processReserveUpdateBatch.bind(this));
         this.v3Scheduler = createV3PoolUpdateScheduler(this.processV3PoolUpdateBatch.bind(this));
         this.client = networkConfig.client;
+        for (const pool of options.v2Pools ?? []) {
+            this.v2PoolByAddress.set(pool.pairAddress.toLowerCase(), pool);
+        }
         
         // Use WebSocket client if available
         if (RUNTIME.websocketEnabled && networkConfig.wsClient) {
@@ -64,8 +82,10 @@ export class EventMonitor {
         this.isRunning = true;
 
         // Get all pair/pool addresses from graph for validation
-        const pairAddresses = this.graph.getPairAddresses();
-        const v3PoolAddresses = this.graph.getV3PoolAddresses();
+        const pairAddresses = this.options.v2Pools?.map(pool => pool.pairAddress) ?? this.graph.getPairAddresses();
+        const v3PoolAddresses = this.options.v3Pools ? [...this.options.v3Pools] : this.graph.getV3PoolAddresses();
+        this.pairAddressMap = this.addressMap(pairAddresses);
+        this.v3PoolAddressMap = this.addressMap(v3PoolAddresses);
         
         console.log(`Starting event monitor for ${pairAddresses.length} V2 pairs and ${v3PoolAddresses.length} V3 pools...`);
         if (RUNTIME.debug) {
@@ -216,33 +236,26 @@ export class EventMonitor {
         try {
             if (RUNTIME.debug) console.log(`Received ${logs.length} events`);
             
-            // Create a mapping of lowercase to original case addresses
-            const pairAddresses = this.graph.getPairAddresses();
-            const validPairs = new Set(pairAddresses.map(addr => addr.toLowerCase()));
-            const addressMap = new Map(pairAddresses.map(addr => [addr.toLowerCase(), addr]));
-            
             // Collect all valid updates
             const updates: ReserveUpdate[] = [];
             
             for (const log of logs) {
-                // Custom logging to handle BigInt values - convert all BigInt to strings
-                const logForDisplay = JSON.parse(JSON.stringify(log, (key, value) => 
-                    typeof value === 'bigint' ? value.toString() : value
-                ));
-                
                 // Check if this pair is in our graph before proceeding
                 const lowercaseAddress = log.address?.toLowerCase();
-                if (!validPairs.has(lowercaseAddress)) {
+                const pairAddress = this.pairAddressMap.get(lowercaseAddress);
+                if (!pairAddress) {
                     if (RUNTIME.debug) {
                         console.log(`Skipping event from unknown pair: ${lowercaseAddress}`);
                     }
                     continue;
                 }
 
-                // Get the original case address for updating the graph
-                const pairAddress = addressMap.get(lowercaseAddress) as Address;
-
-                if (RUNTIME.debug) console.log('Raw event log:', JSON.stringify(logForDisplay, null, 2));
+                if (RUNTIME.debug) {
+                    const logForDisplay = JSON.parse(JSON.stringify(log, (key, value) =>
+                        typeof value === 'bigint' ? value.toString() : value
+                    ));
+                    console.log('Raw event log:', JSON.stringify(logForDisplay, null, 2));
+                }
 
                 // Decode the Sync event
                 const decodedEvent = this.decodeSyncEvent(log);
@@ -320,21 +333,18 @@ export class EventMonitor {
         try {
             if (RUNTIME.debug) console.log(`Received ${logs.length} V3 Swap events`);
 
-            const poolAddresses = this.graph.getV3PoolAddresses();
-            const validPools = new Set(poolAddresses.map(addr => addr.toLowerCase()));
-            const addressMap = new Map(poolAddresses.map(addr => [addr.toLowerCase(), addr]));
             const updates: V3PoolUpdate[] = [];
 
             for (const log of logs) {
                 const lowercaseAddress = log.address?.toLowerCase();
-                if (!validPools.has(lowercaseAddress)) {
+                const poolAddress = this.v3PoolAddressMap.get(lowercaseAddress);
+                if (!poolAddress) {
                     if (RUNTIME.debug) {
                         console.log(`Skipping V3 event from unknown pool: ${lowercaseAddress}`);
                     }
                     continue;
                 }
 
-                const poolAddress = addressMap.get(lowercaseAddress) as Address;
                 const decodedEvent = this.decodeV3SwapEvent(log);
                 if (!decodedEvent) {
                     if (RUNTIME.debug) console.log('Failed to decode V3 Swap event');
@@ -365,16 +375,13 @@ export class EventMonitor {
         try {
             if (RUNTIME.debug) console.log(`Received ${logs.length} V3 liquidity events`);
 
-            const poolAddresses = this.graph.getV3PoolAddresses();
-            const validPools = new Set(poolAddresses.map(addr => addr.toLowerCase()));
-            const addressMap = new Map(poolAddresses.map(addr => [addr.toLowerCase(), addr]));
             const activeLiquidityUpdates: V3PoolUpdate[] = [];
 
             for (const log of logs) {
                 const lowercaseAddress = log.address?.toLowerCase();
-                if (!validPools.has(lowercaseAddress)) continue;
+                const poolAddress = this.v3PoolAddressMap.get(lowercaseAddress);
+                if (!poolAddress) continue;
 
-                const poolAddress = addressMap.get(lowercaseAddress) as Address;
                 const decoded = this.decodeV3LiquidityEvent(log);
                 if (!decoded) continue;
 
@@ -411,7 +418,28 @@ export class EventMonitor {
         if (RUNTIME.debug) console.log(`Processing ${batch.length} latest reserve updates`);
 
         try {
-            this.graph.updateReserves(batch);
+            if (this.v2PoolByAddress.size === 0) {
+                this.graph.updateReserves(batch);
+            } else {
+                const updates: ReserveUpdate[] = [];
+                for (const update of batch) {
+                    const pool = this.v2PoolByAddress.get(update.pairAddress.toLowerCase());
+                    if (!pool) {
+                        updates.push(update);
+                        continue;
+                    }
+
+                    this.graph.addPair({
+                        pairAddress: pool.pairAddress,
+                        token0: pool.token0,
+                        token1: pool.token1,
+                        fee: pool.fee,
+                        reserve0: update.reserve0,
+                        reserve1: update.reserve1,
+                    });
+                }
+                if (updates.length > 0) this.graph.updateReserves(updates);
+            }
             if (RUNTIME.debug) console.log(`Successfully updated ${batch.length} pairs`);
         } catch (error) {
             console.error('Failed to update reserves:', error);
@@ -599,5 +627,8 @@ export class EventMonitor {
             await this.restart();
         }
     }
-}
 
+    private addressMap(addresses: readonly Address[]): Map<string, Address> {
+        return new Map(addresses.map(address => [address.toLowerCase(), address]));
+    }
+}

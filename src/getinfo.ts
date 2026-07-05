@@ -4,9 +4,18 @@ import UniswapFlashQueryABI from './ABI/UniswapFlashQuery.json';
 import bannedTokens from './bannedtax.json';
 import { type PairInfo as MarketPairInfo } from './market/v2-types';
 
-type DiscoveredPairInfo = MarketPairInfo & {
-    lastTimestamp: number;
+export type V2PoolMetadata = {
+    pairAddress: Address;
+    token0: Address;
+    token1: Address;
+    fee: number;
     factory: string;
+};
+
+type DiscoveredPairInfo = V2PoolMetadata & {
+    reserve0: bigint;
+    reserve1: bigint;
+    lastTimestamp: number;
 };
 
 /**
@@ -306,6 +315,13 @@ async function getReservesWithRetry(
 export async function getAllPairsInfo(
     client: ReturnType<typeof createPublicClient>
 ): Promise<MarketPairInfo[]> {
+    const pools = await discoverV2PoolMetadata(client);
+    return getKnownPairsInfo(client, pools);
+}
+
+export async function discoverV2PoolMetadata(
+    client: ReturnType<typeof createPublicClient>
+): Promise<V2PoolMetadata[]> {
     try {
         // First get the total number of pairs for each factory
         console.log('Getting total pairs for each factory...');
@@ -360,13 +376,30 @@ export async function getAllPairsInfo(
         console.log(`Filtered out ${singlePoolTokenPairs} pairs with single-pool tokens`);
         console.log(`Pairs remaining after single-pool token filtering: ${filteredByPoolCount.length}`);
 
-        // Get reserves for all pairs
-        const pairsWithReserves = await getReservesWithRetry(client, filteredByPoolCount);
-        console.log(`Successfully fetched reserves for ${pairsWithReserves.length} pairs`);
-
-        return pairsWithReserves;
+        return filteredByPoolCount.map(pair => ({
+            pairAddress: pair.pairAddress,
+            token0: pair.token0,
+            token1: pair.token1,
+            fee: pair.fee,
+            factory: pair.factory,
+        }));
     } catch (error) {
-        console.error('Error fetching all pairs:', error);
+        console.error('Error discovering pairs:', error);
         return [];
     }
+}
+
+export async function getKnownPairsInfo(
+    client: ReturnType<typeof createPublicClient>,
+    pools: readonly V2PoolMetadata[]
+): Promise<MarketPairInfo[]> {
+    const discovered = pools.map(pool => ({
+        ...pool,
+        reserve0: 0n,
+        reserve1: 0n,
+        lastTimestamp: 0,
+    }));
+    const pairsWithReserves = await getReservesWithRetry(client, discovered);
+    console.log(`Successfully fetched reserves for ${pairsWithReserves.length} pairs`);
+    return pairsWithReserves;
 }
