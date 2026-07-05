@@ -78,7 +78,7 @@ export class OpportunityEngine {
   findOpportunities(request: FindOpportunitiesRequest): ArbitrageSearchResult {
     const opportunities: ArbitrageOpportunity[] = [];
 
-    for (const candidate of this.strategy.findCandidates(request)) {
+    this.strategy.visitCandidates(request, candidate => {
       const opportunity = this.sizeCandidate(candidate);
       const originToken = opportunity.path[0];
       const token = TOKENS.find(addr => addr.address === originToken);
@@ -87,9 +87,9 @@ export class OpportunityEngine {
         throw new Error(`No token config found for ${originToken}. Please update TOKENS in constants.ts.`);
       }
 
-      if (opportunity.profit <= token.minProfit) continue;
+      if (opportunity.profit <= token.minProfit) return;
       this.insertRankedOpportunity(opportunities, opportunity);
-    }
+    });
 
     return {
       paths: opportunities.map(opportunity => opportunity.path),

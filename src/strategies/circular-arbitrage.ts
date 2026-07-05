@@ -19,6 +19,7 @@ type RouteStateStore = {
 };
 
 const NO_STATE = -1;
+type CandidateVisitor = (candidate: CandidateRoute) => void;
 
 export class CircularArbitrageStrategy {
   constructor(
@@ -27,9 +28,14 @@ export class CircularArbitrageStrategy {
   ) {}
 
   findCandidates(request: FindOpportunitiesRequest): CandidateRoute[] {
+    const candidates: CandidateRoute[] = [];
+    this.visitCandidates(request, candidate => candidates.push(candidate));
+    return candidates;
+  }
+
+  visitCandidates(request: FindOpportunitiesRequest, visit: CandidateVisitor): void {
     const changedPoolList = request.changedPairs || [];
     const changedPools = new Set(changedPoolList.map(pool => pool.toLowerCase()));
-    const candidates: CandidateRoute[] = [];
     const states = this.createStateStore();
     const statesByStep: Record<number, Map<Address, number[]>> = {};
 
@@ -64,7 +70,7 @@ export class CircularArbitrageStrategy {
               statesByStep[step],
               request.startTokens,
               changedPools,
-              candidates
+              visit
             ) || expanded;
           }
 
@@ -81,7 +87,7 @@ export class CircularArbitrageStrategy {
                 statesByStep[step],
                 request.startTokens,
                 changedPools,
-                candidates
+                visit
               ) || expanded;
             }
           }
@@ -90,8 +96,6 @@ export class CircularArbitrageStrategy {
 
       if (!expanded) break;
     }
-
-    return candidates;
   }
 
   private expandEdge(
@@ -102,7 +106,7 @@ export class CircularArbitrageStrategy {
     nextStep: Map<Address, number[]>,
     startTokens: Address[],
     changedPools: Set<string>,
-    candidates: CandidateRoute[]
+    visit: CandidateVisitor
   ): boolean {
     if (!transitionAllowed(this.policy, this.previousProtocol(states, entryIndex), edge.protocol)) return false;
     if (this.hasPool(states, entryIndex, edge.poolAddress)) return false;
@@ -121,7 +125,7 @@ export class CircularArbitrageStrategy {
     this.keepBestState(states, nextStep, edge.to, nextIndex);
 
     if (step >= 2 && this.isRelevantCandidate(states, nextIndex, startTokens, changedPools)) {
-      candidates.push(this.toRoute(states, nextIndex));
+      visit(this.toRoute(states, nextIndex));
     }
 
     return true;
