@@ -2,7 +2,8 @@ import { createPublicClient, http } from 'viem';
 import { sei } from 'viem/chains';
 import { CONTRACTS, NETWORK, V3_POOLS } from './constants';
 import { discoverV2PoolMetadata } from './getinfo';
-import { openMarketDb, replaceStoredPools, toStoredV2Pool, toStoredV3Pool } from './market-db';
+import { discoverCarbonPairs } from './market/carbon';
+import { openMarketDb, replaceStoredCarbonPairs, replaceStoredPools, toStoredV2Pool, toStoredV3Pool } from './market-db';
 
 async function main(): Promise<void> {
   if (!NETWORK.rpcUrl) throw new Error('RPC_URL is required');
@@ -15,6 +16,7 @@ async function main(): Promise<void> {
 
   const v2Pools = await discoverV2PoolMetadata(client);
   const v3Pools = V3_POOLS.filter(pool => pool.enabled);
+  const carbonPairs = await discoverCarbonPairs(client);
   const db = openMarketDb();
 
   try {
@@ -22,11 +24,12 @@ async function main(): Promise<void> {
       ...v2Pools.map(toStoredV2Pool),
       ...v3Pools.map(toStoredV3Pool),
     ]);
+    replaceStoredCarbonPairs(db, carbonPairs);
   } finally {
     db.close();
   }
 
-  console.log(`Stored ${v2Pools.length} V2 pools and ${v3Pools.length} V3 pools`);
+  console.log(`Stored ${v2Pools.length} V2 pools, ${v3Pools.length} V3 pools, and ${carbonPairs.length} Carbon pairs`);
 }
 
 main().catch(error => {

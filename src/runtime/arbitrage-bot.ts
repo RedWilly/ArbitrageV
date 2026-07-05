@@ -1,7 +1,8 @@
 import { ARBITRAGE_SEARCH_POLICY, RUNTIME } from '../constants';
 import { EventMonitor } from '../event';
 import { getKnownPairsInfo } from '../getinfo';
-import { loadStoredPools, openMarketDb, storedV2Pools, storedV3Pools } from '../market-db';
+import { loadStoredCarbonPairs, loadStoredPools, openMarketDb, storedV2Pools, storedV3Pools } from '../market-db';
+import { CarbonStrategyStore } from '../market/carbon';
 import { loadConfiguredV3StartupState } from '../market/v3-loader';
 import { type PairInfo, type ReserveUpdate } from '../market/v2-types';
 import { MarketGraph } from '../market-graph/market-graph';
@@ -17,6 +18,7 @@ export async function runArbitrageBot(): Promise<void> {
   console.log('Loading market metadata...');
   const db = openMarketDb();
   const storedPools = loadStoredPools(db);
+  const carbonPairs = loadStoredCarbonPairs(db);
   db.close();
 
   if (storedPools.length === 0) {
@@ -27,7 +29,7 @@ export async function runArbitrageBot(): Promise<void> {
   const v3Pools = storedV3Pools(storedPools);
   const v2PoolByAddress = new Map(v2Pools.map(pool => [pool.pairAddress.toLowerCase(), pool]));
 
-  console.log(`Loaded ${v2Pools.length} V2 pools and ${v3Pools.length} V3 pools from SQLite`);
+  console.log(`Loaded ${v2Pools.length} V2 pools, ${v3Pools.length} V3 pools, and ${carbonPairs.length} Carbon pairs from SQLite`);
 
   console.log('Building arbitrage graph...');
   const graph = new OpportunityEngine(
@@ -37,6 +39,11 @@ export async function runArbitrageBot(): Promise<void> {
   for (const pool of v3Pools) {
     graph.addV3Pool(pool);
   }
+  const carbonStore = new CarbonStrategyStore(
+    network.client,
+    carbonPairs,
+    strategies => graph.setCarbonStrategies(strategies)
+  );
 
   const startupBuffer = new StartupEventBuffer(network);
 
@@ -44,13 +51,15 @@ export async function runArbitrageBot(): Promise<void> {
   await startupBuffer.watchV2Pairs(v2Pools.map(pool => pool.pairAddress));
   await startupBuffer.watchV3Pools(v3Pools.map(pool => pool.address));
 
-  console.log('Fetching live V2 reserves and V3 startup state...');
+  console.log('Fetching live V2 reserves, V3 startup state, and Carbon strategies...');
   const [pairs] = await Promise.all([
     getKnownPairsInfo(network.client, v2Pools),
     loadConfiguredV3StartupState(network.client, graph, v3Pools),
+    carbonPairs.length > 0 ? carbonStore.start() : Promise.resolve(),
   ]);
 
   if (RUNTIME.debug) console.log(`Loaded live reserves for ${pairs.length} V2 pairs`);
+  if (carbonPairs.length > 0) console.log(`Loaded ${carbonStore.strategyCount()} live Carbon strategies`);
 
   for (const pair of pairs) {
     graph.addPair(pair);
@@ -86,6 +95,7 @@ export async function runArbitrageBot(): Promise<void> {
   process.on('SIGINT', async () => {
     console.log('\nStopping event monitor...');
     await monitor.stop();
+    await carbonStore.stop();
     process.exit();
   });
 }

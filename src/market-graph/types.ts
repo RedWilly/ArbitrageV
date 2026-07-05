@@ -1,8 +1,9 @@
 import { type Address } from 'viem';
+import { type CarbonOrder } from '../market/carbon';
 import { type SwapDirection } from '../market/v2-types';
 
 export type RouteMode = 'circular' | 'cross-token';
-export type MarketProtocol = 'v2' | 'v3';
+export type MarketProtocol = 'v2' | 'v3' | 'carbon';
 
 export type ArbitrageSearchPolicy = {
   topTokens: number;
@@ -44,7 +45,14 @@ export type V3MarketEdge = MarketEdge & {
   tick: number;
 };
 
-export type AnyMarketEdge = V2MarketEdge | V3MarketEdge;
+export type CarbonMarketEdge = MarketEdge & {
+  protocol: 'carbon';
+  strategyId: bigint;
+  orderIndex: 0 | 1;
+  order: CarbonOrder;
+};
+
+export type AnyMarketEdge = V2MarketEdge | V3MarketEdge | CarbonMarketEdge;
 
 export type MarketRoute = {
   path: Address[];

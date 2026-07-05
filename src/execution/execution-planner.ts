@@ -1,15 +1,17 @@
 import { type Address } from 'viem';
-import { type FlashPoolCandidate, type MarketProtocol } from '../market-graph/types';
+import { type FlashPoolCandidate } from '../market-graph/types';
 
 export const CONTRACT_PROTOCOL = {
   v2: 0,
   v3: 1,
 } as const;
 
+type ExecutableProtocol = keyof typeof CONTRACT_PROTOCOL;
+
 export type ExecutableOpportunity = {
   path: Address[];
   pairs: Address[];
-  protocols: MarketProtocol[];
+  protocols: ExecutableProtocol[];
   fees: number[];
   optimalAmount: bigint;
   expectedProfit: bigint;
@@ -52,6 +54,7 @@ export function createExecutionPlan(graph: FlashPoolLookup, opportunity: Executa
   );
 
   if (!flashPool) return null;
+  if (!isExecutableProtocol(flashPool.protocol)) return null;
 
   return {
     kind: 'flash',
@@ -71,4 +74,8 @@ export function createExecutionPlan(graph: FlashPoolLookup, opportunity: Executa
 function isCircular(path: Address[]): boolean {
   if (path.length < 2) return false;
   return path[0].toLowerCase() === path[path.length - 1].toLowerCase();
+}
+
+function isExecutableProtocol(protocol: string): protocol is ExecutableProtocol {
+  return protocol === 'v2' || protocol === 'v3';
 }

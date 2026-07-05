@@ -1,6 +1,7 @@
 import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, EXECUTION_POLICY, RUNTIME, TOKENS } from '../constants';
 import { OpportunityManager } from '../execute';
+import { type ExecutableOpportunity } from '../execution/execution-planner';
 import { type NetworkConfig } from '../network';
 import { basisPoints, formatBasisPoints, formatTokenAmountWithSymbol } from '../values';
 import { type MarketProtocol } from '../market-graph/types';
@@ -37,7 +38,7 @@ export class OpportunityWorkflow {
     this.log(opportunities);
 
     if (this.manager && opportunities.paths.length > 0) {
-      const executableOpportunities = opportunities.paths
+      const executableOpportunities: ExecutableOpportunity[] = opportunities.paths
         .map((path, index) => ({
           path,
           pairs: opportunities.pairs[index],
@@ -46,7 +47,10 @@ export class OpportunityWorkflow {
           optimalAmount: opportunities.optimalAmounts[index],
           expectedProfit: opportunities.profits[index],
         }))
-        .filter(opportunity => opportunity.protocols.length === opportunity.pairs.length);
+        .filter((opportunity): opportunity is ExecutableOpportunity =>
+          opportunity.protocols.length === opportunity.pairs.length &&
+          opportunity.protocols.every(isExecutableProtocol)
+        );
 
       if (executableOpportunities.length === 0) return opportunities;
 
@@ -115,8 +119,12 @@ export class OpportunityWorkflow {
   }
 }
 
-function routeKindFromProtocols(protocols: MarketProtocol[]): 'v2' | 'v3' | 'mixed' {
+function routeKindFromProtocols(protocols: MarketProtocol[]): 'v2' | 'v3' | 'carbon' | 'mixed' {
   if (protocols.length === 0) return 'mixed';
   return protocols.every(protocol => protocol === protocols[0]) ? protocols[0] : 'mixed';
+}
+
+function isExecutableProtocol(protocol: MarketProtocol): protocol is ExecutableOpportunity['protocols'][number] {
+  return protocol === 'v2' || protocol === 'v3';
 }
 

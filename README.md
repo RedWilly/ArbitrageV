@@ -1,6 +1,6 @@
 # ArbitrageV
 
-Small hobby arbitrage bot for Sei DEX pools. It is mostly a personal project for testing V2/V3 pool discovery, event monitoring, and simple route execution.
+Small hobby arbitrage bot for Sei DEX pools. It is mostly a personal project for testing V2/V3 pool discovery, Carbon strategy reads, event monitoring, and simple route execution.
 
 Use at your own risk. This touches real wallets and on-chain contracts.
 
@@ -34,7 +34,7 @@ First build the local pool cache:
 bun run sync:markets
 ```
 
-That writes known V2/V3 pool metadata to `.cache/markets.sqlite`.
+That writes known V2/V3 pool metadata and Carbon pair metadata to `.cache/markets.sqlite`.
 
 Then start the bot:
 
@@ -42,7 +42,7 @@ Then start the bot:
 bun start
 ```
 
-On startup the bot reads pool addresses from SQLite, starts watching events, then fetches live reserves and V3 state.
+On startup the bot reads market metadata from SQLite, starts watching events, then fetches V2 live reserves, V3 state, and Carbon strategies.
 
 ## Tests
 
@@ -53,4 +53,3 @@ bun test
 ## Notes
 
 This is not polished trading software. It is a workbench. Expect rough edges, noisy logs, and config that changes as I test things.
-

@@ -21,6 +21,13 @@ export type DexFactoryConfig = {
     volatile: boolean;
 };
 
+export type CarbonControllerConfig = {
+    name: string;
+    address: Address;
+    feePpm: number;
+    enabled: boolean;
+};
+
 export const NETWORK = {
     chainId: 1329,
     rpcUrl: process.env.RPC_URL,
@@ -36,7 +43,7 @@ export const CONTRACTS = {
 export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
     topTokens: 7,
     routeMode: 'circular',
-    allowedProtocols: ['v2', 'v3'],
+    allowedProtocols: ['v2', 'v3', 'carbon'],
     allowProtocolMixing: true,
     maxRouteEdges: 4,
     beamWidth: 25,
@@ -131,6 +138,10 @@ export const TOKENS: TokenConfig[] = [
 export const DEX_FACTORIES: DexFactoryConfig[] = [
     { name: 'dragonV1', address: '0x71f6b49ae1558357bBb5A6074f1143c46cBcA03d', fee: 30, volatile: false },
     { name: 'yakafinance', address: '0xd45dAff288075952822d5323F1d571e73435E929', fee: 18, volatile: true }
+];
+
+export const CARBON_CONTROLLERS: CarbonControllerConfig[] = [
+    { name: 'carbon', address: '0xe4816658ad10bf215053c533cceae3f59e1f1087', feePpm: 4000, enabled: true },
 ];
 
 export const V3_POOLS: V3PoolConfig[] = [

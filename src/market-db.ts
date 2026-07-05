@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { type Address } from 'viem';
 import { type V2PoolMetadata } from './getinfo';
+import { type CarbonPairMetadata } from './market/carbon';
 import { type V3PoolConfig } from './market/v3-types';
 
 export type StoredPoolProtocol = 'v2' | 'v3';
@@ -27,8 +28,17 @@ type PoolRow = {
   tick_spacing: number | null;
 };
 
+type CarbonPairRow = {
+  controller: string;
+  token0: string;
+  token1: string;
+  strategy_count: number;
+  fee_ppm: number;
+  enabled: number;
+};
+
 export function marketDbPath(): string {
-  return process.env.MARKET_DB_PATH || 'data/markets.sqlite';
+  return process.env.MARKET_DB_PATH || '.cache/markets.sqlite';
 }
 
 export function openMarketDb(path = marketDbPath()): Database {
@@ -50,6 +60,19 @@ export function initMarketDb(db: Database): void {
       tick_spacing INTEGER
     )
   `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS carbon_pairs (
+      controller TEXT NOT NULL,
+      token0 TEXT NOT NULL,
+      token1 TEXT NOT NULL,
+      strategy_count INTEGER NOT NULL,
+      fee_ppm INTEGER NOT NULL DEFAULT 4000,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (controller, token0, token1)
+    )
+  `);
+  addColumnIfMissing(db, 'carbon_pairs', 'fee_ppm', 'INTEGER NOT NULL DEFAULT 4000');
 }
 
 export function replaceStoredPools(db: Database, pools: readonly StoredPool[]): void {
@@ -85,6 +108,45 @@ export function loadStoredPools(db: Database): StoredPool[] {
     token1: row.token1 as Address,
     fee: row.fee,
     tickSpacing: row.tick_spacing,
+  }));
+}
+
+export function replaceStoredCarbonPairs(db: Database, pairs: readonly CarbonPairMetadata[]): void {
+  const insert = db.prepare(`
+    INSERT INTO carbon_pairs (controller, token0, token1, strategy_count, fee_ppm, enabled)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const replace = db.transaction((rows: readonly CarbonPairMetadata[]) => {
+    db.exec('DELETE FROM carbon_pairs');
+    for (const pair of rows) {
+      insert.run(
+        pair.controller,
+        pair.token0,
+        pair.token1,
+        pair.strategyCount,
+        pair.feePpm,
+        pair.enabled ? 1 : 0
+      );
+    }
+  });
+
+  replace(pairs);
+}
+
+export function loadStoredCarbonPairs(db: Database): CarbonPairMetadata[] {
+  const rows = db.prepare(`
+    SELECT controller, token0, token1, strategy_count, fee_ppm, enabled
+    FROM carbon_pairs
+    WHERE enabled = 1
+  `).all() as CarbonPairRow[];
+
+  return rows.map(row => ({
+    controller: row.controller as Address,
+    token0: row.token0 as Address,
+    token1: row.token1 as Address,
+    strategyCount: row.strategy_count,
+    feePpm: row.fee_ppm,
+    enabled: row.enabled === 1,
   }));
 }
 
@@ -136,4 +198,10 @@ export function storedV3Pools(pools: readonly StoredPool[]): V3PoolConfig[] {
       tickSpacing: pool.tickSpacing!,
       enabled: true,
     }));
+}
+
+function addColumnIfMissing(db: Database, table: string, column: string, definition: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (columns.some(existing => existing.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

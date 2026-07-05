@@ -1,5 +1,6 @@
 import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
+import { type CarbonStrategy } from '../market/carbon';
 import { MarketGraph } from '../market-graph/market-graph';
 import { MarketRouteSizer } from '../market-graph/route-sizer';
 import { type ArbitrageSearchPolicy, type FlashPoolCandidate } from '../market-graph/types';
@@ -57,6 +58,10 @@ export class OpportunityEngine {
 
   updateV3BitmapWords(updates: V3BitmapWordUpdate[]): void {
     this.graph.updateV3BitmapWords(updates);
+  }
+
+  setCarbonStrategies(strategies: readonly CarbonStrategy[]): void {
+    this.graph.setCarbonStrategies(strategies);
   }
 
   getV3PoolAddresses(): Address[] {
