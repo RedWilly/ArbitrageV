@@ -22,7 +22,17 @@
 	},
 	{
 		"inputs": [],
+		"name": "CarbonApprovalFailed",
+		"type": "error"
+	},
+	{
+		"inputs": [],
 		"name": "InsufficientFlashLoanRepayment",
+		"type": "error"
+	},
+	{
+		"inputs": [],
+		"name": "InvalidCarbonAmount",
 		"type": "error"
 	},
 	{
@@ -122,6 +132,11 @@
 						"internalType": "uint256[]",
 						"name": "fees",
 						"type": "uint256[]"
+					},
+					{
+						"internalType": "bytes[]",
+						"name": "data",
+						"type": "bytes[]"
 					}
 				],
 				"internalType": "struct ArbitrageExecutor.ArbParams",

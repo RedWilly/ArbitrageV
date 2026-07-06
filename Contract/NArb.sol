@@ -23,6 +23,21 @@ interface IUniswapV3Pool {
     ) external returns (int256 amount0, int256 amount1);
 }
 
+interface ICarbonController {
+    struct TradeAction {
+        uint256 strategyId;
+        uint128 amount;
+    }
+
+    function tradeBySourceAmount(
+        address sourceToken,
+        address targetToken,
+        TradeAction[] calldata tradeActions,
+        uint256 deadline,
+        uint128 minReturn
+    ) external payable returns (uint128);
+}
+
 error ArrayLengthMismatch();
 error StartTokenNotInFlashLoanPair();
 error ArbitrageMustReturnToStart();
@@ -36,10 +51,13 @@ error UnsupportedProtocol();
 error InvalidV3SwapCallback();
 error InvalidV3SwapDelta();
 error InvalidFlashLoanCallback();
+error InvalidCarbonAmount();
+error CarbonApprovalFailed();
 
 contract ArbitrageExecutor is Withdrawable {
     uint8 private constant V2 = 0;
     uint8 private constant V3 = 1;
+    uint8 private constant CARBON = 2;
     uint256 private constant FEE_DENOMINATOR = 10000;
     uint160 private constant MIN_SQRT_RATIO_PLUS_ONE = 4295128740;
     uint160 private constant MAX_SQRT_RATIO_MINUS_ONE =
@@ -58,6 +76,7 @@ contract ArbitrageExecutor is Withdrawable {
         address[] pools;
         uint8[] protocols;
         uint256[] fees;
+        bytes[] data;
     }
 
     struct ArbParams {
@@ -69,12 +88,13 @@ contract ArbitrageExecutor is Withdrawable {
         address[] pools;
         uint8[] protocols;
         uint256[] fees;
+        bytes[] data;
     }
 
     constructor(address owner_) Withdrawable(owner_) {}
 
     function executeArbitrage(ArbParams calldata params) external {
-        _checkRoute(params.pools, params.protocols, params.fees);
+        _checkRoute(params.pools, params.protocols, params.fees, params.data);
         bool borrowToken0 = _isToken0(params.flashPool, params.borrowToken);
         _startFlashLoan(params, borrowToken0, _flashData(params, borrowToken0));
     }
@@ -179,7 +199,8 @@ contract ArbitrageExecutor is Withdrawable {
             loan.borrowedAmount,
             loan.pools,
             loan.protocols,
-            loan.fees
+            loan.fees,
+            loan.data
         );
 
         if (finalAmount < repayAmount) revert InsufficientFlashLoanRepayment();
@@ -193,7 +214,8 @@ contract ArbitrageExecutor is Withdrawable {
         uint256 startAmount,
         address[] memory pools,
         uint8[] memory protocols,
-        uint256[] memory fees
+        uint256[] memory fees,
+        bytes[] memory data
     ) internal returns (uint256) {
         address token = startToken;
         uint256 amount = startAmount;
@@ -203,6 +225,8 @@ contract ArbitrageExecutor is Withdrawable {
                 (token, amount) = _swapV2(token, amount, pools[i], fees[i]);
             } else if (protocols[i] == V3) {
                 (token, amount) = _swapV3(token, amount, pools[i]);
+            } else if (protocols[i] == CARBON) {
+                (token, amount) = _swapCarbon(token, amount, pools[i], data[i]);
             } else {
                 revert UnsupportedProtocol();
             }
@@ -275,6 +299,46 @@ contract ArbitrageExecutor is Withdrawable {
         if (amountOut == 0) revert SwapPathError();
     }
 
+    function _swapCarbon(
+        address tokenIn,
+        uint256 amountIn,
+        address controller,
+        bytes memory data
+    ) internal returns (address tokenOut, uint256 amountOut) {
+        if (amountIn > type(uint128).max) revert InvalidCarbonAmount();
+
+        uint256 strategyId;
+        (strategyId, tokenOut) = abi.decode(data, (uint256, address));
+        uint256 balanceBefore = IERC20(tokenOut).balanceOf(address(this));
+
+        _approveCarbonIfNeeded(tokenIn, controller, amountIn);
+
+        ICarbonController.TradeAction[] memory actions = new ICarbonController.TradeAction[](1);
+        actions[0] = ICarbonController.TradeAction({
+            strategyId: strategyId,
+            amount: uint128(amountIn)
+        });
+
+        ICarbonController(controller).tradeBySourceAmount(
+            tokenIn,
+            tokenOut,
+            actions,
+            block.timestamp,
+            1
+        );
+
+        amountOut = IERC20(tokenOut).balanceOf(address(this)) - balanceBefore;
+        if (amountOut == 0) revert SwapPathError();
+    }
+
+    function _approveCarbonIfNeeded(address token, address controller, uint256 amount) internal {
+        uint256 allowance = IERC20(token).allowance(address(this), controller);
+        if (allowance >= amount) return;
+
+        if (allowance != 0 && !IERC20(token).approve(controller, 0)) revert CarbonApprovalFailed();
+        if (!IERC20(token).approve(controller, type(uint256).max)) revert CarbonApprovalFailed();
+    }
+
     function _isToken0(address pool, address token) internal view returns (bool) {
         address token0 = IUniswapV2Pair(pool).token0();
         if (token == token0) return true;
@@ -290,7 +354,8 @@ contract ArbitrageExecutor is Withdrawable {
             v2RepayFee: params.v2RepayFee,
             pools: params.pools,
             protocols: params.protocols,
-            fees: params.fees
+            fees: params.fees,
+            data: params.data
         }));
     }
 
@@ -304,8 +369,13 @@ contract ArbitrageExecutor is Withdrawable {
         return (amountInWithFee * reserveOut) / ((reserveIn * FEE_DENOMINATOR) + amountInWithFee);
     }
 
-    function _checkRoute(address[] calldata pools, uint8[] calldata protocols, uint256[] calldata fees) internal pure {
-        if (pools.length != protocols.length || pools.length != fees.length) {
+    function _checkRoute(
+        address[] calldata pools,
+        uint8[] calldata protocols,
+        uint256[] calldata fees,
+        bytes[] calldata data
+    ) internal pure {
+        if (pools.length != protocols.length || pools.length != fees.length || pools.length != data.length) {
             revert ArrayLengthMismatch();
         }
     }

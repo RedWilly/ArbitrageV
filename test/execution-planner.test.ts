@@ -1,12 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { type Address } from "viem";
 import { createExecutionPlan } from "../src/execution/execution-planner";
-import { TOKENS } from "../src/constants";
 
-const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
+type Address = `0x${string}`;
+
+const tokenA = address(101);
+const tokenB = address(102);
+const tokenC = address(103);
 
 function address(id: number): Address {
   return `0x${(60_000_000 + id).toString(16).padStart(40, "0")}` as Address;
+}
+
+function carbonRouteData(strategyId: bigint, targetToken: Address): `0x${string}` {
+  return `0x${strategyId.toString(16).padStart(64, "0")}${targetToken.slice(2).padStart(64, "0")}`;
 }
 
 describe("createExecutionPlan", () => {
@@ -28,6 +34,7 @@ describe("createExecutionPlan", () => {
       pairs: [v2Pool, v3Pool, closingPool],
       protocols: ["v2", "v3", "v2"],
       fees: [30, 500, 30],
+      routeData: ["0x", "0x", "0x"],
       optimalAmount: 1_000n,
       expectedProfit: 100n,
     });
@@ -41,6 +48,7 @@ describe("createExecutionPlan", () => {
       pools: [v2Pool, v3Pool, closingPool],
       protocols: [0, 1, 0],
       fees: [30n, 500n, 30n],
+      data: ["0x", "0x", "0x"],
     });
   });
 
@@ -57,6 +65,7 @@ describe("createExecutionPlan", () => {
       pairs: [routePool, address(32)],
       protocols: ["v2", "v3"],
       fees: [30, 500],
+      routeData: ["0x", "0x"],
       optimalAmount: 1_000n,
       expectedProfit: 100n,
     });
@@ -64,6 +73,42 @@ describe("createExecutionPlan", () => {
     expect(plan?.params.flashProtocol).toBe(1);
     expect(plan?.params.flashPool).toBe(flashPool);
     expect(plan?.params.v2RepayFee).toBe(0n);
+  });
+
+  test("builds ArbParams for a route with a Carbon hop", () => {
+    const flashPool = address(40);
+    const carbonController = address(41);
+    const v2Pool = address(42);
+    const carbonData = carbonRouteData(123n, tokenB);
+
+    const plan = createExecutionPlan({
+      findBestFlashPoolForToken(token, amountIn, excludePools) {
+        expect(token).toBe(tokenA);
+        expect(amountIn).toBe(1_000n);
+        expect(excludePools).toEqual([carbonController, v2Pool]);
+        return { protocol: "v2", poolAddress: flashPool, fee: 30, liquidity: 10_000n };
+      },
+    }, {
+      path: [tokenA, tokenB, tokenA],
+      pairs: [carbonController, v2Pool],
+      protocols: ["carbon", "v2"],
+      fees: [4000, 30],
+      routeData: [carbonData, "0x"],
+      optimalAmount: 1_000n,
+      expectedProfit: 100n,
+    });
+
+    expect(plan?.params).toEqual({
+      flashProtocol: 0,
+      flashPool,
+      borrowToken: tokenA,
+      borrowAmount: 1_000n,
+      v2RepayFee: 30n,
+      pools: [carbonController, v2Pool],
+      protocols: [2, 0],
+      fees: [4000n, 30n],
+      data: [carbonData, "0x"],
+    });
   });
 
   test("does not create a plan for non-circular routes", () => {
@@ -76,6 +121,7 @@ describe("createExecutionPlan", () => {
       pairs: [address(10), address(11)],
       protocols: ["v2", "v3"],
       fees: [30, 500],
+      routeData: ["0x", "0x"],
       optimalAmount: 1_000n,
       expectedProfit: 100n,
     });
@@ -93,6 +139,7 @@ describe("createExecutionPlan", () => {
       pairs: [address(20), address(21)],
       protocols: ["v2"],
       fees: [30, 30],
+      routeData: ["0x", "0x"],
       optimalAmount: 1_000n,
       expectedProfit: 100n,
     });

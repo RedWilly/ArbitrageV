@@ -1,4 +1,4 @@
-import { type Address } from 'viem';
+import { encodeAbiParameters, type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
 import { type CarbonStrategy } from '../market/carbon';
 import { MarketGraph } from '../market-graph/market-graph';
@@ -103,6 +103,7 @@ export class OpportunityEngine {
       profits: opportunities.map(opportunity => opportunity.profit),
       optimalAmounts: opportunities.map(opportunity => opportunity.optimalInput),
       fees: opportunities.map(opportunity => opportunity.fees),
+      routeData: opportunities.map(opportunity => opportunity.routeData),
     };
   }
 
@@ -139,12 +140,21 @@ export class OpportunityEngine {
       edgeIndexes: candidate.edgeIndexes,
       protocols: candidate.protocols,
     });
-    const fees = candidate.edgeIds.map((edgeId, index) => {
+    const fees: number[] = [];
+    const routeData: `0x${string}`[] = [];
+
+    candidate.edgeIds.forEach((edgeId, index) => {
       const edge = candidate.edgeIndexes
         ? this.graph.edgeAt(candidate.edgeIndexes[index])
         : this.graph.edge(edgeId);
       if (!edge) throw new Error(`Missing market edge ${edgeId}`);
-      return edge.fee;
+      fees.push(edge.fee);
+      routeData.push(edge.protocol === 'carbon'
+        ? encodeAbiParameters(
+          [{ type: 'uint256' }, { type: 'address' }],
+          [edge.strategyId, edge.to]
+        )
+        : '0x');
     });
 
     return {
@@ -152,6 +162,7 @@ export class OpportunityEngine {
       profit: complete ? profit : 0n,
       optimalInput: complete ? optimalInput : 0n,
       fees,
+      routeData,
     };
   }
 

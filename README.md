@@ -34,7 +34,7 @@ First build the local pool cache:
 bun run sync:markets
 ```
 
-That writes known V2/V3 pool metadata and Carbon pair metadata to `.cache/markets.sqlite`.
+That writes known V2/V3 pool metadata and Carbon pair metadata to `data/markets.sqlite`.
 
 Then start the bot:
 

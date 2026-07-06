@@ -38,7 +38,7 @@ type CarbonPairRow = {
 };
 
 export function marketDbPath(): string {
-  return process.env.MARKET_DB_PATH || '.cache/markets.sqlite';
+  return process.env.MARKET_DB_PATH || 'data/markets.sqlite';
 }
 
 export function openMarketDb(path = marketDbPath()): Database {

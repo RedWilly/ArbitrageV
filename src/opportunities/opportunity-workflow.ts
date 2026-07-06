@@ -44,11 +44,13 @@ export class OpportunityWorkflow {
           pairs: opportunities.pairs[index],
           protocols: opportunities.protocols[index],
           fees: opportunities.fees[index],
+          routeData: opportunities.routeData[index],
           optimalAmount: opportunities.optimalAmounts[index],
           expectedProfit: opportunities.profits[index],
         }))
         .filter((opportunity): opportunity is ExecutableOpportunity =>
           opportunity.protocols.length === opportunity.pairs.length &&
+          opportunity.routeData.length === opportunity.pairs.length &&
           opportunity.protocols.every(isExecutableProtocol)
         );
 
@@ -125,6 +127,6 @@ function routeKindFromProtocols(protocols: MarketProtocol[]): 'v2' | 'v3' | 'car
 }
 
 function isExecutableProtocol(protocol: MarketProtocol): protocol is ExecutableOpportunity['protocols'][number] {
-  return protocol === 'v2' || protocol === 'v3';
+  return protocol === 'v2' || protocol === 'v3' || protocol === 'carbon';
 }
 

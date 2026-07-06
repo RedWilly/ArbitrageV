@@ -4,15 +4,18 @@ import { type FlashPoolCandidate } from '../market-graph/types';
 export const CONTRACT_PROTOCOL = {
   v2: 0,
   v3: 1,
+  carbon: 2,
 } as const;
 
 type ExecutableProtocol = keyof typeof CONTRACT_PROTOCOL;
+type FlashProtocol = 'v2' | 'v3';
 
 export type ExecutableOpportunity = {
   path: Address[];
   pairs: Address[];
   protocols: ExecutableProtocol[];
   fees: number[];
+  routeData: `0x${string}`[];
   optimalAmount: bigint;
   expectedProfit: bigint;
 };
@@ -34,6 +37,7 @@ export type ArbContractParams = {
   pools: Address[];
   protocols: number[];
   fees: bigint[];
+  data: `0x${string}`[];
 };
 
 export type ExecutionPlan = {
@@ -45,6 +49,7 @@ export function createExecutionPlan(graph: FlashPoolLookup, opportunity: Executa
   if (!isCircular(opportunity.path)) return null;
   if (opportunity.pairs.length !== opportunity.protocols.length) return null;
   if (opportunity.pairs.length !== opportunity.fees.length) return null;
+  if (opportunity.pairs.length !== opportunity.routeData.length) return null;
 
   const borrowToken = opportunity.path[0];
   const flashPool = graph.findBestFlashPoolForToken(
@@ -54,7 +59,7 @@ export function createExecutionPlan(graph: FlashPoolLookup, opportunity: Executa
   );
 
   if (!flashPool) return null;
-  if (!isExecutableProtocol(flashPool.protocol)) return null;
+  if (!isFlashProtocol(flashPool.protocol)) return null;
 
   return {
     kind: 'flash',
@@ -67,6 +72,7 @@ export function createExecutionPlan(graph: FlashPoolLookup, opportunity: Executa
       pools: opportunity.pairs,
       protocols: opportunity.protocols.map(protocol => CONTRACT_PROTOCOL[protocol]),
       fees: opportunity.fees.map(fee => BigInt(fee)),
+      data: opportunity.routeData,
     },
   };
 }
@@ -76,6 +82,6 @@ function isCircular(path: Address[]): boolean {
   return path[0].toLowerCase() === path[path.length - 1].toLowerCase();
 }
 
-function isExecutableProtocol(protocol: string): protocol is ExecutableProtocol {
+function isFlashProtocol(protocol: string): protocol is FlashProtocol {
   return protocol === 'v2' || protocol === 'v3';
 }

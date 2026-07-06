@@ -15,6 +15,7 @@ export type ArbitrageOpportunity = CandidateRoute & {
   profit: bigint;
   optimalInput: bigint;
   fees: number[];
+  routeData: `0x${string}`[];
 };
 
 export type FindOpportunitiesRequest = {
@@ -29,4 +30,5 @@ export type ArbitrageSearchResult = {
   profits: bigint[];
   optimalAmounts: bigint[];
   fees: number[][];
+  routeData: `0x${string}`[][];
 };
