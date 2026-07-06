@@ -16,12 +16,3 @@ export type ReserveUpdate = {
 };
 
 export type SwapDirection = 'token0ToToken1' | 'token1ToToken0';
-
-export type Edge = {
-  to: Address;
-  pairAddress: Address;
-  direction: SwapDirection;
-  fee: number;
-  reserveIn: bigint;
-  reserveOut: bigint;
-};

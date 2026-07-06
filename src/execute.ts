@@ -46,54 +46,51 @@ class NonceTracker {
     }
 }
 
-class TransactionNotifier {
-    async transactionSent(
-        hash: string,
-        type: 'flashswap' | 'direct',
-        expectedProfit: bigint,
-        tokenAddress?: Address
-    ): Promise<void> {
-        if (!TELEGRAM.botToken || !TELEGRAM.chatId) return;
+async function sendTransactionNotification(
+    hash: string,
+    type: 'flashswap' | 'direct',
+    expectedProfit: bigint,
+    tokenAddress?: Address
+): Promise<void> {
+    if (!TELEGRAM.botToken || !TELEGRAM.chatId) return;
 
-        const token = this.resolveToken(tokenAddress);
-        const status = expectedProfit > 0n ? 'PROFIT' : 'WARNING';
-        const message =
-            `<b>${status}: Arbitrage Transaction</b>\n\n` +
-            `<b>Type:</b> ${type === 'flashswap' ? 'Flash Swap' : 'Direct Swap'}\n` +
-            `<b>Expected Profit:</b> ${formatTokenAmountWithSymbol(expectedProfit, token)}\n\n` +
-            `<b>Transaction:</b>\n` +
-            `<code>${hash}</code>\n\n` +
-            `<a href="https://seiscan.io/tx/${hash}">View on Explorer</a>`;
+    const token = resolveToken(tokenAddress);
+    const status = expectedProfit > 0n ? 'PROFIT' : 'WARNING';
+    const message =
+        `<b>${status}: Arbitrage Transaction</b>\n\n` +
+        `<b>Type:</b> ${type === 'flashswap' ? 'Flash Swap' : 'Direct Swap'}\n` +
+        `<b>Expected Profit:</b> ${formatTokenAmountWithSymbol(expectedProfit, token)}\n\n` +
+        `<b>Transaction:</b>\n` +
+        `<code>${hash}</code>\n\n` +
+        `<a href="https://seiscan.io/tx/${hash}">View on Explorer</a>`;
 
-        try {
-            await fetch(`https://api.telegram.org/bot${TELEGRAM.botToken}/sendMessage`, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                    chat_id: TELEGRAM.chatId,
-                    text: message,
-                    parse_mode: 'HTML',
-                    disable_web_page_preview: true,
-                }),
-            });
-        } catch (error) {
-            console.error('Failed to send Telegram notification:', error);
-        }
+    try {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM.botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: TELEGRAM.chatId,
+                text: message,
+                parse_mode: 'HTML',
+                disable_web_page_preview: true,
+            }),
+        });
+    } catch (error) {
+        console.error('Failed to send Telegram notification:', error);
     }
+}
 
-    private resolveToken(tokenAddress?: Address): Pick<(typeof TOKENS)[number], 'name' | 'decimals'> {
-        if (!tokenAddress) return TOKENS[0] || { name: 'Unknown', decimals: 18 };
+function resolveToken(tokenAddress?: Address): Pick<(typeof TOKENS)[number], 'name' | 'decimals'> {
+    if (!tokenAddress) return TOKENS[0] || { name: 'Unknown', decimals: 18 };
 
-        const token = TOKENS.find(addr => addr.address.toLowerCase() === tokenAddress.toLowerCase());
-        return token || { name: 'Unknown', decimals: 18 };
-    }
+    const token = TOKENS.find(addr => addr.address.toLowerCase() === tokenAddress.toLowerCase());
+    return token || { name: 'Unknown', decimals: 18 };
 }
 
 // Keeps track of executed pairs to avoid conflicts
 export class OpportunityManager {
     private usedPairs: Set<string> = new Set();
     private nonceTracker: NonceTracker;
-    private notifier = new TransactionNotifier();
 
     constructor(private readonly networkConfig: NetworkConfig) {
         this.nonceTracker = new NonceTracker(networkConfig);
@@ -223,7 +220,7 @@ export class OpportunityManager {
             });
         }
 
-        await this.notifier.transactionSent(
+        await sendTransactionNotification(
             hash,
             'flashswap',
             opportunity.expectedProfit,

@@ -39,7 +39,6 @@ export const CONTRACTS = {
 
 export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
     topTokens: 7,
-    routeMode: 'circular',
     allowedProtocols: ['v2', 'v3', 'carbon'],
     allowProtocolMixing: true,
     maxRouteEdges: 4,

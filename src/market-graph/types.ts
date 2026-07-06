@@ -2,12 +2,10 @@ import { type Address } from 'viem';
 import { type CarbonOrder } from '../market/carbon';
 import { type SwapDirection } from '../market/v2-types';
 
-export type RouteMode = 'circular' | 'cross-token';
 export type MarketProtocol = 'v2' | 'v3' | 'carbon';
 
 export type ArbitrageSearchPolicy = {
   topTokens: number;
-  routeMode: RouteMode;
   allowedProtocols: readonly MarketProtocol[];
   allowProtocolMixing: boolean;
   maxRouteEdges: number;

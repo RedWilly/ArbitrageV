@@ -17,7 +17,6 @@ const UNIFIED_SEARCH_LIMIT_MS = Number(1_250);
 
 const stressPolicy: ArbitrageSearchPolicy = {
   topTokens: 1,
-  routeMode: "circular",
   allowedProtocols: ["v2", "v3"],
   allowProtocolMixing: true,
   maxRouteEdges: 4,

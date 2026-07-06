@@ -3,7 +3,7 @@ import { RUNTIME } from './constants';
 import { type ReserveUpdate } from './market/v2-types';
 import { type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
-import { OpportunityWorkflow } from './opportunities/opportunity-workflow';
+import { scanAndExecuteOpportunities } from './opportunities/opportunity-workflow';
 import { LatestUpdateScheduler } from './runtime/event-scheduler';
 import { V3_LIQUIDITY_EVENT_ABI, V3_SWAP_EVENT_ABI } from './runtime/v3-events';
 
@@ -35,7 +35,6 @@ export class EventMonitor {
     private client: PublicClient;
     private wsClient?: PublicClient; // WebSocket client
     private graph: OpportunityEngine;
-    private opportunities: OpportunityWorkflow;
     private isRunning: boolean = false;
     private unwatchFns: Array<() => void | Promise<void>> = [];
     private scheduler: LatestUpdateScheduler<ReserveUpdate>;
@@ -51,7 +50,6 @@ export class EventMonitor {
     constructor(graph: OpportunityEngine, networkConfig: any, private readonly options: EventMonitorOptions = {}) {
         this.graph = graph;
         this.networkConfig = networkConfig;
-        this.opportunities = new OpportunityWorkflow(graph, networkConfig);
         this.scheduler = new LatestUpdateScheduler(
             this.processReserveUpdateBatch.bind(this),
             update => update.pairAddress.toLowerCase()
@@ -508,7 +506,7 @@ export class EventMonitor {
 
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
         try {
-            await this.opportunities.scanAndExecute({ changedPairs: affectedPairs });
+            await scanAndExecuteOpportunities(this.graph, this.networkConfig, { changedPairs: affectedPairs });
         } catch (error) {
             console.error('Error checking arbitrage opportunities:', error);
         }

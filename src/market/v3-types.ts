@@ -64,14 +64,3 @@ export type V3PoolStartupState = {
 };
 
 export type V3SwapDirection = 'token0ToToken1' | 'token1ToToken0';
-
-export type V3Edge = {
-  to: Address;
-  poolAddress: Address;
-  direction: V3SwapDirection;
-  fee: number;
-  tickSpacing: number;
-  sqrtPriceX96: bigint;
-  liquidity: bigint;
-  tick: number;
-};

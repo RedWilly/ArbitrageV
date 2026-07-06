@@ -71,7 +71,6 @@ export class CircularArbitrageStrategy {
               edgeIndex,
               step,
               statesByStep[step],
-              startTokenIndexes,
               changedPoolIndexes,
               visit
             ) || expanded;
@@ -88,7 +87,6 @@ export class CircularArbitrageStrategy {
                 edgeIndex,
                 step,
                 statesByStep[step],
-                startTokenIndexes,
                 changedPoolIndexes,
                 visit
               ) || expanded;
@@ -107,7 +105,6 @@ export class CircularArbitrageStrategy {
     edgeIndex: number,
     step: number,
     nextStep: Map<number, number[]>,
-    startTokenIndexes: number[],
     changedPoolIndexes: Set<number>,
     visit: CandidateVisitor
   ): boolean {
@@ -115,7 +112,7 @@ export class CircularArbitrageStrategy {
     if (!edge) return false;
     if (!transitionAllowed(this.policy, this.previousProtocol(states, entryIndex), edge.protocol)) return false;
     if (this.hasPool(states, entryIndex, this.graph.edgePoolIndex(edgeIndex))) return false;
-    if (!this.canStillYield(states, entryIndex, edgeIndex, step, startTokenIndexes, changedPoolIndexes)) return false;
+    if (!this.canStillYield(states, entryIndex, edgeIndex, step, changedPoolIndexes)) return false;
 
     const nextIndex = this.pushState(states, {
       tokenIndex: this.graph.edgeToTokenIndex(edgeIndex),
@@ -129,7 +126,7 @@ export class CircularArbitrageStrategy {
 
     this.keepBestState(states, nextStep, this.graph.edgeToTokenIndex(edgeIndex), nextIndex);
 
-    if (step >= 2 && this.isRelevantCandidate(states, nextIndex, startTokenIndexes, changedPoolIndexes)) {
+    if (step >= 2 && this.isRelevantCandidate(states, nextIndex, changedPoolIndexes)) {
       visit(this.toRoute(states, nextIndex));
     }
 
@@ -141,17 +138,12 @@ export class CircularArbitrageStrategy {
     entryIndex: number,
     edgeIndex: number,
     step: number,
-    startTokenIndexes: number[],
     changedPoolIndexes: Set<number>
   ): boolean {
     if (step !== this.policy.maxRouteEdges) return true;
 
     const toTokenIndex = this.graph.edgeToTokenIndex(edgeIndex);
-    const destinationAllowed = this.policy.routeMode === 'cross-token'
-      ? startTokenIndexes.includes(toTokenIndex)
-      : toTokenIndex === states.originTokenIndexes[entryIndex];
-
-    if (!destinationAllowed) return false;
+    if (toTokenIndex !== states.originTokenIndexes[entryIndex]) return false;
     if (changedPoolIndexes.size === 0) return true;
 
     return changedPoolIndexes.has(this.graph.edgePoolIndex(edgeIndex)) ||
@@ -223,7 +215,6 @@ export class CircularArbitrageStrategy {
   private isRelevantCandidate(
     states: RouteStateStore,
     stateIndex: number,
-    startTokenIndexes: number[],
     changedPoolIndexes: Set<number>
   ): boolean {
     if (states.rateNumerators[stateIndex] <= states.rateDenominators[stateIndex]) return false;
@@ -234,9 +225,7 @@ export class CircularArbitrageStrategy {
 
     const originTokenIndex = states.originTokenIndexes[stateIndex];
     const targetTokenIndex = states.tokenIndexes[stateIndex];
-    return this.policy.routeMode === 'cross-token'
-      ? startTokenIndexes.includes(originTokenIndex) && startTokenIndexes.includes(targetTokenIndex)
-      : targetTokenIndex === originTokenIndex;
+    return targetTokenIndex === originTokenIndex;
   }
 
   private toRoute(states: RouteStateStore, stateIndex: number): CandidateRoute {

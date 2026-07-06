@@ -13,7 +13,6 @@ const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
 
 const policy: ArbitrageSearchPolicy = {
   topTokens: 1,
-  routeMode: "circular",
   allowedProtocols: ["v2", "v3"],
   allowProtocolMixing: true,
   maxRouteEdges: 3,

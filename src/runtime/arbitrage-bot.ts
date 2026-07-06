@@ -8,7 +8,7 @@ import { type PairInfo, type ReserveUpdate } from '../market/v2-types';
 import { MarketGraph } from '../market-graph/market-graph';
 import { initializeNetwork } from '../network';
 import { OpportunityEngine } from '../opportunities/opportunity-engine';
-import { OpportunityWorkflow } from '../opportunities/opportunity-workflow';
+import { scanAndExecuteOpportunities } from '../opportunities/opportunity-workflow';
 import { StartupEventBuffer } from './startup-event-buffer';
 
 export async function runArbitrageBot(): Promise<void> {
@@ -83,7 +83,7 @@ export async function runArbitrageBot(): Promise<void> {
   }
 
   console.log('Searching for initial arbitrage opportunities...');
-  await new OpportunityWorkflow(graph, network).scanAndExecute();
+  await scanAndExecuteOpportunities(graph, network);
 
   console.log('\nStarting event monitor...');
   const monitor = new EventMonitor(graph, network, {
