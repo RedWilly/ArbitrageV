@@ -53,12 +53,12 @@ describe("V2 arbitrage graph", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.paths[0]).toEqual([tokenA, tokenB, tokenC, tokenA]);
-    expect(opportunities.pairs[0]).toHaveLength(3);
-    expect(new Set(opportunities.pairs[0]).size).toBe(3);
-    expect(opportunities.optimalAmounts[0]).toBeGreaterThan(0n);
-    expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(opportunities[0].path).toEqual([tokenA, tokenB, tokenC, tokenA]);
+    expect(opportunities[0].pairs).toHaveLength(3);
+    expect(new Set(opportunities[0].pairs).size).toBe(3);
+    expect(opportunities[0].optimalInput).toBeGreaterThan(0n);
+    expect(opportunities[0].profit).toBeGreaterThan(TOKENS[0].minProfit);
   });
 
   test("does not report a route when fees make the cycle unprofitable", () => {
@@ -72,9 +72,9 @@ describe("V2 arbitrage graph", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths).toEqual([]);
-    expect(opportunities.profits).toEqual([]);
-    expect(opportunities.optimalAmounts).toEqual([]);
+    expect(opportunities).toEqual([]);
+    expect(opportunities.map(opportunity => opportunity.profit)).toEqual([]);
+    expect(opportunities.map(opportunity => opportunity.optimalInput)).toEqual([]);
   });
 
   test("does not reuse the same pair to manufacture a false two-hop cycle", () => {
@@ -86,7 +86,7 @@ describe("V2 arbitrage graph", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths).toEqual([]);
+    expect(opportunities).toEqual([]);
   });
 
   test("keeps bigint precision for a tiny but real reserve imbalance", () => {
@@ -100,8 +100,8 @@ describe("V2 arbitrage graph", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(opportunities[0].profit).toBeGreaterThan(TOKENS[0].minProfit);
   });
 
   test("keeps bigint precision with reserves larger than Number safe integer range", () => {
@@ -116,11 +116,11 @@ describe("V2 arbitrage graph", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
-    expect(opportunities.optimalAmounts[0]).toBeGreaterThan(9007199254740991n);
-    expect(typeof opportunities.profits[0]).toBe("bigint");
-    expect(typeof opportunities.optimalAmounts[0]).toBe("bigint");
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(opportunities[0].profit).toBeGreaterThan(TOKENS[0].minProfit);
+    expect(opportunities[0].optimalInput).toBeGreaterThan(9007199254740991n);
+    expect(typeof opportunities[0].profit).toBe("bigint");
+    expect(typeof opportunities[0].optimalInput).toBe("bigint");
   });
 
   test("keeps the profitable route visible with many irrelevant outgoing pairs", () => {
@@ -148,8 +148,8 @@ describe("V2 arbitrage graph", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.paths[0]).toEqual([tokenA, tokenB, tokenC, tokenA]);
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(opportunities[0].path).toEqual([tokenA, tokenB, tokenC, tokenA]);
   });
 
   test("event-local search only returns routes touching affected pairs", () => {
@@ -168,8 +168,8 @@ describe("V2 arbitrage graph", () => {
       changedPairs: [changedPair.pairAddress],
     });
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    for (const routePairs of opportunities.pairs) {
+    expect(opportunities.length).toBeGreaterThan(0);
+    for (const routePairs of opportunities.map(opportunity => opportunity.pairs)) {
       expect(routePairs).toContain(changedPair.pairAddress);
     }
   });
@@ -201,8 +201,8 @@ describe("V2 arbitrage graph", () => {
       changedPairs: [changedPair.pairAddress],
     });
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    for (const routePairs of opportunities.pairs) {
+    expect(opportunities.length).toBeGreaterThan(0);
+    for (const routePairs of opportunities.map(opportunity => opportunity.pairs)) {
       expect(routePairs).toContain(changedPair.pairAddress);
     }
   });

@@ -1,5 +1,5 @@
 import { parseAbi, type Address } from 'viem';
-import { CARBON_CONTROLLERS, CARBON_STARTUP_POLICY, CONTRACTS, RUNTIME, TOKENS, type CarbonControllerConfig } from '../constants';
+import { CARBON_CONTROLLERS, CARBON_STARTUP_POLICY, CONTRACTS, RUNTIME, TOKENS } from '../constants';
 import { graphToken } from '../tokens';
 
 export type CarbonPairMetadata = {
@@ -33,10 +33,6 @@ const CARBON_CONTROLLER_ABI = parseAbi([
   'function pairs() view returns (address[2][])',
   'function strategiesByPairCount(address token0, address token1) view returns (uint256)',
   'function strategiesByPair(address token0, address token1, uint256 startIndex, uint256 endIndex) view returns ((uint256 id, address owner, address[2] tokens, (uint128 y, uint128 z, uint64 A, uint64 B)[2] orders)[])',
-  'event StrategyCreated(uint256 id, address indexed owner, address indexed token0, address indexed token1, (uint128 y, uint128 z, uint64 A, uint64 B) order0, (uint128 y, uint128 z, uint64 A, uint64 B) order1)',
-  'event StrategyDeleted(uint256 id, address indexed owner, address indexed token0, address indexed token1, (uint128 y, uint128 z, uint64 A, uint64 B) order0, (uint128 y, uint128 z, uint64 A, uint64 B) order1)',
-  'event StrategyUpdated(uint256 indexed id, address indexed token0, address indexed token1, (uint128 y, uint128 z, uint64 A, uint64 B) order0, (uint128 y, uint128 z, uint64 A, uint64 B) order1, uint8 reason)',
-  'event TokensTraded(address indexed trader, address indexed sourceToken, address indexed targetToken, uint256 sourceAmount, uint256 targetAmount, uint128 tradingFeeAmount, bool byTargetAmount)',
 ]);
 
 const CARBON_BATCH_QUERY_ABI = parseAbi([
@@ -45,7 +41,6 @@ const CARBON_BATCH_QUERY_ABI = parseAbi([
 
 type CarbonClient = {
   readContract(parameters: any): Promise<unknown>;
-  watchContractEvent(parameters: any): () => void | Promise<void>;
 };
 
 type RawCarbonStrategy = {
@@ -71,11 +66,7 @@ type RawCarbonOrder = {
 };
 
 type RawCarbonPairStrategies = {
-  token0?: Address;
-  token1?: Address;
   strategies?: RawCarbonStrategy[];
-  0?: Address;
-  1?: Address;
   2?: RawCarbonStrategy[];
 };
 
@@ -145,18 +136,12 @@ export class CarbonStrategyStore {
   private readonly strategyIdsByPair = new Map<string, Set<string>>();
   private readonly pairByTokenKey = new Map<string, CarbonPairMetadata>();
   private readonly dirtyPairKeys = new Set<string>();
-  private readonly controllerByAddress = new Map<string, CarbonControllerConfig>();
-  private readonly unwatchFns: Array<() => void | Promise<void>> = [];
 
   constructor(
     private readonly client: CarbonClient,
     private readonly pairs: readonly CarbonPairMetadata[],
     private readonly onChange?: (strategies: readonly CarbonStrategy[]) => void
   ) {
-    for (const controller of CARBON_CONTROLLERS) {
-      this.controllerByAddress.set(controller.address.toLowerCase(), controller);
-    }
-
     for (const pair of pairs) {
       const key = this.pairKey(pair.controller, pair.token0, pair.token1);
       this.pairByTokenKey.set(key, pair);
@@ -165,18 +150,8 @@ export class CarbonStrategyStore {
     }
   }
 
-  async start(): Promise<void> {
-    if (RUNTIME.debug) console.log(`Starting Carbon strategy store for ${this.pairs.length} pairs`);
-    await this.watch();
-    await this.loadAll();
-    await this.flushDirtyPairs();
-  }
-
-  async stop(): Promise<void> {
-    for (const unwatch of this.unwatchFns) {
-      await unwatch();
-    }
-    this.unwatchFns.length = 0;
+  pairCount(): number {
+    return this.pairs.length;
   }
 
   strategyCount(): number {
@@ -191,35 +166,20 @@ export class CarbonStrategyStore {
     this.strategiesById.clear();
     for (const ids of this.strategyIdsByPair.values()) ids.clear();
 
-    if (CONTRACTS.flashQuery) {
-      await this.refetchPairsInBatches();
-    } else {
-      for (const pair of this.pairs) {
-        await this.refetchPair(pair);
-      }
+    if (!CONTRACTS.flashQuery) {
+      throw new Error('UNISWAP_FLASH_QUERY_CONTRACT_ADDRESS is required to batch load Carbon strategies.');
     }
+
+    await this.refetchPairsInBatches();
 
     if (RUNTIME.debug) console.log(`Carbon loaded ${this.strategiesById.size} live strategies`);
     this.notifyChanged();
   }
 
-  private async watch(): Promise<void> {
-    for (const controller of this.controllerByAddress.values()) {
-      if (!controller.enabled) continue;
-      if (RUNTIME.debug) console.log(`Watching Carbon controller ${controller.name} (${controller.address})`);
-      const unwatch = await this.client.watchContractEvent({
-        address: controller.address,
-        abi: CARBON_CONTROLLER_ABI,
-        strict: true,
-        onLogs: (logs: any[]) => {
-          if (RUNTIME.debug) console.log(`Received ${logs.length} Carbon events`);
-          for (const log of logs) this.applyEvent(controller.address, log as any);
-          void this.flushDirtyPairs();
-        },
-        onError: (error: any) => console.error('Carbon event monitor error:', error),
-      });
-      this.unwatchFns.push(unwatch);
-    }
+  async handleEvents(controller: Address, logs: any[]): Promise<void> {
+    if (RUNTIME.debug) console.log(`Received ${logs.length} Carbon events`);
+    for (const log of logs) this.applyEvent(controller, log as any);
+    await this.flushDirtyPairs();
   }
 
   private async refetchPair(pair: CarbonPairMetadata): Promise<void> {
@@ -234,9 +194,17 @@ export class CarbonStrategyStore {
   }
 
   private async refetchPairsInBatches(): Promise<void> {
-    for (const pairs of this.pairsByController().values()) {
+    for (const [controller, pairs] of this.pairsByController()) {
+      if (RUNTIME.debug) {
+        const batchCount = Math.ceil(pairs.length / CARBON_STARTUP_POLICY.batchSize);
+        console.log(`Loading ${pairs.length} Carbon pairs from ${controller} in ${batchCount} batches of up to ${CARBON_STARTUP_POLICY.batchSize}`);
+      }
+
       for (let start = 0; start < pairs.length; start += CARBON_STARTUP_POLICY.batchSize) {
         const batch = pairs.slice(start, start + CARBON_STARTUP_POLICY.batchSize);
+        if (RUNTIME.debug) {
+          console.log(`Carbon strategy batch ${Math.floor(start / CARBON_STARTUP_POLICY.batchSize) + 1}: ${batch.length} pairs`);
+        }
         await this.refetchPairBatch(batch);
       }
     }
@@ -246,34 +214,27 @@ export class CarbonStrategyStore {
     if (pairs.length === 0) return;
     const controller = pairs[0].controller;
 
-    try {
-      const results = await this.client.readContract({
-        address: CONTRACTS.flashQuery as Address,
-        abi: CARBON_BATCH_QUERY_ABI,
-        functionName: 'getCarbonStrategiesByPairs',
-        args: [
-          controller,
-          pairs.map(pair => ({
-            token0: pair.token0,
-            token1: pair.token1,
-            startIndex: 0n,
-            endIndex: 0n,
-          })),
-        ],
-      }) as RawCarbonPairStrategies[];
+    const results = await this.client.readContract({
+      address: CONTRACTS.flashQuery as Address,
+      abi: CARBON_BATCH_QUERY_ABI,
+      functionName: 'getCarbonStrategiesByPairs',
+      args: [
+        controller,
+        pairs.map(pair => ({
+          token0: pair.token0,
+          token1: pair.token1,
+          startIndex: 0n,
+          endIndex: 0n,
+        })),
+      ],
+    }) as RawCarbonPairStrategies[];
 
-      for (let index = 0; index < pairs.length; index++) {
-        const result = results[index];
-        this.applyRawStrategiesForPair(
-          pairs[index],
-          result ? field<RawCarbonStrategy[]>(result, 'strategies', 2) ?? [] : []
-        );
-      }
-    } catch (error) {
-      console.error(`Carbon batch strategy query failed for ${pairs.length} pairs, falling back to individual calls:`, error);
-      for (const pair of pairs) {
-        await this.refetchPair(pair);
-      }
+    for (let index = 0; index < pairs.length; index++) {
+      const result = results[index];
+      this.applyRawStrategiesForPair(
+        pairs[index],
+        result ? field<RawCarbonStrategy[]>(result, 'strategies', 2) ?? [] : []
+      );
     }
   }
 

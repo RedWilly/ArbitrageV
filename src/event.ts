@@ -1,10 +1,12 @@
 import { type Address, decodeEventLog, type PublicClient } from 'viem';
-import { RUNTIME } from './constants';
+import { CARBON_CONTROLLERS, RUNTIME } from './constants';
+import { type CarbonStrategyStore } from './market/carbon';
 import { type ReserveUpdate } from './market/v2-types';
 import { type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
 import { scanAndExecuteOpportunities } from './opportunities/opportunity-workflow';
 import { LatestUpdateScheduler } from './runtime/event-scheduler';
+import { CARBON_CONTROLLER_EVENT_ABI } from './runtime/carbon-events';
 import { addressMap, decodeV2SyncEvent, V2_SYNC_EVENT_ABI } from './runtime/v2-events';
 import { V3_LIQUIDITY_EVENT_ABI, V3_SWAP_EVENT_ABI } from './runtime/v3-events';
 
@@ -21,6 +23,7 @@ type V2WatchPool = {
 type EventMonitorOptions = {
     v2Pools?: readonly V2WatchPool[];
     v3Pools?: readonly Address[];
+    carbonStore?: CarbonStrategyStore;
 };
 
 export class EventMonitor {
@@ -79,10 +82,13 @@ export class EventMonitor {
         this.pairAddressMap = addressMap(pairAddresses);
         this.v3PoolAddressMap = addressMap(v3PoolAddresses);
         
-        console.log(`Starting event monitor for ${pairAddresses.length} V2 pairs and ${v3PoolAddresses.length} V3 pools...`);
+        const carbonPairCount = this.options.carbonStore?.pairCount() ?? 0;
+        const carbonText = carbonPairCount ? `, and ${carbonPairCount} Carbon pairs` : '';
+        console.log(`Starting event monitor for ${pairAddresses.length} V2 pairs, ${v3PoolAddresses.length} V3 pools${carbonText}...`);
         if (RUNTIME.debug) {
             console.log('Monitoring V2 pairs:', pairAddresses);
             console.log('Monitoring V3 pools:', v3PoolAddresses);
+            if (this.options.carbonStore) console.log('Monitoring Carbon controllers:', CARBON_CONTROLLERS.filter(controller => controller.enabled).map(controller => controller.address));
         }
 
         try {
@@ -138,6 +144,23 @@ export class EventMonitor {
                     strict: true
                 });
                 this.unwatchFns.push(unwatchV3Burn);
+            }
+
+            if (this.options.carbonStore) {
+                for (const controller of CARBON_CONTROLLERS) {
+                    if (!controller.enabled) continue;
+                    if (RUNTIME.debug) console.log(`Watching Carbon controller ${controller.name} (${controller.address})`);
+                    const unwatchCarbon = await eventClient.watchContractEvent({
+                        address: controller.address,
+                        abi: CARBON_CONTROLLER_EVENT_ABI,
+                        strict: true,
+                        onLogs: async (logs: any[]) => {
+                            await this.options.carbonStore?.handleEvents(controller.address, logs);
+                        },
+                        onError: this.onError.bind(this),
+                    });
+                    this.unwatchFns.push(unwatchCarbon);
+                }
             }
 
             console.log('Event monitoring started successfully');

@@ -55,7 +55,7 @@ export async function runArbitrageBot(): Promise<void> {
   const [pairs] = await Promise.all([
     getKnownPairsInfo(network.client, v2Pools),
     loadConfiguredV3StartupState(network.client, graph, v3Pools),
-    carbonPairs.length > 0 ? carbonStore.start() : Promise.resolve(),
+    carbonPairs.length > 0 ? carbonStore.loadAll() : Promise.resolve(),
   ]);
 
   if (RUNTIME.debug) console.log(`Loaded live reserves for ${pairs.length} V2 pairs`);
@@ -89,13 +89,13 @@ export async function runArbitrageBot(): Promise<void> {
   const monitor = new EventMonitor(graph, network, {
     v2Pools,
     v3Pools: v3Pools.map(pool => pool.address),
+    carbonStore: carbonPairs.length > 0 ? carbonStore : undefined,
   });
   await monitor.start();
 
   process.on('SIGINT', async () => {
     console.log('\nStopping event monitor...');
     await monitor.stop();
-    await carbonStore.stop();
     process.exit();
   });
 }

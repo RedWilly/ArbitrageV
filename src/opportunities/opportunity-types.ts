@@ -21,12 +21,4 @@ export type FindOpportunitiesRequest = {
   changedPairs?: Address[];
 };
 
-export type ArbitrageSearchResult = {
-  paths: Address[][];
-  pairs: Address[][];
-  protocols: MarketProtocol[][];
-  profits: bigint[];
-  optimalAmounts: bigint[];
-  fees: number[][];
-  routeData: `0x${string}`[][];
-};
+export type ArbitrageSearchResult = ArbitrageOpportunity[];

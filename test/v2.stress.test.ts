@@ -93,8 +93,8 @@ describe("V2 arbitrage stress", () => {
     });
     const elapsedMs = performance.now() - startedAt;
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.pairs[0]).toContain(changedPair.pairAddress);
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(opportunities[0].pairs).toContain(changedPair.pairAddress);
     expect(elapsedMs).toBeLessThan(STRESS_SEARCH_LIMIT_MS);
   });
 
@@ -111,8 +111,8 @@ describe("V2 arbitrage stress", () => {
     });
     const elapsedMs = performance.now() - startedAt;
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.pairs[0]).toContain(changedPair.pairAddress);
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(opportunities[0].pairs).toContain(changedPair.pairAddress);
     expect(elapsedMs).toBeLessThan(STRESS_SEARCH_LIMIT_MS);
   });
 

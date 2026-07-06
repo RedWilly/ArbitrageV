@@ -1,27 +1,10 @@
 import bannedTokens from './bannedtax.json';
+import { type V2PoolMetadata } from './getinfo';
+import { type CarbonPairMetadata } from './market/carbon';
+import { type V3PoolConfig } from './market/v3-types';
 import { graphToken } from './tokens';
 
 type Address = `0x${string}`;
-
-type V2PoolMetadata = MarketTokens & {
-  pairAddress: Address;
-  fee: number;
-  factory: string;
-};
-
-type V3PoolConfig = MarketTokens & {
-  name: string;
-  address: Address;
-  fee: number;
-  tickSpacing: number;
-  enabled: boolean;
-};
-
-type CarbonPairMetadata = MarketTokens & {
-  controller: Address;
-  strategyCount: number;
-  feePpm: number;
-};
 
 export type MarketTokens = {
   token0: Address;

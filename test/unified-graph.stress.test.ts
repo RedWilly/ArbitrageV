@@ -134,12 +134,12 @@ describe("Unified graph stress", () => {
     });
     const elapsedMs = performance.now() - startedAt;
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(new Set(opportunities.protocols[0]).size).toBeGreaterThan(1);
-    expect(opportunities.pairs[0]).toContain(changedPair.pairAddress);
-    expect(opportunities.pairs[0]).toContain(mixedPool.address);
-    expect(typeof opportunities.profits[0]).toBe("bigint");
-    expect(typeof opportunities.optimalAmounts[0]).toBe("bigint");
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(new Set(opportunities[0].protocols).size).toBeGreaterThan(1);
+    expect(opportunities[0].pairs).toContain(changedPair.pairAddress);
+    expect(opportunities[0].pairs).toContain(mixedPool.address);
+    expect(typeof opportunities[0].profit).toBe("bigint");
+    expect(typeof opportunities[0].optimalInput).toBe("bigint");
     expect(elapsedMs).toBeLessThan(UNIFIED_SEARCH_LIMIT_MS);
   });
 
@@ -158,8 +158,8 @@ describe("Unified graph stress", () => {
     });
     const elapsedMs = performance.now() - startedAt;
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    for (const routePools of opportunities.pairs) {
+    expect(opportunities.length).toBeGreaterThan(0);
+    for (const routePools of opportunities.map(opportunity => opportunity.pairs)) {
       expect(routePools).toContain(changedPair.pairAddress);
     }
     expect(elapsedMs).toBeLessThan(UNIFIED_SEARCH_LIMIT_MS);
@@ -180,6 +180,6 @@ describe("Unified graph stress", () => {
       changedPairs: [changedPair.pairAddress],
     });
 
-    expect(opportunities.paths).toEqual([]);
+    expect(opportunities).toEqual([]);
   });
 });

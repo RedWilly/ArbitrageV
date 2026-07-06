@@ -106,12 +106,12 @@ describe("V3 arbitrage strategy", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(opportunities.protocols[0]).toEqual(["v3", "v3", "v3"]);
-    expect(opportunities.paths[0]).toEqual([tokenA, tokenB, tokenC, tokenA]);
-    expect(opportunities.pairs[0]).toEqual([poolAB.address, poolBC.address, poolCA.address]);
-    expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
-    expect(opportunities.optimalAmounts[0]).toBeGreaterThan(0n);
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(opportunities[0].protocols).toEqual(["v3", "v3", "v3"]);
+    expect(opportunities[0].path).toEqual([tokenA, tokenB, tokenC, tokenA]);
+    expect(opportunities[0].pairs).toEqual([poolAB.address, poolBC.address, poolCA.address]);
+    expect(opportunities[0].profit).toBeGreaterThan(TOKENS[0].minProfit);
+    expect(opportunities[0].optimalInput).toBeGreaterThan(0n);
   });
 
   test("finds a mixed V2 to V3 to V2 circular opportunity", () => {
@@ -128,12 +128,12 @@ describe("V3 arbitrage strategy", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths.length).toBeGreaterThan(0);
-    expect(new Set(opportunities.protocols[0]).size).toBeGreaterThan(1);
-    expect(opportunities.paths[0]).toEqual([tokenA, tokenB, tokenC, tokenA]);
-    expect(opportunities.pairs[0]).toEqual([pairAB.pairAddress, poolBC.address, pairCA.pairAddress]);
-    expect(opportunities.profits[0]).toBeGreaterThan(TOKENS[0].minProfit);
-    expect(opportunities.optimalAmounts[0]).toBeGreaterThan(0n);
+    expect(opportunities.length).toBeGreaterThan(0);
+    expect(new Set(opportunities[0].protocols).size).toBeGreaterThan(1);
+    expect(opportunities[0].path).toEqual([tokenA, tokenB, tokenC, tokenA]);
+    expect(opportunities[0].pairs).toEqual([pairAB.pairAddress, poolBC.address, pairCA.pairAddress]);
+    expect(opportunities[0].profit).toBeGreaterThan(TOKENS[0].minProfit);
+    expect(opportunities[0].optimalInput).toBeGreaterThan(0n);
   });
 
   test("blocks mixed routes when protocol mixing is disabled", () => {
@@ -149,7 +149,7 @@ describe("V3 arbitrage strategy", () => {
       startTokens: [tokenA],
     });
 
-    expect(opportunities.paths).toEqual([]);
+    expect(opportunities).toEqual([]);
   });
 
   test("selects the best non-route flash pool across V2 and V3", () => {

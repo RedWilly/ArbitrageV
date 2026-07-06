@@ -26,16 +26,16 @@ export async function scanAndExecuteOpportunities(
   logOpportunities(opportunities);
 
   const manager = opportunityManager(networkConfig);
-  if (manager && opportunities.paths.length > 0) {
-    const executableOpportunities: ExecutableOpportunity[] = opportunities.paths
-      .map((path, index) => ({
-        path,
-        pairs: opportunities.pairs[index],
-        protocols: opportunities.protocols[index],
-        fees: opportunities.fees[index],
-        routeData: opportunities.routeData[index],
-        optimalAmount: opportunities.optimalAmounts[index],
-        expectedProfit: opportunities.profits[index],
+  if (manager && opportunities.length > 0) {
+    const executableOpportunities: ExecutableOpportunity[] = opportunities
+      .map(opportunity => ({
+        path: opportunity.path,
+        pairs: opportunity.pairs,
+        protocols: opportunity.protocols,
+        fees: opportunity.fees,
+        routeData: opportunity.routeData,
+        optimalAmount: opportunity.optimalInput,
+        expectedProfit: opportunity.profit,
       }))
       .filter((opportunity): opportunity is ExecutableOpportunity =>
         opportunity.protocols.length === opportunity.pairs.length &&
@@ -85,22 +85,19 @@ function createSearchRequest(request: OpportunityWorkflowRequest): FindOpportuni
 }
 
 function logOpportunities(opportunities: ArbitrageSearchResult): void {
-  if (opportunities.paths.length === 0) {
+  if (opportunities.length === 0) {
     if (RUNTIME.debug) console.log('No profitable arbitrage opportunities found');
     return;
   }
 
-  console.log(`\nFound ${opportunities.paths.length} potential arbitrage opportunities:`);
+  console.log(`\nFound ${opportunities.length} potential arbitrage opportunities:`);
 
-  opportunities.paths.forEach((path, index) => {
+  opportunities.forEach((opportunity, index) => {
     if (!RUNTIME.debug) return;
 
-    const profit = opportunities.profits[index];
-    const pairs = opportunities.pairs[index];
-    const fees = opportunities.fees[index];
-    const routeKind = routeKindFromProtocols(opportunities.protocols[index]);
-    const optimalAmount = opportunities.optimalAmounts[index];
-    const profitBps = basisPoints(profit, optimalAmount);
+    const { path, profit, pairs, fees, optimalInput } = opportunity;
+    const routeKind = routeKindFromProtocols(opportunity.protocols);
+    const profitBps = basisPoints(profit, optimalInput);
     const startToken = path[0];
     const startTokenInfo = TOKENS.find(addr => addr.address === startToken);
     if (!startTokenInfo) throw new Error(`Token info not found for ${startToken}`);
@@ -113,7 +110,7 @@ function logOpportunities(opportunities: ArbitrageSearchResult): void {
     console.log(`Path: ${path.join(' -> ')}`);
     console.log(`Expected profit: ${formatTokenAmountWithSymbol(profit, lastTokenInfo)}`);
     console.log(`Route type: ${routeKind}`);
-    console.log(`Optimal input amount: ${optimalAmount.toString()} wei || ${formatTokenAmountWithSymbol(optimalAmount, startTokenInfo)}`);
+    console.log(`Optimal input amount: ${optimalInput.toString()} wei || ${formatTokenAmountWithSymbol(optimalInput, startTokenInfo)}`);
     console.log(`Profit percentage: ${formatBasisPoints(profitBps)}%`);
     console.log(`Pairs used: ${pairs.join(', ')}`);
     console.log(`Fees: ${fees.map(fee => fee.toString()).join(', ')}`);
