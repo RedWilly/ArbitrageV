@@ -1,7 +1,8 @@
 import { createPublicClient, http } from 'viem';
 import { sei } from 'viem/chains';
-import { CONTRACTS, NETWORK, V3_POOLS } from './constants';
+import { CONTRACTS, NETWORK, RUNTIME, V3_POOLS } from './constants';
 import { discoverV2PoolMetadata } from './getinfo';
+import { filterDiscoveredMarkets } from './market-filter';
 import { discoverCarbonPairs } from './market/carbon';
 import { openMarketDb, replaceStoredCarbonPairs, replaceStoredPools, toStoredV2Pool, toStoredV3Pool } from './market-db';
 
@@ -17,19 +18,27 @@ async function main(): Promise<void> {
   const v2Pools = await discoverV2PoolMetadata(client);
   const v3Pools = V3_POOLS.filter(pool => pool.enabled);
   const carbonPairs = await discoverCarbonPairs(client);
+  const filtered = filterDiscoveredMarkets(v2Pools, v3Pools, carbonPairs);
+  if (RUNTIME.debug) {
+    console.log('Shared market filter:', {
+      v2: `${v2Pools.length} -> ${filtered.v2Pools.length}`,
+      v3: `${v3Pools.length} -> ${filtered.v3Pools.length}`,
+      carbon: `${carbonPairs.length} -> ${filtered.carbonPairs.length}`,
+    });
+  }
   const db = openMarketDb();
 
   try {
     replaceStoredPools(db, [
-      ...v2Pools.map(toStoredV2Pool),
-      ...v3Pools.map(toStoredV3Pool),
+      ...filtered.v2Pools.map(toStoredV2Pool),
+      ...filtered.v3Pools.map(toStoredV3Pool),
     ]);
-    replaceStoredCarbonPairs(db, carbonPairs);
+    replaceStoredCarbonPairs(db, filtered.carbonPairs);
   } finally {
     db.close();
   }
 
-  console.log(`Stored ${v2Pools.length} V2 pools, ${v3Pools.length} V3 pools, and ${carbonPairs.length} Carbon pairs`);
+  console.log(`Stored ${filtered.v2Pools.length} V2 pools, ${filtered.v3Pools.length} V3 pools, and ${filtered.carbonPairs.length} Carbon pairs`);
 }
 
 main().catch(error => {

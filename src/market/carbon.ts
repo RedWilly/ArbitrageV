@@ -1,5 +1,5 @@
 import { parseAbi, type Address } from 'viem';
-import { CARBON_CONTROLLERS, TOKENS, type CarbonControllerConfig } from '../constants';
+import { CARBON_CONTROLLERS, RUNTIME, TOKENS, type CarbonControllerConfig } from '../constants';
 import { graphToken } from '../tokens';
 
 export type CarbonPairMetadata = {
@@ -72,14 +72,21 @@ export async function discoverCarbonPairs(client: CarbonClient): Promise<CarbonP
 
   for (const controller of CARBON_CONTROLLERS) {
     if (!controller.enabled) continue;
+    if (RUNTIME.debug) console.log(`Discovering Carbon pairs from ${controller.name} (${controller.address})`);
     const rawPairs = await client.readContract({
       address: controller.address,
       abi: CARBON_CONTROLLER_ABI,
       functionName: 'pairs',
     }) as readonly [Address, Address][];
 
+    let keptPairs = 0;
+    let skippedTokenPairs = 0;
+    let emptyPairs = 0;
     for (const [token0, token1] of rawPairs) {
-      if (!allowedTokens.has(graphToken(token0).toLowerCase()) || !allowedTokens.has(graphToken(token1).toLowerCase())) continue;
+      if (!allowedTokens.has(graphToken(token0).toLowerCase()) || !allowedTokens.has(graphToken(token1).toLowerCase())) {
+        skippedTokenPairs++;
+        continue;
+      }
 
       const count = await client.readContract({
         address: controller.address,
@@ -88,7 +95,11 @@ export async function discoverCarbonPairs(client: CarbonClient): Promise<CarbonP
         args: [token0, token1],
       }) as bigint;
 
-      if (count === 0n) continue;
+      if (count === 0n) {
+        emptyPairs++;
+        continue;
+      }
+      keptPairs++;
       pairs.push({
         controller: controller.address,
         token0,
@@ -96,6 +107,10 @@ export async function discoverCarbonPairs(client: CarbonClient): Promise<CarbonP
         strategyCount: Number(count),
         feePpm: controller.feePpm,
       });
+    }
+
+    if (RUNTIME.debug) {
+      console.log(`Carbon ${controller.name}: ${rawPairs.length} pairs, kept ${keptPairs}, skipped ${skippedTokenPairs} unconfigured-token pairs, ${emptyPairs} empty pairs`);
     }
   }
 
@@ -128,6 +143,7 @@ export class CarbonStrategyStore {
   }
 
   async start(): Promise<void> {
+    if (RUNTIME.debug) console.log(`Starting Carbon strategy store for ${this.pairs.length} pairs`);
     await this.watch();
     await this.loadAll();
     await this.flushDirtyPairs();
@@ -156,17 +172,20 @@ export class CarbonStrategyStore {
       await this.refetchPair(pair);
     }
 
+    if (RUNTIME.debug) console.log(`Carbon loaded ${this.strategiesById.size} live strategies`);
     this.notifyChanged();
   }
 
   private async watch(): Promise<void> {
     for (const controller of this.controllerByAddress.values()) {
       if (!controller.enabled) continue;
+      if (RUNTIME.debug) console.log(`Watching Carbon controller ${controller.name} (${controller.address})`);
       const unwatch = await this.client.watchContractEvent({
         address: controller.address,
         abi: CARBON_CONTROLLER_ABI,
         strict: true,
         onLogs: (logs: any[]) => {
+          if (RUNTIME.debug) console.log(`Received ${logs.length} Carbon events`);
           for (const log of logs) this.applyEvent(controller.address, log as any);
           void this.flushDirtyPairs();
         },
@@ -192,15 +211,24 @@ export class CarbonStrategyStore {
     }
 
     const ids = previousIds ?? new Set<string>();
+    let filtered = 0;
     for (const raw of rawStrategies) {
       const strategy = this.normalizeStrategy(pair.controller, raw);
       strategy.feePpm = pair.feePpm;
-      if (!this.isLiveStrategy(strategy)) continue;
+      this.applyOrderFilters(strategy);
+      if (!this.isLiveStrategy(strategy)) {
+        filtered++;
+        continue;
+      }
       const id = strategy.id.toString();
       this.strategiesById.set(id, strategy);
       ids.add(id);
     }
     this.strategyIdsByPair.set(key, ids);
+
+    if (RUNTIME.debug) {
+      console.log(`Carbon pair ${pair.token0}/${pair.token1}: loaded ${rawStrategies.length}, kept ${ids.size}, filtered ${filtered}`);
+    }
   }
 
   private async flushDirtyPairs(): Promise<void> {
@@ -208,6 +236,7 @@ export class CarbonStrategyStore {
     const keys = Array.from(this.dirtyPairKeys);
     this.dirtyPairKeys.clear();
 
+    if (RUNTIME.debug) console.log(`Refreshing ${keys.length} dirty Carbon pairs`);
     for (const key of keys) {
       const pair = this.pairByTokenKey.get(key);
       if (pair) await this.refetchPair(pair);
@@ -218,6 +247,7 @@ export class CarbonStrategyStore {
   private applyEvent(controller: Address, log: { eventName?: string; args?: any }): void {
     const args = log.args;
     if (!args) return;
+    if (RUNTIME.debug) console.log(`Carbon event: ${log.eventName ?? 'unknown'}`);
 
     if (log.eventName === 'StrategyDeleted') {
       this.deleteStrategy(args.id);
@@ -226,6 +256,11 @@ export class CarbonStrategyStore {
     }
 
     if (log.eventName === 'StrategyCreated' || log.eventName === 'StrategyUpdated') {
+      if (!this.pairByTokenKey.has(this.pairKey(controller, args.token0, args.token1))) {
+        if (RUNTIME.debug) console.log(`Skipping Carbon ${log.eventName} for untracked pair ${args.token0}/${args.token1}`);
+        return;
+      }
+
       const existing = this.strategiesById.get(args.id.toString());
       const strategy: CarbonStrategy = {
         id: BigInt(args.id),
@@ -237,6 +272,7 @@ export class CarbonStrategyStore {
         orders: [this.normalizeOrder(args.order0), this.normalizeOrder(args.order1)],
       };
 
+      this.applyOrderFilters(strategy);
       if (this.isLiveStrategy(strategy)) {
         this.strategiesById.set(strategy.id.toString(), strategy);
         this.addStrategyToPair(strategy);
@@ -293,6 +329,17 @@ export class CarbonStrategyStore {
 
   private isLiveStrategy(strategy: CarbonStrategy): boolean {
     return strategy.orders[0].y > 0n || strategy.orders[1].y > 0n;
+  }
+
+  private applyOrderFilters(strategy: CarbonStrategy): void {
+    if (!this.orderHasEnoughLiquidity(strategy.orders[0], strategy.token0)) strategy.orders[0].y = 0n;
+    if (!this.orderHasEnoughLiquidity(strategy.orders[1], strategy.token1)) strategy.orders[1].y = 0n;
+  }
+
+  private orderHasEnoughLiquidity(order: CarbonOrder, targetToken: Address): boolean {
+    if (order.y <= 0n) return false;
+    const token = TOKENS.find(config => config.address.toLowerCase() === graphToken(targetToken).toLowerCase());
+    return !token || order.y >= token.liquidityAmount;
   }
 
   private pairKey(controller: Address, token0: Address, token1: Address): string {

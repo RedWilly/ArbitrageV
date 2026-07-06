@@ -341,32 +341,9 @@ export async function discoverV2PoolMetadata(
             allPairs.push(...factoryPairs);
         }
 
-        console.log(`Total pairs found across all factories (before filtering): ${allPairs.length}`);
+        console.log(`Total pairs found across all factories: ${allPairs.length}`);
 
-        // NOW build the token pool count map considering ALL pairs from ALL factories
-        const tokenPoolCount: { [token: string]: number } = {};
-        allPairs.forEach(pair => {
-            const tokenA = pair.token0;
-            const tokenB = pair.token1;
-            tokenPoolCount[tokenA] = (tokenPoolCount[tokenA] || 0) + 1;
-            tokenPoolCount[tokenB] = (tokenPoolCount[tokenB] || 0) + 1;
-        });
-
-        // Filter out pairs where either token appears in only one liquidity pool
-        let singlePoolTokenPairs = 0;
-        const filteredByPoolCount = allPairs.filter(pair => {
-            const hasSinglePoolToken = tokenPoolCount[pair.token0] <= 1 || tokenPoolCount[pair.token1] <= 1;
-            if (hasSinglePoolToken) {
-                singlePoolTokenPairs++;
-                return false;
-            }
-            return true;
-        });
-
-        console.log(`Filtered out ${singlePoolTokenPairs} pairs with single-pool tokens`);
-        console.log(`Pairs remaining after single-pool token filtering: ${filteredByPoolCount.length}`);
-
-        return filteredByPoolCount.map(pair => ({
+        return allPairs.map(pair => ({
             pairAddress: pair.pairAddress,
             token0: pair.token0,
             token1: pair.token1,

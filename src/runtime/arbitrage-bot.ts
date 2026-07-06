@@ -40,7 +40,7 @@ export async function runArbitrageBot(): Promise<void> {
     graph.addV3Pool(pool);
   }
   const carbonStore = new CarbonStrategyStore(
-    network.client,
+    network.wsClient ?? network.client,
     carbonPairs,
     strategies => graph.setCarbonStrategies(strategies)
   );
