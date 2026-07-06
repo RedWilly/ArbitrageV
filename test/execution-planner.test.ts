@@ -11,8 +11,8 @@ function address(id: number): Address {
   return `0x${(60_000_000 + id).toString(16).padStart(40, "0")}` as Address;
 }
 
-function carbonRouteData(strategyId: bigint, targetToken: Address): `0x${string}` {
-  return `0x${strategyId.toString(16).padStart(64, "0")}${targetToken.slice(2).padStart(64, "0")}`;
+function carbonRouteData(strategyId: bigint, sourceToken: Address, targetToken: Address): `0x${string}` {
+  return `0x${strategyId.toString(16).padStart(64, "0")}${sourceToken.slice(2).padStart(64, "0")}${targetToken.slice(2).padStart(64, "0")}`;
 }
 
 describe("createExecutionPlan", () => {
@@ -79,7 +79,7 @@ describe("createExecutionPlan", () => {
     const flashPool = address(40);
     const carbonController = address(41);
     const v2Pool = address(42);
-    const carbonData = carbonRouteData(123n, tokenB);
+    const carbonData = carbonRouteData(123n, tokenA, tokenB);
 
     const plan = createExecutionPlan({
       findBestFlashPoolForToken(token, amountIn, excludePools) {

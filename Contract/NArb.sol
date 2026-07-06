@@ -38,6 +38,11 @@ interface ICarbonController {
     ) external payable returns (uint128);
 }
 
+interface IWSEI {
+    function deposit() external payable;
+    function withdraw(uint256 wad) external;
+}
+
 error ArrayLengthMismatch();
 error StartTokenNotInFlashLoanPair();
 error ArbitrageMustReturnToStart();
@@ -58,6 +63,8 @@ contract ArbitrageExecutor is Withdrawable {
     uint8 private constant V2 = 0;
     uint8 private constant V3 = 1;
     uint8 private constant CARBON = 2;
+    address private constant NATIVE_SEI = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address private constant WSEI = 0xE30feDd158A2e3b13e9badaeABaFc5516e95e8C7;
     uint256 private constant FEE_DENOMINATOR = 10000;
     uint160 private constant MIN_SQRT_RATIO_PLUS_ONE = 4295128740;
     uint160 private constant MAX_SQRT_RATIO_MINUS_ONE =
@@ -308,10 +315,24 @@ contract ArbitrageExecutor is Withdrawable {
         if (amountIn > type(uint128).max) revert InvalidCarbonAmount();
 
         uint256 strategyId;
-        (strategyId, tokenOut) = abi.decode(data, (uint256, address));
-        uint256 balanceBefore = IERC20(tokenOut).balanceOf(address(this));
+        address rawSourceToken;
+        address rawTargetToken;
+        (strategyId, rawSourceToken, rawTargetToken) = abi.decode(data, (uint256, address, address));
+        bool sourceIsNative = rawSourceToken == NATIVE_SEI;
+        bool targetIsNative = rawTargetToken == NATIVE_SEI;
+        tokenOut = targetIsNative ? WSEI : rawTargetToken;
+        if (sourceIsNative && tokenIn != WSEI) revert SwapPathError();
+        if (!sourceIsNative && tokenIn != rawSourceToken) revert SwapPathError();
 
-        _approveCarbonIfNeeded(tokenIn, controller, amountIn);
+        if (sourceIsNative) {
+            IWSEI(WSEI).withdraw(amountIn);
+        } else {
+            _approveCarbonIfNeeded(tokenIn, controller, amountIn);
+        }
+
+        uint256 balanceBefore = targetIsNative
+            ? address(this).balance
+            : IERC20(rawTargetToken).balanceOf(address(this));
 
         ICarbonController.TradeAction[] memory actions = new ICarbonController.TradeAction[](1);
         actions[0] = ICarbonController.TradeAction({
@@ -319,15 +340,21 @@ contract ArbitrageExecutor is Withdrawable {
             amount: uint128(amountIn)
         });
 
-        ICarbonController(controller).tradeBySourceAmount(
-            tokenIn,
-            tokenOut,
+        ICarbonController(controller).tradeBySourceAmount{value: sourceIsNative ? amountIn : 0}(
+            rawSourceToken,
+            rawTargetToken,
             actions,
             block.timestamp,
             1
         );
 
-        amountOut = IERC20(tokenOut).balanceOf(address(this)) - balanceBefore;
+        if (targetIsNative) {
+            amountOut = address(this).balance - balanceBefore;
+            IWSEI(WSEI).deposit{value: amountOut}();
+        } else {
+            amountOut = IERC20(rawTargetToken).balanceOf(address(this)) - balanceBefore;
+        }
+
         if (amountOut == 0) revert SwapPathError();
     }
 

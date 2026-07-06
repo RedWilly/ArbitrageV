@@ -148,8 +148,8 @@ export class OpportunityEngine {
       fees.push(edge.fee);
       routeData.push(edge.protocol === 'carbon'
         ? encodeAbiParameters(
-          [{ type: 'uint256' }, { type: 'address' }],
-          [edge.strategyId, edge.to]
+          [{ type: 'uint256' }, { type: 'address' }, { type: 'address' }],
+          [edge.strategyId, edge.rawFrom, edge.rawTo]
         )
         : '0x');
     });

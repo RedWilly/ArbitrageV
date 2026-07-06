@@ -49,6 +49,8 @@ export type CarbonMarketEdge = MarketEdge & {
   protocol: 'carbon';
   strategyId: bigint;
   orderIndex: 0 | 1;
+  rawFrom: Address;
+  rawTo: Address;
   order: CarbonOrder;
 };
 

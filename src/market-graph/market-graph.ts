@@ -1,6 +1,7 @@
 import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, V3_POOLS } from '../constants';
 import { type CarbonStrategy } from '../market/carbon';
+import { graphToken } from '../tokens';
 import {
   type PairInfo,
   type ReserveUpdate,
@@ -561,9 +562,11 @@ export class MarketGraph {
     const order = strategy.orders[orderIndex];
     if (order.y <= 0n || order.z <= 0n) return;
 
+    const graphFrom = graphToken(from);
+    const graphTo = graphToken(to);
     const poolIndex = this.poolIndex(`carbon:${strategy.controller.toLowerCase()}:${strategy.id.toString()}`);
-    const tokenIndex = this.tokenIndex(from);
-    const toTokenIndex = this.tokenIndex(to);
+    const tokenIndex = this.tokenIndex(graphFrom);
+    const toTokenIndex = this.tokenIndex(graphTo);
     const rate = carbonMarginalRate(order, strategy.feePpm);
     const edgeId = this.carbonEdgeId(strategy, orderIndex);
 
@@ -571,13 +574,15 @@ export class MarketGraph {
     this.upsertEdge({
       id: edgeId,
       protocol: 'carbon',
-      from,
-      to,
+      from: graphFrom,
+      to: graphTo,
       poolAddress: strategy.controller,
       direction: orderIndex === 0 ? 'token1ToToken0' : 'token0ToToken1',
       fee: strategy.feePpm,
       strategyId: strategy.id,
       orderIndex,
+      rawFrom: from,
+      rawTo: to,
       order,
       rateNumerator: rate.numerator,
       rateDenominator: rate.denominator,

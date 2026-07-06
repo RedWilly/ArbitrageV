@@ -1,5 +1,6 @@
 import { parseAbi, type Address } from 'viem';
 import { CARBON_CONTROLLERS, TOKENS, type CarbonControllerConfig } from '../constants';
+import { graphToken } from '../tokens';
 
 export type CarbonPairMetadata = {
   controller: Address;
@@ -78,7 +79,7 @@ export async function discoverCarbonPairs(client: CarbonClient): Promise<CarbonP
     }) as readonly [Address, Address][];
 
     for (const [token0, token1] of rawPairs) {
-      if (!allowedTokens.has(token0.toLowerCase()) || !allowedTokens.has(token1.toLowerCase())) continue;
+      if (!allowedTokens.has(graphToken(token0).toLowerCase()) || !allowedTokens.has(graphToken(token1).toLowerCase())) continue;
 
       const count = await client.readContract({
         address: controller.address,
