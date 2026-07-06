@@ -23,7 +23,7 @@ type CarbonPairMetadata = MarketTokens & {
   feePpm: number;
 };
 
-type MarketTokens = {
+export type MarketTokens = {
   token0: Address;
   token1: Address;
 };
@@ -65,6 +65,21 @@ export function filterDiscoveredMarkets(
   };
 
   return filtered;
+}
+
+export function marketTokens(
+  ...marketGroups: Array<readonly (MarketTokens & Record<string, unknown>)[]>
+): Address[] {
+  const tokens = new Map<string, Address>();
+
+  for (const market of marketGroups.flat()) {
+    for (const token of [market.token0, market.token1]) {
+      const canonical = graphToken(token);
+      tokens.set(canonical.toLowerCase(), canonical);
+    }
+  }
+
+  return Array.from(tokens.values());
 }
 
 function hasNoBannedToken(market: MarketTokens): boolean {

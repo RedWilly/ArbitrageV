@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { filterDiscoveredMarkets } from "../src/market-filter";
+import { filterDiscoveredMarkets, marketTokens } from "../src/market-filter";
 import { NATIVE_SEI, WSEI } from "../src/tokens";
 
 type Address = `0x${string}`;
@@ -10,6 +10,32 @@ const tokenC = "0x00000000000000000000000000000000000000c1" as Address;
 const tokenD = "0x00000000000000000000000000000000000000d1" as Address;
 
 describe("filterDiscoveredMarkets", () => {
+  test("builds a token universe from discovered v2 and configured v3 markets", () => {
+    const tokens = marketTokens(
+      [{
+        pairAddress: "0x0000000000000000000000000000000000001001" as Address,
+        token0: WSEI,
+        token1: tokenA,
+        fee: 30,
+        factory: "v2",
+      }],
+      [{
+        name: "v3",
+        address: "0x0000000000000000000000000000000000001002" as Address,
+        token0: NATIVE_SEI,
+        token1: tokenB,
+        fee: 500,
+        tickSpacing: 10,
+        enabled: true,
+      }]
+    ).map(token => token.toLowerCase());
+
+    expect(tokens).toContain(WSEI.toLowerCase());
+    expect(tokens).toContain(tokenA.toLowerCase());
+    expect(tokens).toContain(tokenB.toLowerCase());
+    expect(tokens).not.toContain(NATIVE_SEI.toLowerCase());
+  });
+
   test("counts native SEI and WSEI as the same token across protocols", () => {
     const filtered = filterDiscoveredMarkets(
       [{

@@ -66,8 +66,18 @@ type RawCarbonOrder = {
   3?: bigint;
 };
 
-export async function discoverCarbonPairs(client: CarbonClient): Promise<CarbonPairMetadata[]> {
-  const allowedTokens = new Set(TOKENS.map(token => token.address.toLowerCase()));
+export type DiscoverCarbonPairsOptions = {
+  allowedTokens?: readonly Address[];
+};
+
+export async function discoverCarbonPairs(
+  client: CarbonClient,
+  options: DiscoverCarbonPairsOptions = {}
+): Promise<CarbonPairMetadata[]> {
+  const allowedTokens = new Set([
+    ...TOKENS.map(token => graphToken(token.address).toLowerCase()),
+    ...(options.allowedTokens ?? []).map(token => graphToken(token).toLowerCase()),
+  ]);
   const pairs: CarbonPairMetadata[] = [];
 
   for (const controller of CARBON_CONTROLLERS) {
@@ -110,7 +120,7 @@ export async function discoverCarbonPairs(client: CarbonClient): Promise<CarbonP
     }
 
     if (RUNTIME.debug) {
-      console.log(`Carbon ${controller.name}: ${rawPairs.length} pairs, kept ${keptPairs}, skipped ${skippedTokenPairs} unconfigured-token pairs, ${emptyPairs} empty pairs`);
+      console.log(`Carbon ${controller.name}: ${rawPairs.length} pairs, kept ${keptPairs}, skipped ${skippedTokenPairs} outside allowed token universe, ${emptyPairs} empty pairs`);
     }
   }
 

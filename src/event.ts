@@ -1,21 +1,13 @@
-import { type Address, parseAbiItem, decodeEventLog, type PublicClient } from 'viem';
+import { type Address, decodeEventLog, type PublicClient } from 'viem';
 import { RUNTIME } from './constants';
 import { type ReserveUpdate } from './market/v2-types';
 import { type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
 import { scanAndExecuteOpportunities } from './opportunities/opportunity-workflow';
 import { LatestUpdateScheduler } from './runtime/event-scheduler';
+import { addressMap, decodeV2SyncEvent, V2_SYNC_EVENT_ABI } from './runtime/v2-events';
 import { V3_LIQUIDITY_EVENT_ABI, V3_SWAP_EVENT_ABI } from './runtime/v3-events';
 
-// ABI for both types of Sync events
-const SYNC_EVENT_ABI = [
-    parseAbiItem('event Sync(uint112 reserve0, uint112 reserve1)'),
-    parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)')
-];
-
-// Sync event topics
-const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1';
-const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4917f982149848a';
 // Maximum WebSocket reconnection attempts before falling back to HTTP
 const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 3;
 
@@ -84,8 +76,8 @@ export class EventMonitor {
         // Get all pair/pool addresses from graph for validation
         const pairAddresses = this.options.v2Pools?.map(pool => pool.pairAddress) ?? this.graph.getPairAddresses();
         const v3PoolAddresses = this.options.v3Pools ? [...this.options.v3Pools] : this.graph.getV3PoolAddresses();
-        this.pairAddressMap = this.addressMap(pairAddresses);
-        this.v3PoolAddressMap = this.addressMap(v3PoolAddresses);
+        this.pairAddressMap = addressMap(pairAddresses);
+        this.v3PoolAddressMap = addressMap(v3PoolAddresses);
         
         console.log(`Starting event monitor for ${pairAddresses.length} V2 pairs and ${v3PoolAddresses.length} V3 pools...`);
         if (RUNTIME.debug) {
@@ -108,7 +100,7 @@ export class EventMonitor {
             if (pairAddresses.length > 0) {
                 const unwatchV2 = await eventClient.watchContractEvent({
                     address: pairAddresses,
-                    abi: SYNC_EVENT_ABI,
+                    abi: V2_SYNC_EVENT_ABI,
                     onLogs: this.handleSyncEvents.bind(this),
                     onError: this.onError.bind(this),
                     strict: true
@@ -167,69 +159,32 @@ export class EventMonitor {
     }
 
     private async handleWebSocketFailure(error: any) {
-        // Increment reconnect attempts
+        await this.recoverWebSocket(
+            'WebSocket connection failed',
+            async () => {
+                // start() failed before subscriptions were established, so retry directly.
+                this.isRunning = false;
+                await this.start();
+            }
+        );
+    }
+
+    private async recoverWebSocket(reason: string, reconnect: () => Promise<void>): Promise<void> {
         this.wsReconnectAttempts++;
-        
-        if (this.wsReconnectAttempts <= MAX_WEBSOCKET_RECONNECT_ATTEMPTS) {
-            console.log(`WebSocket connection failed. Reconnection attempt ${this.wsReconnectAttempts}/${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}...`);
-            
-            // Wait before reconnecting (increasing delay with each attempt)
-            const reconnectDelay = this.wsReconnectAttempts * 2000; // 2s, 4s, 6s
-            console.log(`Waiting ${reconnectDelay/1000} seconds before reconnecting...`);
-            await new Promise(resolve => setTimeout(resolve, reconnectDelay));
-            
-            // Try to restart with WebSocket
-            this.isRunning = false;
-            await this.start();
-        } else {
+
+        if (this.wsReconnectAttempts > MAX_WEBSOCKET_RECONNECT_ATTEMPTS) {
             console.log(`Maximum WebSocket reconnection attempts (${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}) reached. Falling back to HTTP polling.`);
             this.usingWebSocket = false;
             this.wsReconnectAttempts = 0;
-            
-            // Restart with HTTP
-            this.isRunning = false;
-            await this.start();
+            await reconnect();
+            return;
         }
-    }
 
-    private decodeSyncEvent(log: any): { reserve0: bigint, reserve1: bigint } | null {
-        try {
-            // Check if it's a Sync event by topic
-            if (!log.topics || !log.topics[0]) {
-                return null;
-            }
-
-            const topic = log.topics[0];
-            
-            // Try decoding based on the specific topic
-            if (topic === SYNC_TOPIC_UINT256) {
-                const decoded = decodeEventLog({
-                    abi: [SYNC_EVENT_ABI[1]], // uint256 version
-                    data: log.data,
-                    topics: log.topics
-                });
-                return {
-                    reserve0: decoded.args.reserve0,
-                    reserve1: decoded.args.reserve1
-                };
-            } else if (topic === SYNC_TOPIC_UINT112) {
-                const decoded = decodeEventLog({
-                    abi: [SYNC_EVENT_ABI[0]], // uint112 version
-                    data: log.data,
-                    topics: log.topics
-                });
-                return {
-                    reserve0: decoded.args.reserve0,
-                    reserve1: decoded.args.reserve1
-                };
-            }
-
-            if (RUNTIME.debug) console.log('Unknown Sync event topic:', topic);
-            return null;
-        } catch (error) {
-            console.error('Failed to decode Sync event:', error);
-            return null;
-        }
+        console.log(`${reason}. Reconnection attempt ${this.wsReconnectAttempts}/${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}...`);
+        const reconnectDelay = this.wsReconnectAttempts * 2000;
+        console.log(`Waiting ${reconnectDelay / 1000} seconds before reconnecting...`);
+        await new Promise(resolve => setTimeout(resolve, reconnectDelay));
+        await reconnect();
     }
 
     private async handleSyncEvents(logs: any[]) {
@@ -258,7 +213,7 @@ export class EventMonitor {
                 }
 
                 // Decode the Sync event
-                const decodedEvent = this.decodeSyncEvent(log);
+                const decodedEvent = decodeV2SyncEvent(log);
                 if (!decodedEvent) {
                     if (RUNTIME.debug) console.log('Failed to decode Sync event');
                     continue;
@@ -593,25 +548,7 @@ export class EventMonitor {
         
         if (isWebSocketError) {
             console.log('WebSocket connection error detected');
-            
-            // Increment reconnect attempts
-            this.wsReconnectAttempts++;
-            
-            if (this.wsReconnectAttempts <= MAX_WEBSOCKET_RECONNECT_ATTEMPTS) {
-                console.log(`Attempting WebSocket reconnection ${this.wsReconnectAttempts}/${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}...`);
-                
-                // Wait before reconnecting (increasing delay with each attempt)
-                const reconnectDelay = this.wsReconnectAttempts * 2000; // 2s, 4s, 6s
-                console.log(`Waiting ${reconnectDelay/1000} seconds before reconnecting...`);
-                await new Promise(resolve => setTimeout(resolve, reconnectDelay));
-                
-                await this.restart();
-            } else {
-                console.log(`Maximum WebSocket reconnection attempts (${MAX_WEBSOCKET_RECONNECT_ATTEMPTS}) reached. Falling back to HTTP polling.`);
-                this.usingWebSocket = false;
-                this.wsReconnectAttempts = 0;
-                await this.restart();
-            }
+            await this.recoverWebSocket('Attempting WebSocket reconnection', () => this.restart());
             return;
         }
         
@@ -626,9 +563,5 @@ export class EventMonitor {
             if (RUNTIME.debug) console.log('Filter error detected, restarting event monitor...');
             await this.restart();
         }
-    }
-
-    private addressMap(addresses: readonly Address[]): Map<string, Address> {
-        return new Map(addresses.map(address => [address.toLowerCase(), address]));
     }
 }

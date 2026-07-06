@@ -1,16 +1,9 @@
-import { decodeEventLog, parseAbiItem, type Address, type PublicClient } from 'viem';
+import { decodeEventLog, type Address, type PublicClient } from 'viem';
 import { RUNTIME } from '../constants';
 import { type ReserveUpdate } from '../market/v2-types';
 import { type V3PoolUpdate } from '../market/v3-types';
+import { addressMap, decodeV2SyncEvent, V2_SYNC_EVENT_ABI } from './v2-events';
 import { V3_POOL_EVENT_ABI } from './v3-events';
-
-const SYNC_EVENT_ABI = [
-  parseAbiItem('event Sync(uint112 reserve0, uint112 reserve1)'),
-  parseAbiItem('event Sync(uint256 reserve0, uint256 reserve1)'),
-];
-
-const SYNC_TOPIC_UINT112 = '0x1c411e9a96e071241c2f21f7726b17ae89e3cab4c78be50e062b03a9fffbbad1';
-const SYNC_TOPIC_UINT256 = '0xcf2aa50876cdfbb541206f89af0ee78d44a2abf8d328e37fa4917f982149848a';
 
 export type BufferedStartupEvents = {
   v2ReserveUpdates: ReserveUpdate[];
@@ -37,15 +30,15 @@ export class StartupEventBuffer {
   async watchV2Pairs(pairAddresses: Address[]): Promise<void> {
     if (pairAddresses.length === 0) return;
 
-    const addressMap = this.addressMap(pairAddresses);
+    const pairsByAddress = addressMap(pairAddresses);
     const unwatch = await this.client.watchContractEvent({
       address: pairAddresses,
-      abi: SYNC_EVENT_ABI,
+      abi: V2_SYNC_EVENT_ABI,
       strict: true,
       onLogs: logs => {
         for (const log of logs) {
-          const pairAddress = addressMap.get(log.address?.toLowerCase() ?? '');
-          const decoded = pairAddress ? this.decodeSync(log) : null;
+          const pairAddress = pairsByAddress.get(log.address?.toLowerCase() ?? '');
+          const decoded = pairAddress ? decodeV2SyncEvent(log) : null;
           if (pairAddress && decoded) {
             this.v2Updates.set(pairAddress.toLowerCase(), { pairAddress, ...decoded });
           }
@@ -61,14 +54,14 @@ export class StartupEventBuffer {
   async watchV3Pools(poolAddresses: Address[]): Promise<void> {
     if (poolAddresses.length === 0) return;
 
-    const addressMap = this.addressMap(poolAddresses);
+    const poolsByAddress = addressMap(poolAddresses);
     const unwatch = await this.client.watchContractEvent({
       address: poolAddresses,
       abi: V3_POOL_EVENT_ABI,
       strict: true,
       onLogs: logs => {
         for (const log of logs) {
-          const poolAddress = addressMap.get(log.address?.toLowerCase() ?? '');
+          const poolAddress = poolsByAddress.get(log.address?.toLowerCase() ?? '');
           const decoded = poolAddress ? this.decodeV3StartupEvent(log) : null;
           if (!poolAddress || !decoded) continue;
 
@@ -97,29 +90,6 @@ export class StartupEventBuffer {
       v3PoolUpdates: Array.from(this.v3Updates.values()),
       v3PoolsToRefresh: Array.from(this.v3PoolsToRefresh.values()),
     };
-  }
-
-  private addressMap(addresses: Address[]): Map<string, Address> {
-    return new Map(addresses.map(address => [address.toLowerCase(), address]));
-  }
-
-  private decodeSync(log: any): { reserve0: bigint; reserve1: bigint } | null {
-    try {
-      const topic = log.topics?.[0];
-      if (topic === SYNC_TOPIC_UINT256) {
-        const decoded = decodeEventLog({ abi: [SYNC_EVENT_ABI[1]], data: log.data, topics: log.topics });
-        return { reserve0: decoded.args.reserve0, reserve1: decoded.args.reserve1 };
-      }
-
-      if (topic === SYNC_TOPIC_UINT112) {
-        const decoded = decodeEventLog({ abi: [SYNC_EVENT_ABI[0]], data: log.data, topics: log.topics });
-        return { reserve0: decoded.args.reserve0, reserve1: decoded.args.reserve1 };
-      }
-    } catch (error) {
-      console.error('Failed to decode startup Sync event:', error);
-    }
-
-    return null;
   }
 
   private decodeV3StartupEvent(log: any): DecodedV3StartupEvent | null {

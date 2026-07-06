@@ -2,7 +2,7 @@ import { createPublicClient, http } from 'viem';
 import { sei } from 'viem/chains';
 import { CONTRACTS, NETWORK, RUNTIME, V3_POOLS } from './constants';
 import { discoverV2PoolMetadata } from './getinfo';
-import { filterDiscoveredMarkets } from './market-filter';
+import { filterDiscoveredMarkets, marketTokens } from './market-filter';
 import { discoverCarbonPairs } from './market/carbon';
 import { openMarketDb, replaceStoredCarbonPairs, replaceStoredPools, toStoredV2Pool, toStoredV3Pool } from './market-db';
 
@@ -17,7 +17,9 @@ async function main(): Promise<void> {
 
   const v2Pools = await discoverV2PoolMetadata(client);
   const v3Pools = V3_POOLS.filter(pool => pool.enabled);
-  const carbonPairs = await discoverCarbonPairs(client);
+  const carbonPairs = await discoverCarbonPairs(client, {
+    allowedTokens: marketTokens(v2Pools, v3Pools),
+  });
   const filtered = filterDiscoveredMarkets(v2Pools, v3Pools, carbonPairs);
   if (RUNTIME.debug) {
     console.log('Shared market filter:', {
