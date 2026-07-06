@@ -1,5 +1,5 @@
 import { parseAbi, type Address } from 'viem';
-import { CARBON_CONTROLLERS, RUNTIME, TOKENS, type CarbonControllerConfig } from '../constants';
+import { CARBON_CONTROLLERS, CARBON_STARTUP_POLICY, CONTRACTS, RUNTIME, TOKENS, type CarbonControllerConfig } from '../constants';
 import { graphToken } from '../tokens';
 
 export type CarbonPairMetadata = {
@@ -39,6 +39,10 @@ const CARBON_CONTROLLER_ABI = parseAbi([
   'event TokensTraded(address indexed trader, address indexed sourceToken, address indexed targetToken, uint256 sourceAmount, uint256 targetAmount, uint128 tradingFeeAmount, bool byTargetAmount)',
 ]);
 
+const CARBON_BATCH_QUERY_ABI = parseAbi([
+  'function getCarbonStrategiesByPairs(address controller, (address token0, address token1, uint256 startIndex, uint256 endIndex)[] requests) view returns ((address token0, address token1, (uint256 id, address owner, address[2] tokens, (uint128 y, uint128 z, uint64 A, uint64 B)[2] orders)[] strategies)[])',
+]);
+
 type CarbonClient = {
   readContract(parameters: any): Promise<unknown>;
   watchContractEvent(parameters: any): () => void | Promise<void>;
@@ -64,6 +68,15 @@ type RawCarbonOrder = {
   1?: bigint;
   2?: bigint;
   3?: bigint;
+};
+
+type RawCarbonPairStrategies = {
+  token0?: Address;
+  token1?: Address;
+  strategies?: RawCarbonStrategy[];
+  0?: Address;
+  1?: Address;
+  2?: RawCarbonStrategy[];
 };
 
 export type DiscoverCarbonPairsOptions = {
@@ -178,8 +191,12 @@ export class CarbonStrategyStore {
     this.strategiesById.clear();
     for (const ids of this.strategyIdsByPair.values()) ids.clear();
 
-    for (const pair of this.pairs) {
-      await this.refetchPair(pair);
+    if (CONTRACTS.flashQuery) {
+      await this.refetchPairsInBatches();
+    } else {
+      for (const pair of this.pairs) {
+        await this.refetchPair(pair);
+      }
     }
 
     if (RUNTIME.debug) console.log(`Carbon loaded ${this.strategiesById.size} live strategies`);
@@ -213,6 +230,54 @@ export class CarbonStrategyStore {
       args: [pair.token0, pair.token1, 0n, 0n],
     }) as RawCarbonStrategy[];
 
+    this.applyRawStrategiesForPair(pair, rawStrategies);
+  }
+
+  private async refetchPairsInBatches(): Promise<void> {
+    for (const pairs of this.pairsByController().values()) {
+      for (let start = 0; start < pairs.length; start += CARBON_STARTUP_POLICY.batchSize) {
+        const batch = pairs.slice(start, start + CARBON_STARTUP_POLICY.batchSize);
+        await this.refetchPairBatch(batch);
+      }
+    }
+  }
+
+  private async refetchPairBatch(pairs: readonly CarbonPairMetadata[]): Promise<void> {
+    if (pairs.length === 0) return;
+    const controller = pairs[0].controller;
+
+    try {
+      const results = await this.client.readContract({
+        address: CONTRACTS.flashQuery as Address,
+        abi: CARBON_BATCH_QUERY_ABI,
+        functionName: 'getCarbonStrategiesByPairs',
+        args: [
+          controller,
+          pairs.map(pair => ({
+            token0: pair.token0,
+            token1: pair.token1,
+            startIndex: 0n,
+            endIndex: 0n,
+          })),
+        ],
+      }) as RawCarbonPairStrategies[];
+
+      for (let index = 0; index < pairs.length; index++) {
+        const result = results[index];
+        this.applyRawStrategiesForPair(
+          pairs[index],
+          result ? field<RawCarbonStrategy[]>(result, 'strategies', 2) ?? [] : []
+        );
+      }
+    } catch (error) {
+      console.error(`Carbon batch strategy query failed for ${pairs.length} pairs, falling back to individual calls:`, error);
+      for (const pair of pairs) {
+        await this.refetchPair(pair);
+      }
+    }
+  }
+
+  private applyRawStrategiesForPair(pair: CarbonPairMetadata, rawStrategies: RawCarbonStrategy[]): void {
     const key = this.pairKey(pair.controller, pair.token0, pair.token1);
     const previousIds = this.strategyIdsByPair.get(key);
     if (previousIds) {
@@ -239,6 +304,17 @@ export class CarbonStrategyStore {
     if (RUNTIME.debug) {
       console.log(`Carbon pair ${pair.token0}/${pair.token1}: loaded ${rawStrategies.length}, kept ${ids.size}, filtered ${filtered}`);
     }
+  }
+
+  private pairsByController(): Map<string, CarbonPairMetadata[]> {
+    const pairsByController = new Map<string, CarbonPairMetadata[]>();
+    for (const pair of this.pairs) {
+      const key = pair.controller.toLowerCase();
+      const pairs = pairsByController.get(key) ?? [];
+      pairs.push(pair);
+      pairsByController.set(key, pairs);
+    }
+    return pairsByController;
   }
 
   private async flushDirtyPairs(): Promise<void> {

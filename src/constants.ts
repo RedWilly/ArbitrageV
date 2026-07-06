@@ -52,6 +52,10 @@ export const V3_STARTUP_POLICY: V3StartupPolicy = {
     batchSize: 5,
 } as const;
 
+export const CARBON_STARTUP_POLICY = {
+    batchSize: 20,
+} as const;
+
 export const PAIR_DISCOVERY_POLICY = {
     batchSize: 200,
     woofReserveBatchSize: 5,

@@ -35,6 +35,29 @@ interface IUniswapV3Pool {
 	function tickBitmap(int16 wordPosition) external view returns (uint256);
 }
 
+interface ICarbonController {
+	struct Order {
+		uint128 y;
+		uint128 z;
+		uint64 A;
+		uint64 B;
+	}
+
+	struct Strategy {
+		uint256 id;
+		address owner;
+		address[2] tokens;
+		Order[2] orders;
+	}
+
+	function strategiesByPair(
+		address token0,
+		address token1,
+		uint256 startIndex,
+		uint256 endIndex
+	) external view returns (Strategy[] memory);
+}
+
 // In order to quickly load up data from Uniswap-like market, this contract allows easy iteration with a single eth_call
 contract FlashUniswapQueryV1 {
 	uint8 private constant V3_STARTUP_BITMAP_WORD_RADIUS = 2;
@@ -63,6 +86,19 @@ contract FlashUniswapQueryV1 {
 		V3LiveState live;
 		V3BitmapData[] bitmaps;
 		V3TickData[] ticks;
+	}
+
+	struct CarbonPairRequest {
+		address token0;
+		address token1;
+		uint256 startIndex;
+		uint256 endIndex;
+	}
+
+	struct CarbonPairStrategies {
+		address token0;
+		address token1;
+		ICarbonController.Strategy[] strategies;
 	}
 
 	function getReservesByPairs(IUniswapV2Pair[] calldata _pairs) external view returns (uint256[3][] memory) {
@@ -97,6 +133,27 @@ contract FlashUniswapQueryV1 {
 				live: live,
 				bitmaps: bitmaps,
 				ticks: _getV3InitializedTicksFromBitmaps(_pools[i], _tickSpacings[i], bitmaps)
+			});
+		}
+		return result;
+	}
+
+	function getCarbonStrategiesByPairs(
+		ICarbonController _controller,
+		CarbonPairRequest[] calldata _requests
+	) external view returns (CarbonPairStrategies[] memory) {
+		CarbonPairStrategies[] memory result = new CarbonPairStrategies[](_requests.length);
+		for (uint256 i = 0; i < _requests.length; i++) {
+			CarbonPairRequest calldata request = _requests[i];
+			result[i] = CarbonPairStrategies({
+				token0: request.token0,
+				token1: request.token1,
+				strategies: _controller.strategiesByPair(
+					request.token0,
+					request.token1,
+					request.startIndex,
+					request.endIndex
+				)
 			});
 		}
 		return result;
