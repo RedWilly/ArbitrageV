@@ -1,11 +1,9 @@
 import { type Address } from 'viem';
-import { type SwapDirection } from '../market/v2-types';
 import { type MarketEdgeId, type MarketProtocol } from '../market-graph/types';
 
 export type CandidateRoute = {
   path: Address[];
   pairs: Address[];
-  directions: SwapDirection[];
   edgeIds: MarketEdgeId[];
   edgeIndexes?: number[];
   protocols: MarketProtocol[];

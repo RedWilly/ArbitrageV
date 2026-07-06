@@ -86,7 +86,6 @@ describe("V3 arbitrage strategy", () => {
     const quote = graph.quote({
       path: [tokenA, tokenB],
       pools: [configuredPool.address],
-      directions: ["token0ToToken1"],
       edgeIds: [edge.id],
       protocols: ["v3"],
     }, 10n ** 30n);

@@ -1,10 +1,7 @@
-import dotenv from 'dotenv';
 import { type Address } from 'viem';
 import { type V3PoolConfig, type V3StartupPolicy } from './market/v3-types';
 import { type ArbitrageSearchPolicy } from './market-graph/types';
 import { gasPrice, tokenAmount } from './values';
-
-dotenv.config();
 
 export type TokenConfig = {
     name: string;

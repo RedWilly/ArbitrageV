@@ -34,7 +34,6 @@ type CarbonPairRow = {
   token1: string;
   strategy_count: number;
   fee_ppm: number;
-  enabled: number;
 };
 
 export function marketDbPath(): string {
@@ -68,11 +67,9 @@ export function initMarketDb(db: Database): void {
       token1 TEXT NOT NULL,
       strategy_count INTEGER NOT NULL,
       fee_ppm INTEGER NOT NULL DEFAULT 4000,
-      enabled INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (controller, token0, token1)
     )
   `);
-  addColumnIfMissing(db, 'carbon_pairs', 'fee_ppm', 'INTEGER NOT NULL DEFAULT 4000');
 }
 
 export function replaceStoredPools(db: Database, pools: readonly StoredPool[]): void {
@@ -113,8 +110,8 @@ export function loadStoredPools(db: Database): StoredPool[] {
 
 export function replaceStoredCarbonPairs(db: Database, pairs: readonly CarbonPairMetadata[]): void {
   const insert = db.prepare(`
-    INSERT INTO carbon_pairs (controller, token0, token1, strategy_count, fee_ppm, enabled)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO carbon_pairs (controller, token0, token1, strategy_count, fee_ppm)
+    VALUES (?, ?, ?, ?, ?)
   `);
   const replace = db.transaction((rows: readonly CarbonPairMetadata[]) => {
     db.exec('DELETE FROM carbon_pairs');
@@ -124,8 +121,7 @@ export function replaceStoredCarbonPairs(db: Database, pairs: readonly CarbonPai
         pair.token0,
         pair.token1,
         pair.strategyCount,
-        pair.feePpm,
-        pair.enabled ? 1 : 0
+        pair.feePpm
       );
     }
   });
@@ -135,9 +131,8 @@ export function replaceStoredCarbonPairs(db: Database, pairs: readonly CarbonPai
 
 export function loadStoredCarbonPairs(db: Database): CarbonPairMetadata[] {
   const rows = db.prepare(`
-    SELECT controller, token0, token1, strategy_count, fee_ppm, enabled
+    SELECT controller, token0, token1, strategy_count, fee_ppm
     FROM carbon_pairs
-    WHERE enabled = 1
   `).all() as CarbonPairRow[];
 
   return rows.map(row => ({
@@ -146,7 +141,6 @@ export function loadStoredCarbonPairs(db: Database): CarbonPairMetadata[] {
     token1: row.token1 as Address,
     strategyCount: row.strategy_count,
     feePpm: row.fee_ppm,
-    enabled: row.enabled === 1,
   }));
 }
 
@@ -198,10 +192,4 @@ export function storedV3Pools(pools: readonly StoredPool[]): V3PoolConfig[] {
       tickSpacing: pool.tickSpacing!,
       enabled: true,
     }));
-}
-
-function addColumnIfMissing(db: Database, table: string, column: string, definition: string): void {
-  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
-  if (columns.some(existing => existing.name === column)) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

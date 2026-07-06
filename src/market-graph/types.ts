@@ -57,7 +57,6 @@ export type AnyMarketEdge = V2MarketEdge | V3MarketEdge | CarbonMarketEdge;
 export type MarketRoute = {
   path: Address[];
   pools: Address[];
-  directions: SwapDirection[];
   edgeIds: MarketEdgeId[];
   edgeIndexes?: number[];
   protocols: MarketProtocol[];

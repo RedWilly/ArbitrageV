@@ -1,4 +1,3 @@
-import TelegramBot from 'node-telegram-bot-api';
 import { type Address } from 'viem';
 import {
     CONTRACTS,
@@ -48,17 +47,13 @@ class NonceTracker {
 }
 
 class TransactionNotifier {
-    private bot: TelegramBot | null = TELEGRAM.botToken
-        ? new TelegramBot(TELEGRAM.botToken, { polling: false })
-        : null;
-
     async transactionSent(
         hash: string,
         type: 'flashswap' | 'direct',
         expectedProfit: bigint,
         tokenAddress?: Address
     ): Promise<void> {
-        if (!this.bot || !TELEGRAM.chatId) return;
+        if (!TELEGRAM.botToken || !TELEGRAM.chatId) return;
 
         const token = this.resolveToken(tokenAddress);
         const status = expectedProfit > 0n ? 'PROFIT' : 'WARNING';
@@ -71,9 +66,15 @@ class TransactionNotifier {
             `<a href="https://seiscan.io/tx/${hash}">View on Explorer</a>`;
 
         try {
-            await this.bot.sendMessage(TELEGRAM.chatId, message, {
-                parse_mode: 'HTML',
-                disable_web_page_preview: true,
+            await fetch(`https://api.telegram.org/bot${TELEGRAM.botToken}/sendMessage`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    chat_id: TELEGRAM.chatId,
+                    text: message,
+                    parse_mode: 'HTML',
+                    disable_web_page_preview: true,
+                }),
             });
         } catch (error) {
             console.error('Failed to send Telegram notification:', error);

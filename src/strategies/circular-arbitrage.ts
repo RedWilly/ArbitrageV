@@ -243,7 +243,6 @@ export class CircularArbitrageStrategy {
     const depth = states.depths[stateIndex];
     const path = new Array<Address>(depth + 1);
     const pairs = new Array<Address>(depth);
-    const directions = new Array<CandidateRoute['directions'][number]>(depth);
     const edgeIds = new Array<string>(depth);
     const edgeIndexes = new Array<number>(depth);
     const protocols = new Array<MarketProtocol>(depth);
@@ -256,7 +255,6 @@ export class CircularArbitrageStrategy {
         const edgeIndex = states.viaEdgeIndexes[current];
         const edge = this.graph.edgeAt(edgeIndex)!;
         pairs[index - 1] = edge.poolAddress;
-        directions[index - 1] = edge.direction;
         edgeIds[index - 1] = edge.id;
         edgeIndexes[index - 1] = edgeIndex;
         protocols[index - 1] = edge.protocol;
@@ -264,7 +262,7 @@ export class CircularArbitrageStrategy {
       }
     }
 
-    return { path, pairs, directions, edgeIds, edgeIndexes, protocols };
+    return { path, pairs, edgeIds, edgeIndexes, protocols };
   }
 
   private createStateStore(): RouteStateStore {

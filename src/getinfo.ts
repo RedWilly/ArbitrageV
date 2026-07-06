@@ -309,16 +309,6 @@ async function getReservesWithRetry(
     return result;
 }
 
-/**
- * Fetches all pairs from all factories and returns them as an array
- */
-export async function getAllPairsInfo(
-    client: ReturnType<typeof createPublicClient>
-): Promise<MarketPairInfo[]> {
-    const pools = await discoverV2PoolMetadata(client);
-    return getKnownPairsInfo(client, pools);
-}
-
 export async function discoverV2PoolMetadata(
     client: ReturnType<typeof createPublicClient>
 ): Promise<V2PoolMetadata[]> {

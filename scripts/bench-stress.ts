@@ -1,12 +1,12 @@
 import { TOKENS } from '../src/constants';
-import { type PairInfo } from '../src/market/v2-types';
+import { type PairInfo, type ReserveUpdate } from '../src/market/v2-types';
 import { type V3PoolConfig } from '../src/market/v3-types';
 import { MarketGraph } from '../src/market-graph/market-graph';
 import { type ArbitrageSearchPolicy } from '../src/market-graph/types';
 import { OpportunityEngine } from '../src/opportunities/opportunity-engine';
 import { Q96 } from '../src/pricing/v3-swap-math';
 import { tokenAmount } from '../src/values';
-import { createReserveUpdateScheduler } from '../src/runtime/event-scheduler';
+import { LatestUpdateScheduler } from '../src/runtime/event-scheduler';
 import { type Address } from 'viem';
 
 const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);
@@ -122,7 +122,10 @@ async function main(): Promise<void> {
     v2Engine.findOpportunities({ startTokens: [tokenA], changedPairs: [v2ChangedPair.pairAddress] });
   });
 
-  const scheduler = createReserveUpdateScheduler(async () => {});
+  const scheduler = new LatestUpdateScheduler<ReserveUpdate>(
+    async () => {},
+    update => update.pairAddress.toLowerCase()
+  );
   const burst = Array.from({ length: 50_000 }, (_, i) => ({
     pairAddress: pairAddress(i % 100),
     reserve0: BigInt(i),

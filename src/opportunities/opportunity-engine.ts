@@ -2,7 +2,7 @@ import { encodeAbiParameters, type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
 import { type CarbonStrategy } from '../market/carbon';
 import { MarketGraph } from '../market-graph/market-graph';
-import { MarketRouteSizer } from '../market-graph/route-sizer';
+import { sizeRoute } from '../market-graph/route-sizer';
 import { type ArbitrageSearchPolicy, type FlashPoolCandidate } from '../market-graph/types';
 import { type PairInfo, type ReserveUpdate } from '../market/v2-types';
 import {
@@ -25,7 +25,6 @@ import {
 export class OpportunityEngine {
   private readonly graph: MarketGraph;
   private readonly strategy: CircularArbitrageStrategy;
-  private readonly sizer: MarketRouteSizer;
 
   constructor(
     private readonly policy: ArbitrageSearchPolicy = ARBITRAGE_SEARCH_POLICY,
@@ -33,7 +32,6 @@ export class OpportunityEngine {
   ) {
     this.graph = graph;
     this.strategy = new CircularArbitrageStrategy(this.graph, policy);
-    this.sizer = new MarketRouteSizer(this.graph, policy);
   }
 
   addPair(pair: PairInfo): void {
@@ -132,10 +130,9 @@ export class OpportunityEngine {
   }
 
   private sizeCandidate(candidate: CandidateRoute): ArbitrageOpportunity {
-    const { profit, optimalInput, complete } = this.sizer.size({
+    const { profit, optimalInput, complete } = sizeRoute(this.graph, this.policy, {
       path: candidate.path,
       pools: candidate.pairs,
-      directions: candidate.directions,
       edgeIds: candidate.edgeIds,
       edgeIndexes: candidate.edgeIndexes,
       protocols: candidate.protocols,

@@ -10,15 +10,12 @@
     "bench:stress": "bun run scripts/bench-stress.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/node-telegram-bot-api": "^0.64.7"
+    "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
-    "node-telegram-bot-api": "^0.66.0",
     "viem": "^2.54.1"
   }
 }

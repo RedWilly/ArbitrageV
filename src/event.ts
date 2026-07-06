@@ -4,11 +4,7 @@ import { type ReserveUpdate } from './market/v2-types';
 import { type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
 import { OpportunityWorkflow } from './opportunities/opportunity-workflow';
-import {
-    createReserveUpdateScheduler,
-    createV3PoolUpdateScheduler,
-    type LatestUpdateScheduler,
-} from './runtime/event-scheduler';
+import { LatestUpdateScheduler } from './runtime/event-scheduler';
 import { V3_LIQUIDITY_EVENT_ABI, V3_SWAP_EVENT_ABI } from './runtime/v3-events';
 
 // ABI for both types of Sync events
@@ -56,8 +52,14 @@ export class EventMonitor {
         this.graph = graph;
         this.networkConfig = networkConfig;
         this.opportunities = new OpportunityWorkflow(graph, networkConfig);
-        this.scheduler = createReserveUpdateScheduler(this.processReserveUpdateBatch.bind(this));
-        this.v3Scheduler = createV3PoolUpdateScheduler(this.processV3PoolUpdateBatch.bind(this));
+        this.scheduler = new LatestUpdateScheduler(
+            this.processReserveUpdateBatch.bind(this),
+            update => update.pairAddress.toLowerCase()
+        );
+        this.v3Scheduler = new LatestUpdateScheduler(
+            this.processV3PoolUpdateBatch.bind(this),
+            update => update.poolAddress.toLowerCase()
+        );
         this.client = networkConfig.client;
         for (const pool of options.v2Pools ?? []) {
             this.v2PoolByAddress.set(pool.pairAddress.toLowerCase(), pool);

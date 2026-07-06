@@ -7,7 +7,6 @@ export type CarbonPairMetadata = {
   token1: Address;
   strategyCount: number;
   feePpm: number;
-  enabled: boolean;
 };
 
 export type CarbonOrder = {
@@ -95,7 +94,6 @@ export async function discoverCarbonPairs(client: CarbonClient): Promise<CarbonP
         token1,
         strategyCount: Number(count),
         feePpm: controller.feePpm,
-        enabled: true,
       });
     }
   }
