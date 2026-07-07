@@ -308,15 +308,27 @@ contract ArbitrageExecutor is Withdrawable {
     ) internal returns (address tokenOut, uint256 amountOut) {
         if (amountIn > type(uint128).max) revert InvalidCarbonAmount();
 
-        uint256 strategyId;
         address rawSourceToken;
         address rawTargetToken;
-        (strategyId, rawSourceToken, rawTargetToken) = abi.decode(data, (uint256, address, address));
+        uint256[] memory strategyIds;
+        uint128[] memory amounts;
+        if (data.length == 96) {
+            uint256 strategyId;
+            (strategyId, rawSourceToken, rawTargetToken) = abi.decode(data, (uint256, address, address));
+            strategyIds = new uint256[](1);
+            amounts = new uint128[](1);
+            strategyIds[0] = strategyId;
+            amounts[0] = uint128(amountIn);
+        } else {
+            (rawSourceToken, rawTargetToken, strategyIds, amounts) =
+                abi.decode(data, (address, address, uint256[], uint128[]));
+        }
         bool sourceIsNative = rawSourceToken == NATIVE_SEI;
         bool targetIsNative = rawTargetToken == NATIVE_SEI;
         tokenOut = targetIsNative ? WSEI : rawTargetToken;
         if (sourceIsNative && tokenIn != WSEI) revert SwapPathError();
         if (!sourceIsNative && tokenIn != rawSourceToken) revert SwapPathError();
+        if (strategyIds.length == 0 || strategyIds.length != amounts.length) revert SwapPathError();
 
         if (sourceIsNative) {
             IWSEI(WSEI).withdraw(amountIn);
@@ -328,11 +340,17 @@ contract ArbitrageExecutor is Withdrawable {
             ? address(this).balance
             : IERC20(rawTargetToken).balanceOf(address(this));
 
-        ICarbonController.TradeAction[] memory actions = new ICarbonController.TradeAction[](1);
-        actions[0] = ICarbonController.TradeAction({
-            strategyId: strategyId,
-            amount: uint128(amountIn)
-        });
+        ICarbonController.TradeAction[] memory actions = new ICarbonController.TradeAction[](strategyIds.length);
+        uint256 totalActionAmount;
+        for (uint256 i; i < strategyIds.length; ) {
+            totalActionAmount += amounts[i];
+            actions[i] = ICarbonController.TradeAction({
+                strategyId: strategyIds[i],
+                amount: amounts[i]
+            });
+            unchecked { ++i; }
+        }
+        if (totalActionAmount != amountIn) revert InvalidCarbonAmount();
 
         ICarbonController(controller).tradeBySourceAmount{value: sourceIsNative ? amountIn : 0}(
             rawSourceToken,

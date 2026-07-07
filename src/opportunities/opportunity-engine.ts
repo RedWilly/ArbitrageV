@@ -129,6 +129,61 @@ export class OpportunityEngine {
       edgeIndexes: candidate.edgeIndexes,
       protocols: candidate.protocols,
     });
+    const { fees, routeData } = complete
+      ? this.executionMetadata(candidate, optimalInput)
+      : this.emptyExecutionMetadata(candidate);
+
+    return {
+      ...candidate,
+      profit: complete ? profit : 0n,
+      optimalInput: complete ? optimalInput : 0n,
+      fees,
+      routeData,
+    };
+  }
+
+  private executionMetadata(candidate: CandidateRoute, amountIn: bigint): { fees: number[]; routeData: `0x${string}`[] } {
+    const fees: number[] = [];
+    const routeData: `0x${string}`[] = [];
+    let amount = amountIn;
+
+    candidate.edgeIds.forEach((edgeId, index) => {
+      const edgeIndex = candidate.edgeIndexes?.[index];
+      const edge = edgeIndex !== undefined ? this.graph.edgeAt(edgeIndex) : this.graph.edge(edgeId);
+      if (!edge) throw new Error(`Missing market edge ${edgeId}`);
+
+      fees.push(edge.fee);
+      routeData.push(edge.protocol === 'carbon' && edgeIndex !== undefined
+        ? this.encodeCarbonRouteData(edgeIndex, amount)
+        : '0x');
+
+      const quote = edgeIndex !== undefined
+        ? this.graph.quoteEdgeAt(edgeIndex, amount)
+        : this.graph.quote({ path: [], pools: [], edgeIds: [edgeId], protocols: [edge.protocol] }, amount);
+      amount = quote.amountOut;
+    });
+
+    return { fees, routeData };
+  }
+
+  private encodeCarbonRouteData(edgeIndex: number, amountIn: bigint): `0x${string}` {
+    const execution = this.graph.carbonExecution(edgeIndex, amountIn);
+    if (!execution) throw new Error(`Missing Carbon execution data for edge ${edgeIndex}`);
+
+    if (execution.strategyIds.length === 1) {
+      return encodeAbiParameters(
+        [{ type: 'uint256' }, { type: 'address' }, { type: 'address' }],
+        [execution.strategyIds[0], execution.rawFrom, execution.rawTo]
+      );
+    }
+
+    return encodeAbiParameters(
+      [{ type: 'address' }, { type: 'address' }, { type: 'uint256[]' }, { type: 'uint128[]' }],
+      [execution.rawFrom, execution.rawTo, execution.strategyIds, execution.amounts]
+    );
+  }
+
+  private emptyExecutionMetadata(candidate: CandidateRoute): { fees: number[]; routeData: `0x${string}`[] } {
     const fees: number[] = [];
     const routeData: `0x${string}`[] = [];
 
@@ -138,21 +193,10 @@ export class OpportunityEngine {
         : this.graph.edge(edgeId);
       if (!edge) throw new Error(`Missing market edge ${edgeId}`);
       fees.push(edge.fee);
-      routeData.push(edge.protocol === 'carbon'
-        ? encodeAbiParameters(
-          [{ type: 'uint256' }, { type: 'address' }, { type: 'address' }],
-          [edge.strategyId, edge.rawFrom, edge.rawTo]
-        )
-        : '0x');
+      routeData.push('0x');
     });
 
-    return {
-      ...candidate,
-      profit: complete ? profit : 0n,
-      optimalInput: complete ? optimalInput : 0n,
-      fees,
-      routeData,
-    };
+    return { fees, routeData };
   }
 
   private insertRankedOpportunity(

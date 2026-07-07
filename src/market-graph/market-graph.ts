@@ -17,12 +17,20 @@ import {
   type V3TickUpdate,
 } from '../market/v3-types';
 import { compareFractions, FEE_DENOMINATOR, swapV2 } from '../pricing/v2-swap-math';
-import { carbonMarginalRate, quoteCarbonExactInput } from '../pricing/carbon-swap-math';
+import {
+  carbonMarginalRate,
+  carbonSourceAmountForFullOrder,
+  quoteCarbonExactInput,
+  quoteCarbonExactInputBeforeFee,
+} from '../pricing/carbon-swap-math';
 import { Q96, quoteV3MultiRangeExactInput, V3_FEE_DENOMINATOR } from '../pricing/v3-swap-math';
 import { feeMultiplier } from '../values';
 import {
   type AnyMarketEdge,
   type ArbitrageSearchPolicy,
+  type CarbonGroupOrder,
+  type CarbonGroupedMarketEdge,
+  type CarbonMarketEdge,
   type FlashPoolCandidate,
   type MarketEdgeId,
   type MarketRoute,
@@ -47,7 +55,13 @@ type IndexedEdgeCache = {
   edgeIndexes: number[];
 };
 
+type CarbonAllocation = {
+  strategyId: bigint;
+  amountIn: bigint;
+};
+
 const Q192 = Q96 * Q96;
+const MAX_GROUPED_CARBON_ORDERS = 8;
 
 class AddressRegistry {
   private readonly indexes = new Map<string, number>();
@@ -201,11 +215,13 @@ export class MarketGraph {
       edge.liquidity = 0n;
       edge.rateNumerator = 0n;
       edge.rateDenominator = 0n;
+      if (edge.carbonKind === 'group') edge.orders = [];
     }
 
     for (const strategy of strategies) {
       this.upsertCarbonEdges(strategy);
     }
+    this.upsertGroupedCarbonEdges(strategies);
 
     this.rankedEdgesCache.clear();
   }
@@ -274,6 +290,41 @@ export class MarketGraph {
     return edgeIndex === undefined ? null : this.edges[edgeIndex].edge;
   }
 
+  quoteEdgeAt(edgeIndex: number, amountIn: bigint): MarketRouteQuote {
+    const edge = this.edgeAt(edgeIndex);
+    return edge
+      ? this.quoteEdge(edge, amountIn)
+      : { amountIn, amountOut: 0n, profit: -1n, complete: false };
+  }
+
+  carbonExecution(
+    edgeIndex: number,
+    amountIn: bigint
+  ): { rawFrom: Address; rawTo: Address; strategyIds: bigint[]; amounts: bigint[] } | null {
+    const edge = this.edgeAt(edgeIndex);
+    if (!edge || edge.protocol !== 'carbon') return null;
+
+    if (edge.carbonKind === 'single') {
+      return {
+        rawFrom: edge.rawFrom,
+        rawTo: edge.rawTo,
+        strategyIds: [edge.strategyId],
+        amounts: [amountIn],
+      };
+    }
+
+    const allocations: CarbonAllocation[] = [];
+    const quote = this.quoteCarbonGroupEdge(edge, amountIn, allocations);
+    if (!quote.complete || allocations.length === 0) return null;
+
+    return {
+      rawFrom: edge.rawFrom,
+      rawTo: edge.rawTo,
+      strategyIds: allocations.map(allocation => allocation.strategyId),
+      amounts: allocations.map(allocation => allocation.amountIn),
+    };
+  }
+
   quote(route: MarketRoute, amountIn: bigint): MarketRouteQuote {
     if (amountIn <= 0n) {
       return { amountIn, amountOut: 0n, profit: 0n, complete: false };
@@ -287,11 +338,7 @@ export class MarketGraph {
       const edge = this.edgeAt(edgeIndex);
       if (!edge) return { amountIn, amountOut: 0n, profit: -1n, complete: false };
 
-      const quote = edge.protocol === 'v2'
-        ? this.quoteV2Edge(edge, amount)
-        : edge.protocol === 'v3'
-          ? this.quoteV3Edge(edge, amount)
-          : this.quoteCarbonEdge(edge, amount);
+      const quote = this.quoteEdge(edge, amount);
 
       if (!quote.complete || quote.amountOut <= 0n) {
         return { amountIn, amountOut: quote.amountOut, profit: -1n, complete: false };
@@ -424,6 +471,14 @@ export class MarketGraph {
     };
   }
 
+  private quoteEdge(edge: AnyMarketEdge, amountIn: bigint): MarketRouteQuote {
+    return edge.protocol === 'v2'
+      ? this.quoteV2Edge(edge, amountIn)
+      : edge.protocol === 'v3'
+        ? this.quoteV3Edge(edge, amountIn)
+        : this.quoteCarbonEdge(edge, amountIn);
+  }
+
   private quoteV3Edge(edge: Extract<AnyMarketEdge, { protocol: 'v3' }>, amountIn: bigint): MarketRouteQuote {
     const poolIndex = this.poolIndexOf(edge.poolAddress);
     const pool = poolIndex === undefined ? undefined : this.v3Pools[poolIndex];
@@ -490,7 +545,9 @@ export class MarketGraph {
     }, token1Index, token0Index, poolIndex);
   }
 
-  private quoteCarbonEdge(edge: Extract<AnyMarketEdge, { protocol: 'carbon' }>, amountIn: bigint): MarketRouteQuote {
+  private quoteCarbonEdge(edge: CarbonMarketEdge, amountIn: bigint): MarketRouteQuote {
+    if (edge.carbonKind === 'group') return this.quoteCarbonGroupEdge(edge, amountIn);
+
     const quote = quoteCarbonExactInput(amountIn, edge.order, edge.fee);
     return {
       amountIn,
@@ -498,6 +555,65 @@ export class MarketGraph {
       profit: quote.complete ? quote.amountOut - amountIn : -1n,
       complete: quote.complete,
     };
+  }
+
+  private quoteCarbonGroupEdge(
+    edge: CarbonGroupedMarketEdge,
+    amountIn: bigint,
+    allocations?: CarbonAllocation[]
+  ): MarketRouteQuote {
+    let remaining = amountIn;
+    let amountOutBeforeFee = 0n;
+
+    for (const order of edge.orders) {
+      if (remaining <= 0n) break;
+
+      let input = remaining;
+      let quote = quoteCarbonExactInputBeforeFee(input, order.order);
+      if (!quote.complete) {
+        input = carbonSourceAmountForFullOrder(order.order);
+        if (input <= 0n) continue;
+        if (input > remaining) input = remaining;
+        quote = quoteCarbonExactInputBeforeFee(input, order.order);
+        if (!quote.complete) {
+          input = this.maxCarbonInputForOrder(order.order, input);
+          if (input <= 0n) continue;
+          quote = quoteCarbonExactInputBeforeFee(input, order.order);
+        }
+      }
+      if (!quote.complete || quote.amountOut <= 0n) continue;
+
+      remaining -= input;
+      amountOutBeforeFee += quote.amountOut;
+      allocations?.push({ strategyId: order.strategyId, amountIn: input });
+    }
+
+    if (remaining > 0n || amountOutBeforeFee <= 0n) {
+      return { amountIn, amountOut: amountOutBeforeFee, profit: -1n, complete: false };
+    }
+
+    const amountOut = (amountOutBeforeFee * BigInt(1_000_000 - edge.fee)) / 1_000_000n;
+    return {
+      amountIn,
+      amountOut,
+      profit: amountOut - amountIn,
+      complete: amountOut > 0n,
+    };
+  }
+
+  private maxCarbonInputForOrder(order: CarbonGroupOrder['order'], high: bigint): bigint {
+    let low = 0n;
+
+    while (low < high) {
+      const mid = (low + high + 1n) / 2n;
+      if (quoteCarbonExactInputBeforeFee(mid, order).complete) {
+        low = mid;
+      } else {
+        high = mid - 1n;
+      }
+    }
+
+    return low;
   }
 
   private upsertV3Edges(pool: V3PoolInfo, poolIndex: number): void {
@@ -553,6 +669,114 @@ export class MarketGraph {
     this.upsertCarbonOrder(strategy, 1, strategy.token0, strategy.token1);
   }
 
+  private upsertGroupedCarbonEdges(strategies: readonly CarbonStrategy[]): void {
+    if (!protocolAllowed(this.policy, 'carbon')) return;
+
+    const groups = new Map<string, {
+      controller: Address;
+      rawFrom: Address;
+      rawTo: Address;
+      graphFrom: Address;
+      graphTo: Address;
+      fee: number;
+      direction: SwapDirection;
+      orders: Array<CarbonGroupOrder & { rateNumerator: bigint; rateDenominator: bigint; liquidity: bigint }>;
+    }>();
+
+    for (const strategy of strategies) {
+      this.collectGroupedCarbonOrder(groups, strategy, 0, strategy.token1, strategy.token0);
+      this.collectGroupedCarbonOrder(groups, strategy, 1, strategy.token0, strategy.token1);
+    }
+
+    for (const group of groups.values()) {
+      if (group.orders.length < 2) continue;
+
+      group.orders.sort((a, b) => compareFractions(
+        b.rateNumerator,
+        b.rateDenominator,
+        a.rateNumerator,
+        a.rateDenominator
+      ));
+      const orders = group.orders.slice(0, MAX_GROUPED_CARBON_ORDERS);
+      const liquidity = orders.reduce((sum, order) => sum + order.liquidity, 0n);
+      if (liquidity <= 0n) continue;
+
+      const poolIndex = this.poolIndex(`carbon-group:${group.controller.toLowerCase()}:${group.rawFrom.toLowerCase()}:${group.rawTo.toLowerCase()}`);
+      const tokenIndex = this.tokenIndex(group.graphFrom);
+      const toTokenIndex = this.tokenIndex(group.graphTo);
+      const edgeId = this.carbonGroupEdgeId(group.controller, group.rawFrom, group.rawTo);
+      const best = orders[0];
+
+      this.carbonEdgeIds.add(edgeId);
+      this.upsertEdge({
+        id: edgeId,
+        protocol: 'carbon',
+        carbonKind: 'group',
+        from: group.graphFrom,
+        to: group.graphTo,
+        poolAddress: group.controller,
+        direction: group.direction,
+        fee: group.fee,
+        rawFrom: group.rawFrom,
+        rawTo: group.rawTo,
+        orders,
+        rateNumerator: best.rateNumerator,
+        rateDenominator: best.rateDenominator,
+        liquidity,
+      }, tokenIndex, toTokenIndex, poolIndex);
+    }
+  }
+
+  private collectGroupedCarbonOrder(
+    groups: Map<string, {
+      controller: Address;
+      rawFrom: Address;
+      rawTo: Address;
+      graphFrom: Address;
+      graphTo: Address;
+      fee: number;
+      direction: SwapDirection;
+      orders: Array<CarbonGroupOrder & { rateNumerator: bigint; rateDenominator: bigint; liquidity: bigint }>;
+    }>,
+    strategy: CarbonStrategy,
+    orderIndex: 0 | 1,
+    from: Address,
+    to: Address
+  ): void {
+    const order = strategy.orders[orderIndex];
+    if (order.y <= 0n || order.z <= 0n) return;
+
+    const rate = carbonMarginalRate(order, strategy.feePpm);
+    if (rate.numerator <= 0n || rate.denominator <= 0n) return;
+
+    const key = `${strategy.controller.toLowerCase()}:${from.toLowerCase()}:${to.toLowerCase()}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        controller: strategy.controller,
+        rawFrom: from,
+        rawTo: to,
+        graphFrom: graphToken(from),
+        graphTo: graphToken(to),
+        fee: strategy.feePpm,
+        direction: orderIndex === 0 ? 'token1ToToken0' : 'token0ToToken1',
+        orders: [],
+      };
+      groups.set(key, group);
+    }
+
+    group.orders.push({
+      strategyId: strategy.id,
+      orderIndex,
+      rawFrom: from,
+      rawTo: to,
+      order,
+      rateNumerator: rate.numerator,
+      rateDenominator: rate.denominator,
+      liquidity: order.y,
+    });
+  }
+
   private upsertCarbonOrder(
     strategy: CarbonStrategy,
     orderIndex: 0 | 1,
@@ -574,6 +798,7 @@ export class MarketGraph {
     this.upsertEdge({
       id: edgeId,
       protocol: 'carbon',
+      carbonKind: 'single',
       from: graphFrom,
       to: graphTo,
       poolAddress: strategy.controller,
@@ -672,6 +897,10 @@ export class MarketGraph {
 
   private carbonEdgeId(strategy: CarbonStrategy, orderIndex: 0 | 1): MarketEdgeId {
     return `carbon:${strategy.controller.toLowerCase()}:${strategy.id.toString()}:${orderIndex}`;
+  }
+
+  private carbonGroupEdgeId(controller: Address, from: Address, to: Address): MarketEdgeId {
+    return `carbon-group:${controller.toLowerCase()}:${from.toLowerCase()}:${to.toLowerCase()}`;
   }
 
   private tokenIndex(token: Address): number {
