@@ -31,12 +31,13 @@ const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
 
 const CARBON_CONTROLLER_ABI = parseAbi([
   'function pairs() view returns (address[2][])',
+  'function pairTradingFeePPM(address token0, address token1) view returns (uint32)',
   'function strategiesByPairCount(address token0, address token1) view returns (uint256)',
   'function strategiesByPair(address token0, address token1, uint256 startIndex, uint256 endIndex) view returns ((uint256 id, address owner, address[2] tokens, (uint128 y, uint128 z, uint64 A, uint64 B)[2] orders)[])',
 ]);
 
 const CARBON_BATCH_QUERY_ABI = parseAbi([
-  'function getCarbonStrategiesByPairs(address controller, (address token0, address token1, uint256 startIndex, uint256 endIndex)[] requests) view returns ((address token0, address token1, (uint256 id, address owner, address[2] tokens, (uint128 y, uint128 z, uint64 A, uint64 B)[2] orders)[] strategies)[])',
+  'function getCarbonStrategiesByPairs(address controller, (address token0, address token1, uint256 startIndex, uint256 endIndex)[] requests) view returns ((address token0, address token1, uint32 feePpm, (uint256 id, address owner, address[2] tokens, (uint128 y, uint128 z, uint64 A, uint64 B)[2] orders)[] strategies)[])',
 ]);
 
 type CarbonClient = {
@@ -66,8 +67,10 @@ type RawCarbonOrder = {
 };
 
 type RawCarbonPairStrategies = {
+  feePpm?: number;
   strategies?: RawCarbonStrategy[];
-  2?: RawCarbonStrategy[];
+  2?: number;
+  3?: RawCarbonStrategy[];
 };
 
 export type DiscoverCarbonPairsOptions = {
@@ -113,13 +116,19 @@ export async function discoverCarbonPairs(
         emptyPairs++;
         continue;
       }
+      const feePpm = await client.readContract({
+        address: controller.address,
+        abi: CARBON_CONTROLLER_ABI,
+        functionName: 'pairTradingFeePPM',
+        args: [token0, token1],
+      }) as number;
       keptPairs++;
       pairs.push({
         controller: controller.address,
         token0,
         token1,
         strategyCount: Number(count),
-        feePpm: controller.feePpm,
+        feePpm: Number(feePpm),
       });
     }
 
@@ -135,6 +144,7 @@ export class CarbonStrategyStore {
   private readonly strategiesById = new Map<string, CarbonStrategy>();
   private readonly strategyIdsByPair = new Map<string, Set<string>>();
   private readonly pairByTokenKey = new Map<string, CarbonPairMetadata>();
+  private readonly activePairKeys = new Set<string>();
   private readonly dirtyPairKeys = new Set<string>();
 
   constructor(
@@ -151,7 +161,7 @@ export class CarbonStrategyStore {
   }
 
   pairCount(): number {
-    return this.pairs.length;
+    return this.activePairKeys.size;
   }
 
   strategyCount(): number {
@@ -164,6 +174,7 @@ export class CarbonStrategyStore {
 
   async loadAll(): Promise<void> {
     this.strategiesById.clear();
+    this.activePairKeys.clear();
     for (const ids of this.strategyIdsByPair.values()) ids.clear();
 
     if (!CONTRACTS.flashQuery) {
@@ -231,9 +242,14 @@ export class CarbonStrategyStore {
 
     for (let index = 0; index < pairs.length; index++) {
       const result = results[index];
+      const feePpm = result ? field<number | undefined>(result, 'feePpm', 2) : undefined;
+      if (feePpm !== undefined) {
+        pairs[index].feePpm = Number(feePpm);
+      }
+
       this.applyRawStrategiesForPair(
         pairs[index],
-        result ? field<RawCarbonStrategy[]>(result, 'strategies', 2) ?? [] : []
+        result ? field<RawCarbonStrategy[]>(result, 'strategies', 3) ?? [] : []
       );
     }
   }
@@ -261,6 +277,7 @@ export class CarbonStrategyStore {
       ids.add(id);
     }
     this.strategyIdsByPair.set(key, ids);
+    this.setPairActive(key, ids.size > 0);
 
     if (RUNTIME.debug) {
       console.log(`Carbon pair ${pair.token0}/${pair.token1}: loaded ${rawStrategies.length}, kept ${ids.size}, filtered ${filtered}`);
@@ -331,24 +348,29 @@ export class CarbonStrategyStore {
     }
 
     if (log.eventName === 'TokensTraded') {
-      this.dirtyPairKeys.add(this.pairKey(controller, args.sourceToken, args.targetToken));
+      const key = this.pairKey(controller, args.sourceToken, args.targetToken);
+      if (this.isPairActive(key)) this.dirtyPairKeys.add(key);
     }
   }
 
   private addStrategyToPair(strategy: CarbonStrategy): void {
-    const key = this.pairKey(strategy.controller, strategy.token0, strategy.token1);
+    const key = this.canonicalPairKey(this.pairKey(strategy.controller, strategy.token0, strategy.token1));
     let ids = this.strategyIdsByPair.get(key);
     if (!ids) {
       ids = new Set();
       this.strategyIdsByPair.set(key, ids);
     }
     ids.add(strategy.id.toString());
+    this.setPairActive(key, true);
   }
 
   private deleteStrategy(id: bigint): void {
     const key = id.toString();
     this.strategiesById.delete(key);
-    for (const ids of this.strategyIdsByPair.values()) ids.delete(key);
+    for (const [pairKey, ids] of this.strategyIdsByPair.entries()) {
+      ids.delete(key);
+      if (ids.size === 0) this.setPairActive(pairKey, false);
+    }
   }
 
   private normalizeStrategy(controller: Address, raw: RawCarbonStrategy): CarbonStrategy {
@@ -391,6 +413,30 @@ export class CarbonStrategyStore {
 
   private pairKey(controller: Address, token0: Address, token1: Address): string {
     return `${controller.toLowerCase()}:${token0.toLowerCase()}:${token1.toLowerCase()}`;
+  }
+
+  private setPairActive(key: string, active: boolean): void {
+    const forwardKey = this.canonicalPairKey(key);
+    const pair = this.pairByTokenKey.get(forwardKey);
+    if (!pair) return;
+
+    const reverseKey = this.pairKey(pair.controller, pair.token1, pair.token0);
+    if (active) {
+      this.activePairKeys.add(forwardKey);
+    } else {
+      this.activePairKeys.delete(forwardKey);
+      this.dirtyPairKeys.delete(forwardKey);
+      this.dirtyPairKeys.delete(reverseKey);
+    }
+  }
+
+  private isPairActive(key: string): boolean {
+    return this.activePairKeys.has(this.canonicalPairKey(key));
+  }
+
+  private canonicalPairKey(key: string): string {
+    const pair = this.pairByTokenKey.get(key);
+    return pair ? this.pairKey(pair.controller, pair.token0, pair.token1) : key;
   }
 
   private feePpmForPair(controller: Address, token0: Address, token1: Address): number {

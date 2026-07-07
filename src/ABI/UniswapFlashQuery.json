@@ -1,5 +1,117 @@
 [
     {
+        "inputs": [
+            {
+                "internalType": "contract ICarbonController",
+                "name": "_controller",
+                "type": "address"
+            },
+            {
+                "components": [
+                    {
+                        "internalType": "address",
+                        "name": "token0",
+                        "type": "address"
+                    },
+                    {
+                        "internalType": "address",
+                        "name": "token1",
+                        "type": "address"
+                    },
+                    {
+                        "internalType": "uint256",
+                        "name": "startIndex",
+                        "type": "uint256"
+                    },
+                    {
+                        "internalType": "uint256",
+                        "name": "endIndex",
+                        "type": "uint256"
+                    }
+                ],
+                "internalType": "struct FlashUniswapQueryV1.CarbonPairRequest[]",
+                "name": "_requests",
+                "type": "tuple[]"
+            }
+        ],
+        "name": "getCarbonStrategiesByPairs",
+        "outputs": [
+            {
+                "components": [
+                    {
+                        "internalType": "address",
+                        "name": "token0",
+                        "type": "address"
+                    },
+                    {
+                        "internalType": "address",
+                        "name": "token1",
+                        "type": "address"
+                    },
+                    {
+                        "internalType": "uint32",
+                        "name": "feePpm",
+                        "type": "uint32"
+                    },
+                    {
+                        "components": [
+                            {
+                                "internalType": "uint256",
+                                "name": "id",
+                                "type": "uint256"
+                            },
+                            {
+                                "internalType": "address",
+                                "name": "owner",
+                                "type": "address"
+                            },
+                            {
+                                "internalType": "address[2]",
+                                "name": "tokens",
+                                "type": "address[2]"
+                            },
+                            {
+                                "components": [
+                                    {
+                                        "internalType": "uint128",
+                                        "name": "y",
+                                        "type": "uint128"
+                                    },
+                                    {
+                                        "internalType": "uint128",
+                                        "name": "z",
+                                        "type": "uint128"
+                                    },
+                                    {
+                                        "internalType": "uint64",
+                                        "name": "A",
+                                        "type": "uint64"
+                                    },
+                                    {
+                                        "internalType": "uint64",
+                                        "name": "B",
+                                        "type": "uint64"
+                                    }
+                                ],
+                                "internalType": "struct ICarbonController.Order[2]",
+                                "name": "orders",
+                                "type": "tuple[2]"
+                            }
+                        ],
+                        "internalType": "struct ICarbonController.Strategy[]",
+                        "name": "strategies",
+                        "type": "tuple[]"
+                    }
+                ],
+                "internalType": "struct FlashUniswapQueryV1.CarbonPairStrategies[]",
+                "name": "",
+                "type": "tuple[]"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
         "inputs":  [
                        {
                            "internalType":  "contract IBaseV1Pair[]",

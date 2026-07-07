@@ -56,6 +56,8 @@ interface ICarbonController {
 		uint256 startIndex,
 		uint256 endIndex
 	) external view returns (Strategy[] memory);
+
+	function pairTradingFeePPM(address token0, address token1) external view returns (uint32);
 }
 
 // In order to quickly load up data from Uniswap-like market, this contract allows easy iteration with a single eth_call
@@ -98,6 +100,7 @@ contract FlashUniswapQueryV1 {
 	struct CarbonPairStrategies {
 		address token0;
 		address token1;
+		uint32 feePpm;
 		ICarbonController.Strategy[] strategies;
 	}
 
@@ -148,6 +151,7 @@ contract FlashUniswapQueryV1 {
 			result[i] = CarbonPairStrategies({
 				token0: request.token0,
 				token1: request.token1,
+				feePpm: _controller.pairTradingFeePPM(request.token0, request.token1),
 				strategies: _controller.strategiesByPair(
 					request.token0,
 					request.token1,
