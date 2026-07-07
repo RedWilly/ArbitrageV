@@ -113,7 +113,7 @@ export class StartupEventBuffer {
 
       return { kind: 'collect' };
     } catch (error) {
-      console.error('Failed to decode startup V3 pool event:', error);
+      // console.error('Failed to decode startup V3 pool event:', error);
       return null;
     }
   }

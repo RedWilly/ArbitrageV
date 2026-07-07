@@ -33,7 +33,6 @@ const CARBON_CONTROLLER_ABI = parseAbi([
   'function pairs() view returns (address[2][])',
   'function pairTradingFeePPM(address token0, address token1) view returns (uint32)',
   'function strategiesByPairCount(address token0, address token1) view returns (uint256)',
-  'function strategiesByPair(address token0, address token1, uint256 startIndex, uint256 endIndex) view returns ((uint256 id, address owner, address[2] tokens, (uint128 y, uint128 z, uint64 A, uint64 B)[2] orders)[])',
 ]);
 
 const CARBON_BATCH_QUERY_ABI = parseAbi([
@@ -145,7 +144,6 @@ export class CarbonStrategyStore {
   private readonly strategyIdsByPair = new Map<string, Set<string>>();
   private readonly pairByTokenKey = new Map<string, CarbonPairMetadata>();
   private readonly activePairKeys = new Set<string>();
-  private readonly dirtyPairKeys = new Set<string>();
 
   constructor(
     private readonly client: CarbonClient,
@@ -190,18 +188,6 @@ export class CarbonStrategyStore {
   async handleEvents(controller: Address, logs: any[]): Promise<void> {
     if (RUNTIME.debug) console.log(`Received ${logs.length} Carbon events`);
     for (const log of logs) this.applyEvent(controller, log as any);
-    await this.flushDirtyPairs();
-  }
-
-  private async refetchPair(pair: CarbonPairMetadata): Promise<void> {
-    const rawStrategies = await this.client.readContract({
-      address: pair.controller,
-      abi: CARBON_CONTROLLER_ABI,
-      functionName: 'strategiesByPair',
-      args: [pair.token0, pair.token1, 0n, 0n],
-    }) as RawCarbonStrategy[];
-
-    this.applyRawStrategiesForPair(pair, rawStrategies);
   }
 
   private async refetchPairsInBatches(): Promise<void> {
@@ -295,19 +281,6 @@ export class CarbonStrategyStore {
     return pairsByController;
   }
 
-  private async flushDirtyPairs(): Promise<void> {
-    if (this.dirtyPairKeys.size === 0) return;
-    const keys = Array.from(this.dirtyPairKeys);
-    this.dirtyPairKeys.clear();
-
-    if (RUNTIME.debug) console.log(`Refreshing ${keys.length} dirty Carbon pairs`);
-    for (const key of keys) {
-      const pair = this.pairByTokenKey.get(key);
-      if (pair) await this.refetchPair(pair);
-    }
-    this.notifyChanged();
-  }
-
   private applyEvent(controller: Address, log: { eventName?: string; args?: any }): void {
     const args = log.args;
     if (!args) return;
@@ -345,11 +318,6 @@ export class CarbonStrategyStore {
       }
       this.notifyChanged();
       return;
-    }
-
-    if (log.eventName === 'TokensTraded') {
-      const key = this.pairKey(controller, args.sourceToken, args.targetToken);
-      if (this.isPairActive(key)) this.dirtyPairKeys.add(key);
     }
   }
 
@@ -415,23 +383,16 @@ export class CarbonStrategyStore {
     return `${controller.toLowerCase()}:${token0.toLowerCase()}:${token1.toLowerCase()}`;
   }
 
-  private setPairActive(key: string, active: boolean): void {
-    const forwardKey = this.canonicalPairKey(key);
-    const pair = this.pairByTokenKey.get(forwardKey);
-    if (!pair) return;
-
-    const reverseKey = this.pairKey(pair.controller, pair.token1, pair.token0);
-    if (active) {
-      this.activePairKeys.add(forwardKey);
-    } else {
+	  private setPairActive(key: string, active: boolean): void {
+	    const forwardKey = this.canonicalPairKey(key);
+	    const pair = this.pairByTokenKey.get(forwardKey);
+	    if (!pair) return;
+	
+	    if (active) {
+	      this.activePairKeys.add(forwardKey);
+	    } else {
       this.activePairKeys.delete(forwardKey);
-      this.dirtyPairKeys.delete(forwardKey);
-      this.dirtyPairKeys.delete(reverseKey);
     }
-  }
-
-  private isPairActive(key: string): boolean {
-    return this.activePairKeys.has(this.canonicalPairKey(key));
   }
 
   private canonicalPairKey(key: string): string {

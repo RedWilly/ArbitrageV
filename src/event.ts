@@ -8,10 +8,10 @@ import { scanAndExecuteOpportunities } from './opportunities/opportunity-workflo
 import { LatestUpdateScheduler } from './runtime/event-scheduler';
 import { CARBON_CONTROLLER_EVENT_ABI } from './runtime/carbon-events';
 import { addressMap, decodeV2SyncEvent, V2_SYNC_EVENT_ABI } from './runtime/v2-events';
-import { V3_LIQUIDITY_EVENT_ABI, V3_SWAP_EVENT_ABI } from './runtime/v3-events';
+import { V3_POOL_EVENT_ABI } from './runtime/v3-events';
 
 // Maximum WebSocket reconnection attempts before falling back to HTTP
-const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 3;
+const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 9;
 
 type V2WatchPool = {
     pairAddress: Address;
@@ -25,6 +25,10 @@ type EventMonitorOptions = {
     v3Pools?: readonly Address[];
     carbonStore?: CarbonStrategyStore;
 };
+
+type DecodedV3PoolEvent =
+    | { kind: 'swap'; update: Omit<V3PoolUpdate, 'poolAddress'> }
+    | { kind: 'liquidity'; update: { kind: 'mint' | 'burn'; tickLower: number; tickUpper: number; amount: bigint } };
 
 export class EventMonitor {
     private client: PublicClient;
@@ -117,33 +121,12 @@ export class EventMonitor {
             if (v3PoolAddresses.length > 0) {
                 const unwatchV3 = await eventClient.watchContractEvent({
                     address: v3PoolAddresses,
-                    abi: V3_SWAP_EVENT_ABI,
-                    eventName: 'Swap',
-                    onLogs: this.handleV3SwapEvents.bind(this),
+                    abi: V3_POOL_EVENT_ABI,
+                    onLogs: this.handleV3PoolEvents.bind(this),
                     onError: this.onError.bind(this),
                     strict: true
                 });
                 this.unwatchFns.push(unwatchV3);
-
-                const unwatchV3Mint = await eventClient.watchContractEvent({
-                    address: v3PoolAddresses,
-                    abi: V3_LIQUIDITY_EVENT_ABI,
-                    eventName: 'Mint',
-                    onLogs: this.handleV3LiquidityEvents.bind(this),
-                    onError: this.onError.bind(this),
-                    strict: true
-                });
-                this.unwatchFns.push(unwatchV3Mint);
-
-                const unwatchV3Burn = await eventClient.watchContractEvent({
-                    address: v3PoolAddresses,
-                    abi: V3_LIQUIDITY_EVENT_ABI,
-                    eventName: 'Burn',
-                    onLogs: this.handleV3LiquidityEvents.bind(this),
-                    onError: this.onError.bind(this),
-                    strict: true
-                });
-                this.unwatchFns.push(unwatchV3Burn);
             }
 
             if (this.options.carbonStore) {
@@ -155,7 +138,7 @@ export class EventMonitor {
                         abi: CARBON_CONTROLLER_EVENT_ABI,
                         strict: true,
                         onLogs: async (logs: any[]) => {
-                            await this.options.carbonStore?.handleEvents(controller.address, logs);
+                            await this.options.carbonStore?.handleEvents(controller.address, this.sortLogsByChainOrder(logs));
                         },
                         onError: this.onError.bind(this),
                     });
@@ -217,7 +200,7 @@ export class EventMonitor {
             // Collect all valid updates
             const updates: ReserveUpdate[] = [];
             
-            for (const log of logs) {
+            for (const log of this.sortLogsByChainOrder(logs)) {
                 // Check if this pair is in our graph before proceeding
                 const lowercaseAddress = log.address?.toLowerCase();
                 const pairAddress = this.pairAddressMap.get(lowercaseAddress);
@@ -260,45 +243,44 @@ export class EventMonitor {
         }
     }
 
-    private decodeV3SwapEvent(log: any): { sqrtPriceX96: bigint, liquidity: bigint, tick: number } | null {
+    private decodeV3PoolEvent(log: any): DecodedV3PoolEvent | null {
         try {
             if (!log.topics || !log.topics[0]) {
                 return null;
             }
 
             const decoded = decodeEventLog({
-                abi: V3_SWAP_EVENT_ABI,
+                abi: V3_POOL_EVENT_ABI,
                 data: log.data,
                 topics: log.topics
             });
 
-            return {
-                sqrtPriceX96: decoded.args.sqrtPriceX96,
-                liquidity: decoded.args.liquidity,
-                tick: Number(decoded.args.tick),
-            };
-        } catch (error) {
-            console.error('Failed to decode V3 Swap event:', error);
+            if (decoded.eventName === 'Swap') {
+                return {
+                    kind: 'swap',
+                    update: {
+                        sqrtPriceX96: decoded.args.sqrtPriceX96,
+                        liquidity: decoded.args.liquidity,
+                        tick: Number(decoded.args.tick),
+                    },
+                };
+            }
+
+            if (decoded.eventName === 'Mint' || decoded.eventName === 'Burn') {
+                return {
+                    kind: 'liquidity',
+                    update: {
+                        kind: decoded.eventName === 'Mint' ? 'mint' : 'burn',
+                        tickLower: Number(decoded.args.tickLower),
+                        tickUpper: Number(decoded.args.tickUpper),
+                        amount: decoded.args.amount,
+                    },
+                };
+            }
+
             return null;
-        }
-    }
-
-    private decodeV3LiquidityEvent(log: any): { kind: 'mint' | 'burn'; tickLower: number; tickUpper: number; amount: bigint } | null {
-        try {
-            const decoded = decodeEventLog({
-                abi: V3_LIQUIDITY_EVENT_ABI,
-                data: log.data,
-                topics: log.topics
-            });
-
-            return {
-                kind: decoded.eventName === 'Mint' ? 'mint' : 'burn',
-                tickLower: Number(decoded.args.tickLower),
-                tickUpper: Number(decoded.args.tickUpper),
-                amount: decoded.args.amount,
-            };
         } catch (error) {
-            console.error('Failed to decode V3 liquidity event:', error);
+            // console.error('Failed to decode V3 pool event:', error);
             return null;
         }
     }
@@ -307,13 +289,12 @@ export class EventMonitor {
         await this.scheduler.submit(updates);
     }
 
-    private async handleV3SwapEvents(logs: any[]) {
+    private async handleV3PoolEvents(logs: any[]) {
         try {
-            if (RUNTIME.debug) console.log(`Received ${logs.length} V3 Swap events`);
+            if (RUNTIME.debug) console.log(`Received ${logs.length} V3 pool events`);
+            const affectedPools = new Map<string, Address>();
 
-            const updates: V3PoolUpdate[] = [];
-
-            for (const log of logs) {
+            for (const log of this.sortLogsByChainOrder(logs)) {
                 const lowercaseAddress = log.address?.toLowerCase();
                 const poolAddress = this.v3PoolAddressMap.get(lowercaseAddress);
                 if (!poolAddress) {
@@ -323,69 +304,74 @@ export class EventMonitor {
                     continue;
                 }
 
-                const decodedEvent = this.decodeV3SwapEvent(log);
+                const decodedEvent = this.decodeV3PoolEvent(log);
                 if (!decodedEvent) {
-                    if (RUNTIME.debug) console.log('Failed to decode V3 Swap event');
+                    if (RUNTIME.debug) console.log('Failed to decode V3 pool event');
                     continue;
                 }
 
-                if (RUNTIME.debug) console.log(`V3 Swap event from ${poolAddress}:`, {
-                    sqrtPriceX96: decodedEvent.sqrtPriceX96.toString(),
-                    liquidity: decodedEvent.liquidity.toString(),
-                    tick: decodedEvent.tick,
-                });
+                affectedPools.set(poolAddress.toLowerCase(), poolAddress);
+                if (decodedEvent.kind === 'swap') {
+                    if (RUNTIME.debug) console.log(`V3 Swap event from ${poolAddress}:`, {
+                        sqrtPriceX96: decodedEvent.update.sqrtPriceX96.toString(),
+                        liquidity: decodedEvent.update.liquidity.toString(),
+                        tick: decodedEvent.update.tick,
+                    });
 
-                updates.push({
-                    poolAddress,
-                    sqrtPriceX96: decodedEvent.sqrtPriceX96,
-                    liquidity: decodedEvent.liquidity,
-                    tick: decodedEvent.tick,
-                });
-            }
+                    this.graph.updateV3PoolStates([{
+                        poolAddress,
+                        ...decodedEvent.update,
+                    }]);
+                    continue;
+                }
 
-            await this.processV3Updates(updates);
-        } catch (error) {
-            console.error('Error handling V3 Swap events:', error);
-        }
-    }
-
-    private async handleV3LiquidityEvents(logs: any[]) {
-        try {
-            if (RUNTIME.debug) console.log(`Received ${logs.length} V3 liquidity events`);
-
-            const activeLiquidityUpdates: V3PoolUpdate[] = [];
-
-            for (const log of logs) {
-                const lowercaseAddress = log.address?.toLowerCase();
-                const poolAddress = this.v3PoolAddressMap.get(lowercaseAddress);
-                if (!poolAddress) continue;
-
-                const decoded = this.decodeV3LiquidityEvent(log);
-                if (!decoded) continue;
-
-                this.applyV3LiquidityUpdate(poolAddress, decoded);
+                this.applyV3LiquidityUpdate(poolAddress, decodedEvent.update);
 
                 const pool = this.findV3Pool(poolAddress);
-                if (pool?.state && pool.state.tick >= decoded.tickLower && pool.state.tick < decoded.tickUpper) {
-                    const liquidity = decoded.kind === 'mint'
-                        ? pool.state.liquidity + decoded.amount
-                        : pool.state.liquidity > decoded.amount ? pool.state.liquidity - decoded.amount : 0n;
+                if (pool?.state && pool.state.tick >= decodedEvent.update.tickLower && pool.state.tick < decodedEvent.update.tickUpper) {
+                    const liquidity = decodedEvent.update.kind === 'mint'
+                        ? pool.state.liquidity + decodedEvent.update.amount
+                        : pool.state.liquidity > decodedEvent.update.amount ? pool.state.liquidity - decodedEvent.update.amount : 0n;
 
-                    activeLiquidityUpdates.push({
+                    this.graph.updateV3PoolStates([{
                         poolAddress,
                         sqrtPriceX96: pool.state.sqrtPriceX96,
                         liquidity,
                         tick: pool.state.tick,
-                    });
+                    }]);
                 }
             }
 
-            if (activeLiquidityUpdates.length > 0) {
-                await this.processV3Updates(activeLiquidityUpdates);
-            }
+            if (RUNTIME.debug) console.log(`Successfully updated ${affectedPools.size} V3 pools`);
+            if (affectedPools.size === 0) return;
+
+            console.log('Starting arbitrage check after V3 batch update...');
+            await this.checkArbitrageOpportunities(Array.from(affectedPools.values()));
         } catch (error) {
-            console.error('Error handling V3 liquidity events:', error);
+            console.error('Error handling V3 pool events:', error);
         }
+    }
+
+    private sortLogsByChainOrder(logs: any[]): any[] {
+        return [...logs].sort((a, b) => {
+            const block = this.compareLogField(a.blockNumber, b.blockNumber);
+            if (block !== 0) return block;
+            const transaction = this.compareLogField(a.transactionIndex, b.transactionIndex);
+            if (transaction !== 0) return transaction;
+            return this.compareLogField(a.logIndex, b.logIndex);
+        });
+    }
+
+    private compareLogField(a: unknown, b: unknown): number {
+        const left = this.logFieldToBigInt(a);
+        const right = this.logFieldToBigInt(b);
+        if (left < right) return -1;
+        if (left > right) return 1;
+        return 0;
+    }
+
+    private logFieldToBigInt(value: unknown): bigint {
+        return typeof value === 'bigint' ? value : BigInt(typeof value === 'number' ? value : 0);
     }
 
     private async processV3Updates(updates: V3PoolUpdate[]) {

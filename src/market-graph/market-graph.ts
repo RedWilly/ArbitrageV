@@ -486,15 +486,20 @@ export class MarketGraph {
       return { amountIn, amountOut: 0n, profit: -1n, complete: false };
     }
 
-    const quote = quoteV3MultiRangeExactInput({
-      amountIn,
-      sqrtPriceX96: pool.state.sqrtPriceX96,
-      liquidity: pool.state.liquidity,
-      tick: pool.state.tick,
-      fee: pool.fee,
-      direction: edge.direction,
-      ticks: this.getV3InitializedTicks(pool.address),
-    });
+    let quote: ReturnType<typeof quoteV3MultiRangeExactInput>;
+    try {
+      quote = quoteV3MultiRangeExactInput({
+        amountIn,
+        sqrtPriceX96: pool.state.sqrtPriceX96,
+        liquidity: pool.state.liquidity,
+        tick: pool.state.tick,
+        fee: pool.fee,
+        direction: edge.direction,
+        ticks: this.getV3InitializedTicks(pool.address),
+      });
+    } catch {
+      return { amountIn, amountOut: 0n, profit: -1n, complete: false };
+    }
 
     if (quote.exhaustedLiquidity) {
       return { amountIn, amountOut: quote.amountOut, profit: -1n, complete: false };
