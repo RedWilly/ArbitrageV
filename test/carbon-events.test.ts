@@ -22,8 +22,10 @@ describe("CarbonStrategyStore events", () => {
       },
     };
     let notified = 0;
-    const store = new CarbonStrategyStore(client, [pair], () => {
+    let changedPoolKeys: readonly string[] = [];
+    const store = new CarbonStrategyStore(client, [pair], (_, keys) => {
       notified++;
+      changedPoolKeys = keys;
     });
 
     await store.handleEvents(controller, [{
@@ -45,6 +47,11 @@ describe("CarbonStrategyStore events", () => {
       orders: [order(1_000n), order(2_000n)],
     });
     expect(notified).toBe(1);
+    expect(changedPoolKeys).toEqual([
+      `carbon:${controller.toLowerCase()}:12`,
+      `carbon-group:${controller.toLowerCase()}:${token0.toLowerCase()}:${token1.toLowerCase()}`,
+      `carbon-group:${controller.toLowerCase()}:${token1.toLowerCase()}:${token0.toLowerCase()}`,
+    ]);
   });
 });
 

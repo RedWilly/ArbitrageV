@@ -42,7 +42,14 @@ export async function runArbitrageBot(): Promise<void> {
   const carbonStore = new CarbonStrategyStore(
     network.wsClient ?? network.client,
     carbonPairs,
-    strategies => graph.setCarbonStrategies(strategies)
+    async (strategies, changedPoolKeys, changedController) => {
+      graph.setCarbonStrategies(strategies);
+      if (changedPoolKeys.length === 0) return;
+      await scanAndExecuteOpportunities(graph, network, {
+        changedPairs: changedPoolKeys,
+        releasedPairs: changedController ? [changedController] : [],
+      });
+    }
   );
 
   const startupBuffer = new StartupEventBuffer(network);

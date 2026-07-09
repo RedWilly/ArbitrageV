@@ -65,7 +65,7 @@ export const PAIR_DISCOVERY_POLICY = {
 
 export const EXECUTION_POLICY = {
     executeTrades: true,
-    gasLimit: 500000n,
+    gasLimit: 1500000n,
     baseFee: gasPrice('50.9'),
     legacy: true,
 } as const;
@@ -95,21 +95,21 @@ export const TOKENS: TokenConfig[] = [
         name: 'USDC',
         address: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
         liquidityAmount: tokenAmount('30'),
-        minProfit: tokenAmount('0.1'),
+        minProfit: tokenAmount('0.09'),
         decimals: 6,
     },
     {
         name: 'USDC.n',
         address: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
         liquidityAmount: tokenAmount('30'),
-        minProfit: tokenAmount('0.1'),
+        minProfit: tokenAmount('0.09'),
         decimals: 6,
     },
     {
         name: 'USDT0',
         address: '0x9151434b16b9763660705744891fA906F660EcC5',
         liquidityAmount: tokenAmount('30'),
-        minProfit: tokenAmount('0.1'),
+        minProfit: tokenAmount('0.09'),
         decimals: 6,
     },
     {

@@ -289,7 +289,7 @@ export class CircularArbitrageStrategy {
     return index;
   }
 
-  private changedPoolIndexes(changedPairs: Address[]): Set<number> {
+  private changedPoolIndexes(changedPairs: readonly string[]): Set<number> {
     const indexes = new Set<number>();
 
     for (const pair of changedPairs) {

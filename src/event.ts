@@ -470,7 +470,10 @@ export class EventMonitor {
 
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
         try {
-            await scanAndExecuteOpportunities(this.graph, this.networkConfig, { changedPairs: affectedPairs });
+            await scanAndExecuteOpportunities(this.graph, this.networkConfig, {
+                changedPairs: affectedPairs,
+                releasedPairs: affectedPairs,
+            });
         } catch (error) {
             console.error('Error checking arbitrage opportunities:', error);
         }

@@ -148,7 +148,11 @@ export class CarbonStrategyStore {
   constructor(
     private readonly client: CarbonClient,
     private readonly pairs: readonly CarbonPairMetadata[],
-    private readonly onChange?: (strategies: readonly CarbonStrategy[]) => void
+    private readonly onChange?: (
+      strategies: readonly CarbonStrategy[],
+      changedPoolKeys: readonly string[],
+      changedController?: Address
+    ) => void | Promise<void>
   ) {
     for (const pair of pairs) {
       const key = this.pairKey(pair.controller, pair.token0, pair.token1);
@@ -182,12 +186,21 @@ export class CarbonStrategyStore {
     await this.refetchPairsInBatches();
 
     if (RUNTIME.debug) console.log(`Carbon loaded ${this.strategiesById.size} live strategies`);
-    this.notifyChanged();
+    await this.notifyChanged();
   }
 
   async handleEvents(controller: Address, logs: any[]): Promise<void> {
-    if (RUNTIME.debug) console.log(`Received ${logs.length} Carbon events`);
-    for (const log of logs) this.applyEvent(controller, log as any);
+    const changedPoolKeys = new Set<string>();
+    let changed = false;
+
+    for (const log of logs) {
+      const poolKeys = this.applyEvent(controller, log as any);
+      if (!poolKeys) continue;
+      changed = true;
+      for (const key of poolKeys) changedPoolKeys.add(key);
+    }
+
+    if (changed) await this.notifyChanged([...changedPoolKeys], controller);
   }
 
   private async refetchPairsInBatches(): Promise<void> {
@@ -281,23 +294,28 @@ export class CarbonStrategyStore {
     return pairsByController;
   }
 
-  private applyEvent(controller: Address, log: { eventName?: string; args?: any }): void {
+  private applyEvent(controller: Address, log: { eventName?: string; args?: any }): string[] | null {
     const args = log.args;
-    if (!args) return;
-    if (RUNTIME.debug) console.log(`Carbon event: ${log.eventName ?? 'unknown'}`);
+    if (!args || !args.token0 || !args.token1) return null;
+
+    if (!this.pairByTokenKey.has(this.pairKey(controller, args.token0, args.token1))) {
+      return null;
+    }
+
+    const prefix = controller.toLowerCase();
+    const strategyId = BigInt(args.id).toString();
+    const poolKeys = [
+      `carbon:${prefix}:${strategyId}`,
+      `carbon-group:${prefix}:${args.token0.toLowerCase()}:${args.token1.toLowerCase()}`,
+      `carbon-group:${prefix}:${args.token1.toLowerCase()}:${args.token0.toLowerCase()}`,
+    ];
 
     if (log.eventName === 'StrategyDeleted') {
       this.deleteStrategy(args.id);
-      this.notifyChanged();
-      return;
+      return poolKeys;
     }
 
     if (log.eventName === 'StrategyCreated' || log.eventName === 'StrategyUpdated') {
-      if (!this.pairByTokenKey.has(this.pairKey(controller, args.token0, args.token1))) {
-        if (RUNTIME.debug) console.log(`Skipping Carbon ${log.eventName} for untracked pair ${args.token0}/${args.token1}`);
-        return;
-      }
-
       const existing = this.strategiesById.get(args.id.toString());
       const strategy: CarbonStrategy = {
         id: BigInt(args.id),
@@ -316,9 +334,10 @@ export class CarbonStrategyStore {
       } else {
         this.deleteStrategy(strategy.id);
       }
-      this.notifyChanged();
-      return;
+      return poolKeys;
     }
+
+    return null;
   }
 
   private addStrategyToPair(strategy: CarbonStrategy): void {
@@ -404,8 +423,8 @@ export class CarbonStrategyStore {
     return this.pairByTokenKey.get(this.pairKey(controller, token0, token1))?.feePpm ?? 0;
   }
 
-  private notifyChanged(): void {
-    this.onChange?.(this.strategies());
+  private async notifyChanged(changedPoolKeys: readonly string[] = [], changedController?: Address): Promise<void> {
+    await this.onChange?.(this.strategies(), changedPoolKeys, changedController);
   }
 }
 

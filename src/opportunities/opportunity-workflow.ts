@@ -12,7 +12,8 @@ import {
 } from './opportunity-types';
 
 export type OpportunityWorkflowRequest = {
-  changedPairs?: Address[];
+  changedPairs?: readonly string[];
+  releasedPairs?: readonly Address[];
 };
 
 let sharedManager: OpportunityManager | null = null;
@@ -22,10 +23,12 @@ export async function scanAndExecuteOpportunities(
   networkConfig: NetworkConfig,
   request: OpportunityWorkflowRequest = {}
 ): Promise<ArbitrageSearchResult> {
+  const manager = opportunityManager(networkConfig);
+  if (manager && request.releasedPairs) manager.releasePairs(request.releasedPairs);
+
   const opportunities = engine.findOpportunities(createSearchRequest(request));
   logOpportunities(opportunities);
 
-  const manager = opportunityManager(networkConfig);
   if (manager && opportunities.length > 0) {
     const executableOpportunities: ExecutableOpportunity[] = opportunities
       .map(opportunity => ({

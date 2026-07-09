@@ -265,7 +265,7 @@ export class MarketGraph {
     return this.tokenRegistry.get(token);
   }
 
-  poolIndexOf(pool: Address): number | undefined {
+  poolIndexOf(pool: Address | string): number | undefined {
     return this.poolRegistry.get(pool);
   }
 

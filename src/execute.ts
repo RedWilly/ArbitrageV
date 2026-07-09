@@ -87,9 +87,11 @@ function resolveToken(tokenAddress?: Address): Pick<(typeof TOKENS)[number], 'na
     return token || { name: 'Unknown', decimals: 18 };
 }
 
-// Keeps track of executed pairs to avoid conflicts
+const PAIR_LOCK_TIMEOUT_MS = 30_000;
+
+// Keeps route pools unavailable until their next local market update.
 export class OpportunityManager {
-    private usedPairs: Set<string> = new Set();
+    private lockedPairs: Map<string, number> = new Map();
     private nonceTracker: NonceTracker;
 
     constructor(private readonly networkConfig: NetworkConfig) {
@@ -100,13 +102,22 @@ export class OpportunityManager {
         return this.nonceTracker.initialize();
     }
 
-    // Check if an opportunity conflicts with already executed pairs
-    private hasConflict(pairs: Address[]): boolean {
-        return pairs.some(pair => this.usedPairs.has(pair.toLowerCase()));
+    // Unlock only pools whose new state has already been applied locally.
+    releasePairs(pairs: readonly Address[]): void {
+        for (const pair of pairs) this.lockedPairs.delete(pair.toLowerCase());
     }
-    // Mark pairs as used after execution
-    private markPairsAsUsed(pairs: Address[]): void {
-        pairs.forEach(pair => this.usedPairs.add(pair.toLowerCase()));
+
+    private tryLockPairs(pairs: Address[]): boolean {
+        const now = Date.now();
+        for (const [pair, expiresAt] of this.lockedPairs) {
+            if (expiresAt <= now) this.lockedPairs.delete(pair);
+        }
+
+        if (pairs.some(pair => this.lockedPairs.has(pair.toLowerCase()))) return false;
+
+        const expiresAt = now + PAIR_LOCK_TIMEOUT_MS;
+        for (const pair of pairs) this.lockedPairs.set(pair.toLowerCase(), expiresAt);
+        return true;
     }
 
     // Process and execute a batch of opportunities
@@ -127,37 +138,37 @@ export class OpportunityManager {
 
         for (const opp of sortedOpps) {
             // Skip if any pairs conflict
-            if (this.hasConflict(opp.pairs)) {
+            if (!this.tryLockPairs(opp.pairs)) {
                 if (RUNTIME.debug) {
                     console.log('Skipping opportunity due to pair conflict:', {
                         pairs: opp.pairs,
-                        usedPairs: Array.from(this.usedPairs)
+                        lockedPairs: Array.from(this.lockedPairs.keys())
                     });
                 }
                 continue;
             }
+
             try {
                 // Execute the opportunity
                 const executed = await this.executeArbitrageOpportunity(graph, opp);
-                if (!executed) continue;
+                if (!executed) {
+                    this.releasePairs(opp.pairs);
+                    continue;
+                }
 
-                // Mark pairs as used only after successful execution
-                this.markPairsAsUsed(opp.pairs);
                 if (RUNTIME.debug) {
-                    console.log('Successfully executed opportunity:', {
+                    console.log('Submitted opportunity:', {
                         profit: opp.expectedProfit.toString(),
                         pairs: opp.pairs
                     });
                 }
             } catch (error) {
+                this.releasePairs(opp.pairs);
                 if (RUNTIME.debug) {
                     console.error('Failed to execute opportunity:', error);
                 }
             }
         }
-        
-        // Clear used pairs after processing batch
-        this.usedPairs.clear();
     }
 
     private async executeArbitrageOpportunity(

@@ -18,7 +18,7 @@ export type ArbitrageOpportunity = CandidateRoute & {
 
 export type FindOpportunitiesRequest = {
   startTokens: Address[];
-  changedPairs?: Address[];
+  changedPairs?: readonly string[];
 };
 
 export type ArbitrageSearchResult = ArbitrageOpportunity[];
