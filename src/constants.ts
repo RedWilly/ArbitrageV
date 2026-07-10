@@ -41,10 +41,10 @@ export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
     topTokens: 7,
     allowedProtocols: ['v2', 'v3', 'carbon'],
     allowProtocolMixing: true,
-    maxRouteEdges: 4,
+    maxRouteEdges: 5,
     beamWidth: 25,
     optimizationIterations: 80,
-    maxInputReserveFraction: 5n,
+    maxInputReserveFraction: 10n,
     maxOpportunities: 10,
 } as const;
 
@@ -288,23 +288,5 @@ export const V3_POOLS: V3PoolConfig[] = [
     fee: 500,
     tickSpacing: 10,
     enabled: true,
-  },
-  // {
-  //   name: 'unknown-weth-usdc',
-  //   address: '0x1C97a574b5bBDcbc70A0223e8e6DBBb0479c0570',
-  //   token0: '0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8',
-  //   token1: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
-  //   fee: 2500,
-  //   tickSpacing: 200,
-  //   enabled: true,
-  // },
-  // {
-  //   name: 'unknown-usdt0-usdc',
-  //   address: '0x3C2567b15FD9133Cf9101E043C58e2B444aF900b',
-  //   token0: '0x9151434b16b9763660705744891fA906F660EcC5',
-  //   token1: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
-  //   fee: 200,
-  //   tickSpacing: 50,
-  //   enabled: true,
-  // }
+  }
 ];
