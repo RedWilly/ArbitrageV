@@ -50,6 +50,18 @@ export function carbonMarginalRate(order: CarbonOrder, feePpm = 0): { numerator:
   };
 }
 
+export function carbonMarginalRateAtSource(order: CarbonOrder, amountIn: bigint): { numerator: bigint; denominator: bigint } {
+  if (order.y <= 0n || order.z <= 0n || amountIn < 0n) return { numerator: 0n, denominator: 0n };
+  const A = decodeCarbonRate(order.A);
+  const B = decodeCarbonRate(order.B);
+  const curve = A * order.y + B * order.z;
+  const scaledLiquidity = order.z * ONE;
+  const denominator = A * amountIn * curve + scaledLiquidity * scaledLiquidity;
+  return denominator <= 0n
+    ? { numerator: 0n, denominator: 0n }
+    : { numerator: curve * curve * scaledLiquidity * scaledLiquidity, denominator: denominator * denominator };
+}
+
 export function decodeCarbonRate(value: bigint): bigint {
   return (value & RATE_MANTISSA_MASK) << (value >> 48n);
 }

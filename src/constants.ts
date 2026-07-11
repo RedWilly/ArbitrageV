@@ -43,7 +43,7 @@ export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
     allowProtocolMixing: true,
     maxRouteEdges: 5,
     beamWidth: 25,
-    optimizationIterations: 80,
+    optimizationIterations: 32,
     maxInputReserveFraction: 10n,
     maxOpportunities: 10,
 } as const;
@@ -71,7 +71,7 @@ export const EXECUTION_POLICY = {
 } as const;
 
 export const RUNTIME = {
-    debug: true,
+    debug: process.env.DEBUG === 'true',
     websocketEnabled: true,
 } as const;
 
@@ -94,29 +94,29 @@ export const TOKENS: TokenConfig[] = [
     {
         name: 'USDC',
         address: '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392',
-        liquidityAmount: tokenAmount('30'),
-        minProfit: tokenAmount('0.09'),
+        liquidityAmount: tokenAmount('30', 6),
+        minProfit: tokenAmount('0.09', 6),
         decimals: 6,
     },
     {
         name: 'USDC.n',
         address: '0x3894085Ef7Ff0f0aeDf52E2A2704928d1Ec074F1',
-        liquidityAmount: tokenAmount('30'),
-        minProfit: tokenAmount('0.09'),
+        liquidityAmount: tokenAmount('30', 6),
+        minProfit: tokenAmount('0.09', 6),
         decimals: 6,
     },
     {
         name: 'USDT0',
         address: '0x9151434b16b9763660705744891fA906F660EcC5',
-        liquidityAmount: tokenAmount('30'),
-        minProfit: tokenAmount('0.09'),
+        liquidityAmount: tokenAmount('30', 6),
+        minProfit: tokenAmount('0.09', 6),
         decimals: 6,
     },
     {
         name: 'WBTC',
         address: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c',
-        liquidityAmount: tokenAmount('0.0003324'),
-        minProfit: tokenAmount('0.000001662'),
+        liquidityAmount: tokenAmount('0.0003324', 8),
+        minProfit: tokenAmount('0.000001662', 8),
         decimals: 8,
     },
     {

@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
 import { type PairInfo } from "../src/market/v2-types";
+import { MarketGraph } from "../src/market-graph/market-graph";
+import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { tokenAmount } from "../src/values";
 
@@ -205,6 +207,31 @@ describe("V2 arbitrage graph", () => {
     for (const routePairs of opportunities.map(opportunity => opportunity.pairs)) {
       expect(routePairs).toContain(changedPair.pairAddress);
     }
+  });
+
+  test("keeps beam states separate for different start tokens", () => {
+    const tokenD = tokenAddress(9_999);
+    const policy: ArbitrageSearchPolicy = {
+      topTokens: 2,
+      allowedProtocols: ["v2"],
+      allowProtocolMixing: true,
+      maxRouteEdges: 3,
+      beamWidth: 1,
+      optimizationIterations: 16,
+      maxInputReserveFraction: 10n,
+      maxOpportunities: 5,
+    };
+    const graph = new OpportunityEngine(policy, new MarketGraph(policy, []));
+    for (const pool of [
+      pair(10, tokenA, tokenC, tokenAmount("1000"), tokenAmount("2000")),
+      pair(11, tokenB, tokenC, tokenAmount("1000"), tokenAmount("3000")),
+      pair(12, tokenC, tokenD, tokenAmount("1000"), tokenAmount("2000")),
+      pair(13, tokenD, tokenA, tokenAmount("1000"), tokenAmount("2000")),
+    ]) graph.addPair(pool);
+
+    const opportunities = graph.findOpportunities({ startTokens: [tokenA, tokenB] });
+
+    expect(opportunities.some(opportunity => opportunity.path[0] === tokenA)).toBe(true);
   });
 });
 

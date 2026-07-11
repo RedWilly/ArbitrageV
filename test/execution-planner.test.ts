@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createExecutionPlan } from "../src/execution/execution-planner";
+import { createExecutionPlan, flashLoanFee } from "../src/execution/execution-planner";
 
 type Address = `0x${string}`;
 
@@ -16,6 +16,11 @@ function carbonRouteData(strategyId: bigint, sourceToken: Address, targetToken: 
 }
 
 describe("createExecutionPlan", () => {
+  test("calculates the exact flash repayment fee", () => {
+    expect(flashLoanFee({ protocol: "v2", poolAddress: address(1), fee: 30, liquidity: 10_000n }, 1_000n)).toBe(4n);
+    expect(flashLoanFee({ protocol: "v3", poolAddress: address(2), fee: 500, liquidity: 10_000n }, 1_000n)).toBe(1n);
+  });
+
   test("builds ArbParams for a mixed V2/V3 circular route", () => {
     const flashPool = address(1);
     const v2Pool = address(2);

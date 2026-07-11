@@ -15,6 +15,8 @@ import {
 import { type NetworkConfig } from './network';
 import { formatTokenAmountWithSymbol } from './values';
 
+const TOKEN_PROFIT_SCALE = new Map(TOKENS.map(token => [token.address.toLowerCase(), token.minProfit]));
+
 class NonceTracker {
     private currentNonce: number | null = null;
     private initialization: Promise<void> | null = null;
@@ -127,8 +129,12 @@ export class OpportunityManager {
     ): Promise<void> {
         // Sort opportunities by expected profit (descending)
         const sortedOpps = [...opportunities].sort((a, b) => {
-            if (b.expectedProfit > a.expectedProfit) return 1;
-            if (b.expectedProfit < a.expectedProfit) return -1;
+            const aScale = TOKEN_PROFIT_SCALE.get(a.path[0].toLowerCase()) ?? 1n;
+            const bScale = TOKEN_PROFIT_SCALE.get(b.path[0].toLowerCase()) ?? 1n;
+            const aValue = a.expectedProfit * bScale;
+            const bValue = b.expectedProfit * aScale;
+            if (bValue > aValue) return 1;
+            if (bValue < aValue) return -1;
             return 0;
         });
 

@@ -1,3 +1,4 @@
+import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, RUNTIME } from '../constants';
 import { EventMonitor } from '../event';
 import { getKnownPairsInfo } from '../getinfo';
@@ -10,6 +11,9 @@ import { initializeNetwork } from '../network';
 import { OpportunityEngine } from '../opportunities/opportunity-engine';
 import { scanAndExecuteOpportunities } from '../opportunities/opportunity-workflow';
 import { StartupEventBuffer } from './startup-event-buffer';
+import { LatestUpdateScheduler } from './event-scheduler';
+
+type ScanUpdate = { key: string; releasedPairs: readonly Address[] };
 
 export async function runArbitrageBot(): Promise<void> {
   console.log('Initializing network...');
@@ -39,16 +43,28 @@ export async function runArbitrageBot(): Promise<void> {
   for (const pool of v3Pools) {
     graph.addV3Pool(pool);
   }
+  const scanScheduler = new LatestUpdateScheduler<ScanUpdate>(
+    async updates => {
+      const releasedPairs = new Map<string, Address>();
+      for (const update of updates) {
+        for (const pair of update.releasedPairs) releasedPairs.set(pair.toLowerCase(), pair);
+      }
+      await scanAndExecuteOpportunities(graph, network, {
+        changedPairs: updates.map(update => update.key),
+        releasedPairs: [...releasedPairs.values()],
+      });
+    },
+    update => update.key.toLowerCase()
+  );
+  const scheduleScan = (changedPairs: readonly string[], releasedPairs: readonly Address[] = []) =>
+    scanScheduler.submit(changedPairs.map(key => ({ key, releasedPairs })));
   const carbonStore = new CarbonStrategyStore(
     network.wsClient ?? network.client,
     carbonPairs,
     async (strategies, changedPoolKeys, changedController) => {
       graph.setCarbonStrategies(strategies);
       if (changedPoolKeys.length === 0) return;
-      await scanAndExecuteOpportunities(graph, network, {
-        changedPairs: changedPoolKeys,
-        releasedPairs: changedController ? [changedController] : [],
-      });
+      await scheduleScan(changedPoolKeys, changedController ? [changedController] : []);
     }
   );
 
@@ -96,7 +112,9 @@ export async function runArbitrageBot(): Promise<void> {
   const monitor = new EventMonitor(graph, network, {
     v2Pools,
     v3Pools: v3Pools.map(pool => pool.address),
+    v3PoolConfigs: v3Pools,
     carbonStore: carbonPairs.length > 0 ? carbonStore : undefined,
+    scan: scheduleScan,
   });
   await monitor.start();
 
@@ -134,4 +152,3 @@ function applyBufferedV2Updates(
     });
   }
 }
-

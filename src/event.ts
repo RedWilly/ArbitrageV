@@ -1,8 +1,9 @@
 import { type Address, decodeEventLog, type PublicClient } from 'viem';
 import { CARBON_CONTROLLERS, RUNTIME } from './constants';
 import { type CarbonStrategyStore } from './market/carbon';
+import { loadConfiguredV3StartupState } from './market/v3-loader';
 import { type ReserveUpdate } from './market/v2-types';
-import { type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
+import { type V3PoolConfig, type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
 import { scanAndExecuteOpportunities } from './opportunities/opportunity-workflow';
 import { LatestUpdateScheduler } from './runtime/event-scheduler';
@@ -23,7 +24,9 @@ type V2WatchPool = {
 type EventMonitorOptions = {
     v2Pools?: readonly V2WatchPool[];
     v3Pools?: readonly Address[];
+    v3PoolConfigs?: readonly V3PoolConfig[];
     carbonStore?: CarbonStrategyStore;
+    scan?: (changedPairs: readonly string[], releasedPairs?: readonly Address[]) => Promise<void>;
 };
 
 type DecodedV3PoolEvent =
@@ -37,7 +40,6 @@ export class EventMonitor {
     private isRunning: boolean = false;
     private unwatchFns: Array<() => void | Promise<void>> = [];
     private scheduler: LatestUpdateScheduler<ReserveUpdate>;
-    private v3Scheduler: LatestUpdateScheduler<V3PoolUpdate>;
     private networkConfig: any;
     private usingWebSocket: boolean = false;
     private wsReconnectAttempts: number = 0;
@@ -52,10 +54,6 @@ export class EventMonitor {
         this.scheduler = new LatestUpdateScheduler(
             this.processReserveUpdateBatch.bind(this),
             update => update.pairAddress.toLowerCase()
-        );
-        this.v3Scheduler = new LatestUpdateScheduler(
-            this.processV3PoolUpdateBatch.bind(this),
-            update => update.poolAddress.toLowerCase()
         );
         this.client = networkConfig.client;
         for (const pool of options.v2Pools ?? []) {
@@ -345,6 +343,8 @@ export class EventMonitor {
             if (RUNTIME.debug) console.log(`Successfully updated ${affectedPools.size} V3 pools`);
             if (affectedPools.size === 0) return;
 
+            await this.refreshV3Windows(Array.from(affectedPools.values()));
+
             console.log('Starting arbitrage check after V3 batch update...');
             await this.checkArbitrageOpportunities(Array.from(affectedPools.values()));
         } catch (error) {
@@ -372,10 +372,6 @@ export class EventMonitor {
 
     private logFieldToBigInt(value: unknown): bigint {
         return typeof value === 'bigint' ? value : BigInt(typeof value === 'number' ? value : 0);
-    }
-
-    private async processV3Updates(updates: V3PoolUpdate[]) {
-        await this.v3Scheduler.submit(updates);
     }
 
     private async processReserveUpdateBatch(batch: ReserveUpdate[]): Promise<void> {
@@ -412,21 +408,6 @@ export class EventMonitor {
 
         console.log('Starting arbitrage check after batch update...');
         await this.checkArbitrageOpportunities(batch.map(update => update.pairAddress));
-    }
-
-    private async processV3PoolUpdateBatch(batch: V3PoolUpdate[]): Promise<void> {
-        if (RUNTIME.debug) console.log(`Processing ${batch.length} latest V3 pool updates`);
-
-        try {
-            this.graph.updateV3PoolStates(batch);
-            if (RUNTIME.debug) console.log(`Successfully updated ${batch.length} V3 pools`);
-        } catch (error) {
-            console.error('Failed to update V3 pool states:', error);
-            return;
-        }
-
-        console.log('Starting arbitrage check after V3 batch update...');
-        await this.checkArbitrageOpportunities(batch.map(update => update.poolAddress));
     }
 
     private applyV3LiquidityUpdate(
@@ -470,6 +451,10 @@ export class EventMonitor {
 
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
         try {
+            if (this.options.scan) {
+                await this.options.scan(affectedPairs ?? [], affectedPairs);
+                return;
+            }
             await scanAndExecuteOpportunities(this.graph, this.networkConfig, {
                 changedPairs: affectedPairs,
                 releasedPairs: affectedPairs,
@@ -477,6 +462,14 @@ export class EventMonitor {
         } catch (error) {
             console.error('Error checking arbitrage opportunities:', error);
         }
+    }
+
+    private async refreshV3Windows(affectedPools: readonly Address[]): Promise<void> {
+        const affected = new Set(affectedPools.map(pool => pool.toLowerCase()));
+        const pools = (this.options.v3PoolConfigs ?? []).filter(pool =>
+            affected.has(pool.address.toLowerCase()) && this.graph.v3PoolNeedsRefresh(pool.address)
+        );
+        if (pools.length > 0) await loadConfiguredV3StartupState(this.client, this.graph, pools);
     }
 
     async stop() {
@@ -510,7 +503,6 @@ export class EventMonitor {
         
         // Clear any pending updates
         this.scheduler.clear();
-        this.v3Scheduler.clear();
     }
 
     private async restart() {

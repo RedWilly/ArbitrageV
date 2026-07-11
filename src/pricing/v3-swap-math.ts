@@ -28,6 +28,7 @@ export type V3SingleRangeQuote = {
 export type V3MultiRangeQuoteRequest = V3SingleRangeQuoteRequest & {
   tick: number;
   ticks: readonly V3Tick[] | Map<number, V3Tick>;
+  normalizedTicks?: boolean;
   sqrtPriceLimitX96?: bigint;
 };
 
@@ -255,7 +256,9 @@ export function quoteV3MultiRangeExactInput(request: V3MultiRangeQuoteRequest): 
   }
 
   const zeroForOne = request.direction === 'token0ToToken1';
-  const initializedTicks = normalizeTicks(request.ticks);
+  const initializedTicks = request.normalizedTicks && Array.isArray(request.ticks)
+    ? request.ticks as V3Tick[]
+    : normalizeTicks(request.ticks);
   let amountRemaining = request.amountIn;
   let amountInAfterFee = 0n;
   let amountOut = 0n;
@@ -339,17 +342,17 @@ function normalizeTicks(ticks: readonly V3Tick[] | Map<number, V3Tick>): V3Tick[
 }
 
 function nextInitializedTick(ticks: V3Tick[], currentTick: number, zeroForOne: boolean): V3Tick | null {
-  if (zeroForOne) {
-    for (let i = ticks.length - 1; i >= 0; i--) {
-      if (ticks[i].index < currentTick) return ticks[i];
-    }
-    return null;
+  let low = 0;
+  let high = ticks.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (ticks[middle].index < currentTick) low = middle + 1;
+    else high = middle;
   }
 
-  for (const tick of ticks) {
-    if (tick.index > currentTick) return tick;
-  }
-  return null;
+  if (zeroForOne) return low > 0 ? ticks[low - 1] : null;
+  while (low < ticks.length && ticks[low].index <= currentTick) low++;
+  return ticks[low] ?? null;
 }
 
 function boundedTargetSqrtPrice(

@@ -45,6 +45,20 @@ export type ExecutionPlan = {
   params: ArbContractParams;
 };
 
+export function flashLoanFee(pool: FlashPoolCandidate, amount: bigint): bigint {
+  if (pool.protocol === 'v2') {
+    const fee = BigInt(pool.fee);
+    return (amount * fee) / (10_000n - fee) + 1n;
+  }
+
+  if (pool.protocol === 'v3') {
+    const feeAmount = amount * BigInt(pool.fee);
+    return feeAmount === 0n ? 0n : ((feeAmount - 1n) / 1_000_000n) + 1n;
+  }
+
+  return 0n;
+}
+
 export function createExecutionPlan(graph: FlashPoolLookup, opportunity: ExecutableOpportunity): ExecutionPlan | null {
   if (!isCircular(opportunity.path)) return null;
   if (opportunity.pairs.length !== opportunity.protocols.length) return null;

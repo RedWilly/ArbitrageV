@@ -17,7 +17,7 @@ const policy: ArbitrageSearchPolicy = {
   allowProtocolMixing: true,
   maxRouteEdges: 4,
   beamWidth: 8,
-  optimizationIterations: 80,
+  optimizationIterations: 32,
   maxInputReserveFraction: 100n,
   maxOpportunities: 8,
 };
@@ -111,12 +111,14 @@ async function measureAsync(label: string, run: () => Promise<void>): Promise<nu
 async function main(): Promise<void> {
   const unified = measure('unified build', () => createUnifiedMarket());
   const { engine: unifiedEngine, changedPair: unifiedChangedPair } = createUnifiedMarket();
+  unifiedEngine.findOpportunities({ startTokens: [tokenA] });
   const unifiedSearch = measure('unified event-local search', () => {
     unifiedEngine.findOpportunities({ startTokens: [tokenA], changedPairs: [unifiedChangedPair.pairAddress] });
   });
 
   const v2 = measure('v2 build', () => createV2Market());
   const { engine: v2Engine, changedPair: v2ChangedPair } = createV2Market();
+  v2Engine.findOpportunities({ startTokens: [tokenA] });
   const v2Search = measure('v2 event-local search', () => {
     v2Engine.findOpportunities({ startTokens: [tokenA], changedPairs: [v2ChangedPair.pairAddress] });
   });
