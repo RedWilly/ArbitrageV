@@ -93,7 +93,7 @@ describe("V3 arbitrage strategy", () => {
   });
 
   test("finds a complete profitable V3 circular opportunity", () => {
-    const engine = new OpportunityEngine(policy, new MarketGraph(policy, []));
+    const engine = new OpportunityEngine(policy, []);
     const poolAB = pool(1, tokenA, tokenB);
     const poolBC = pool(2, tokenB, tokenC);
     const poolCA = pool(3, tokenC, tokenA);
@@ -115,7 +115,7 @@ describe("V3 arbitrage strategy", () => {
   });
 
   test("finds a mixed V2 to V3 to V2 circular opportunity", () => {
-    const engine = new OpportunityEngine(policy, new MarketGraph(policy, []));
+    const engine = new OpportunityEngine(policy, []);
     const pairAB = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200"));
     const pairCA = pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200"));
     engine.addPair(pairAB);
@@ -140,7 +140,7 @@ describe("V3 arbitrage strategy", () => {
     const engine = new OpportunityEngine({
       ...policy,
       allowProtocolMixing: false,
-    }, new MarketGraph({ ...policy, allowProtocolMixing: false }, []));
+    }, []);
     engine.addPair(pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200")));
     engine.addPair(pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")));
     addLivePool(engine, pool(1, tokenB, tokenC));
@@ -153,7 +153,7 @@ describe("V3 arbitrage strategy", () => {
   });
 
   test("selects the best non-route flash pool across V2 and V3", () => {
-    const engine = new OpportunityEngine(policy, new MarketGraph(policy, []));
+    const engine = new OpportunityEngine(policy, []);
     const routePair = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200"));
     const fallbackPair = pair(2, tokenA, tokenC, tokenAmount("10000"), tokenAmount("10000"));
     engine.addPair(routePair);

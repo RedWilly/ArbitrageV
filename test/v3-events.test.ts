@@ -3,22 +3,13 @@ import { encodeAbiParameters, encodeEventTopics, type Address } from "viem";
 import { ARBITRAGE_SEARCH_POLICY, TOKENS } from "../src/constants";
 import { EventMonitor } from "../src/event";
 import { type V3PoolConfig } from "../src/market/v3-types";
-import { MarketGraph } from "../src/market-graph/market-graph";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { Q96 } from "../src/pricing/v3-swap-math";
-import { V2_SYNC_EVENT_ABI } from "../src/runtime/v2-events";
-import { V3_POOL_EVENT_ABI } from "../src/runtime/v3-events";
+import { V2_SYNC_EVENT_ABI, V3_POOL_EVENT_ABI } from "../src/runtime/market-events";
 
 const [token0, token1] = TOKENS.map(token => token.address);
 const poolAddress = "0x0000000000000000000000000000000000000a11" as Address;
 const owner = "0x0000000000000000000000000000000000000b01" as Address;
-
-type V3MonitorInternals = {
-  pairAddressMap: Map<string, Address>;
-  v3PoolAddressMap: Map<string, Address>;
-  handleSyncEvents(logs: any[]): Promise<void>;
-  handleV3PoolEvents(logs: any[]): Promise<void>;
-};
 
 const pool: V3PoolConfig = {
   name: "test-v3",
@@ -34,23 +25,22 @@ describe("EventMonitor V3 pool events", () => {
   test("keeps the latest V2 Sync by chain log order", async () => {
     const graph = new OpportunityEngine(
       ARBITRAGE_SEARCH_POLICY,
-      new MarketGraph(ARBITRAGE_SEARCH_POLICY, [])
+      []
     );
     const pairAddress = "0x0000000000000000000000000000000000000a22" as Address;
-    const monitor = new EventMonitor(graph, {
-      account: { address: owner },
-      client: { getTransactionCount: async () => 0 },
-    }, {
+    const feed = fakeEventClient();
+    const monitor = new EventMonitor(graph, { client: feed.client }, {
       v2Pools: [{
         pairAddress,
         token0,
         token1,
         fee: 30,
       }],
-    }) as unknown as V3MonitorInternals;
-    monitor.pairAddressMap = new Map([[pairAddress.toLowerCase(), pairAddress]]);
+      scan: async () => {},
+    });
+    await monitor.start();
 
-    await monitor.handleSyncEvents([
+    await feed.emit([
       syncLog(pairAddress, 2, 200n, 201n),
       syncLog(pairAddress, 1, 100n, 101n),
     ]);
@@ -60,12 +50,13 @@ describe("EventMonitor V3 pool events", () => {
       reserve0: 200n,
       reserve1: 201n,
     });
+    await monitor.stop();
   });
 
   test("applies mixed V3 logs in chain order before checking arbitrage", async () => {
     const graph = new OpportunityEngine(
       ARBITRAGE_SEARCH_POLICY,
-      new MarketGraph(ARBITRAGE_SEARCH_POLICY, [pool])
+      [pool]
     );
     graph.updateV3PoolStates([{
       poolAddress,
@@ -74,13 +65,14 @@ describe("EventMonitor V3 pool events", () => {
       tick: 120,
     }]);
 
-    const monitor = new EventMonitor(graph, {
-      account: { address: owner },
-      client: { getTransactionCount: async () => 0 },
-    }, { v3Pools: [poolAddress] }) as unknown as V3MonitorInternals;
-    monitor.v3PoolAddressMap = new Map([[poolAddress.toLowerCase(), poolAddress]]);
+    const feed = fakeEventClient();
+    const monitor = new EventMonitor(graph, { client: feed.client }, {
+      v3Pools: [poolAddress],
+      scan: async () => {},
+    });
+    await monitor.start();
 
-    await monitor.handleV3PoolEvents([
+    await feed.emit([
       swapLog(2, 1_600n),
       mintLog(1, 60, 180, 500n),
     ]);
@@ -93,8 +85,25 @@ describe("EventMonitor V3 pool events", () => {
       { index: 60, liquidityGross: 500n, liquidityNet: 500n },
       { index: 180, liquidityGross: 500n, liquidityNet: -500n },
     ]);
+    await monitor.stop();
   });
 });
+
+function fakeEventClient(): { client: any; emit(logs: any[]): Promise<void> } {
+  let onLogs: ((logs: any[]) => void | Promise<void>) | undefined;
+  return {
+    client: {
+      watchContractEvent: async (options: { onLogs: typeof onLogs }) => {
+        onLogs = options.onLogs;
+        return () => {};
+      },
+    },
+    async emit(logs) {
+      if (!onLogs) throw new Error('event monitor is not started');
+      await onLogs(logs);
+    },
+  };
+}
 
 function syncLog(pairAddress: Address, logIndex: number, reserve0: bigint, reserve1: bigint): any {
   return {

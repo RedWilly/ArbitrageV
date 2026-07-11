@@ -91,11 +91,6 @@ class AddressRegistry {
     return this.addresses[index];
   }
 
-  clear(): void {
-    this.indexes.clear();
-    this.addresses.length = 0;
-  }
-
   key(address: Address | string): string {
     return address.toLowerCase();
   }
@@ -393,10 +388,6 @@ export class MarketGraph {
     return this.edgeInputCapacity(first) / this.policy.maxInputReserveFraction;
   }
 
-  getTokens(): Address[] {
-    return this.tokens.map((_, index) => this.tokenRegistry.address(index) as Address);
-  }
-
   getPairAddresses(): Address[] {
     return this.pairs.filter((pair): pair is PairInfo => pair !== undefined)
       .map(pair => pair.pairAddress);
@@ -479,22 +470,6 @@ export class MarketGraph {
     }
 
     return best;
-  }
-
-  clear(): void {
-    this.pairs.length = 0;
-    this.v3Pools.length = 0;
-    this.v3TicksCache.length = 0;
-    this.v3LoadedWordRanges.length = 0;
-    this.tokenRegistry.clear();
-    this.poolRegistry.clear();
-    this.tokens.length = 0;
-    this.edgeIndexes.clear();
-    this.edges.length = 0;
-    this.rankedEdgesCache.clear();
-    this.flashEdgesCache.clear();
-    this.hopDistancesCache.clear();
-    this.carbonEdgeIds.clear();
   }
 
   private quoteV2Edge(edge: Extract<AnyMarketEdge, { protocol: 'v2' }>, amountIn: bigint): MarketRouteQuote {

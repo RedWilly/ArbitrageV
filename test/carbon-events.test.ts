@@ -23,8 +23,10 @@ describe("CarbonStrategyStore events", () => {
     };
     let notified = 0;
     let changedPoolKeys: readonly string[] = [];
-    const store = new CarbonStrategyStore(client, [pair], (_, keys) => {
+    let strategies: readonly unknown[] = [];
+    const store = new CarbonStrategyStore(client, [pair], (nextStrategies, keys) => {
       notified++;
+      strategies = nextStrategies;
       changedPoolKeys = keys;
     });
 
@@ -39,9 +41,8 @@ describe("CarbonStrategyStore events", () => {
       },
     }]);
 
-    expect(store.strategyCount()).toBe(1);
-    expect(store.pairCount()).toBe(1);
-    expect(store.strategies()[0]).toMatchObject({
+    expect(store.stats()).toEqual({ strategyCount: 1, pairCount: 1 });
+    expect(strategies[0]).toMatchObject({
       id: 12n,
       feePpm: 4000,
       orders: [order(1_000n), order(2_000n)],

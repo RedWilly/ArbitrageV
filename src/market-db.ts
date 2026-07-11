@@ -6,9 +6,9 @@ import { type V2PoolMetadata } from './getinfo';
 import { type CarbonPairMetadata } from './market/carbon';
 import { type V3PoolConfig } from './market/v3-types';
 
-export type StoredPoolProtocol = 'v2' | 'v3';
+type StoredPoolProtocol = 'v2' | 'v3';
 
-export type StoredPool = {
+type StoredPool = {
   address: Address;
   protocol: StoredPoolProtocol;
   factory: string | null;
@@ -16,6 +16,12 @@ export type StoredPool = {
   token1: Address;
   fee: number;
   tickSpacing: number | null;
+};
+
+export type MarketSnapshot = {
+  v2Pools: V2PoolMetadata[];
+  v3Pools: V3PoolConfig[];
+  carbonPairs: CarbonPairMetadata[];
 };
 
 type PoolRow = {
@@ -36,18 +42,45 @@ type CarbonPairRow = {
   fee_ppm: number;
 };
 
-export function marketDbPath(): string {
+export function loadMarketSnapshot(path = marketDbPath()): MarketSnapshot {
+  const db = openMarketDb(path);
+  try {
+    const pools = loadStoredPools(db);
+    return {
+      v2Pools: storedV2Pools(pools),
+      v3Pools: storedV3Pools(pools),
+      carbonPairs: loadStoredCarbonPairs(db),
+    };
+  } finally {
+    db.close();
+  }
+}
+
+export function replaceMarketSnapshot(snapshot: MarketSnapshot, path = marketDbPath()): void {
+  const db = openMarketDb(path);
+  try {
+    replaceStoredPools(db, [
+      ...snapshot.v2Pools.map(toStoredV2Pool),
+      ...snapshot.v3Pools.map(toStoredV3Pool),
+    ]);
+    replaceStoredCarbonPairs(db, snapshot.carbonPairs);
+  } finally {
+    db.close();
+  }
+}
+
+function marketDbPath(): string {
   return process.env.MARKET_DB_PATH || 'data/markets.sqlite';
 }
 
-export function openMarketDb(path = marketDbPath()): Database {
+function openMarketDb(path = marketDbPath()): Database {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   initMarketDb(db);
   return db;
 }
 
-export function initMarketDb(db: Database): void {
+function initMarketDb(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS pools (
       address TEXT PRIMARY KEY,
@@ -72,7 +105,7 @@ export function initMarketDb(db: Database): void {
   `);
 }
 
-export function replaceStoredPools(db: Database, pools: readonly StoredPool[]): void {
+function replaceStoredPools(db: Database, pools: readonly StoredPool[]): void {
   const insert = db.prepare(`
     INSERT INTO pools (address, protocol, factory, token0, token1, fee, tick_spacing)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -95,7 +128,7 @@ export function replaceStoredPools(db: Database, pools: readonly StoredPool[]): 
   replace(pools);
 }
 
-export function loadStoredPools(db: Database): StoredPool[] {
+function loadStoredPools(db: Database): StoredPool[] {
   const rows = db.prepare('SELECT address, protocol, factory, token0, token1, fee, tick_spacing FROM pools').all() as PoolRow[];
   return rows.map(row => ({
     address: row.address as Address,
@@ -108,7 +141,7 @@ export function loadStoredPools(db: Database): StoredPool[] {
   }));
 }
 
-export function replaceStoredCarbonPairs(db: Database, pairs: readonly CarbonPairMetadata[]): void {
+function replaceStoredCarbonPairs(db: Database, pairs: readonly CarbonPairMetadata[]): void {
   const insert = db.prepare(`
     INSERT INTO carbon_pairs (controller, token0, token1, strategy_count, fee_ppm)
     VALUES (?, ?, ?, ?, ?)
@@ -129,7 +162,7 @@ export function replaceStoredCarbonPairs(db: Database, pairs: readonly CarbonPai
   replace(pairs);
 }
 
-export function loadStoredCarbonPairs(db: Database): CarbonPairMetadata[] {
+function loadStoredCarbonPairs(db: Database): CarbonPairMetadata[] {
   const rows = db.prepare(`
     SELECT controller, token0, token1, strategy_count, fee_ppm
     FROM carbon_pairs
@@ -144,7 +177,7 @@ export function loadStoredCarbonPairs(db: Database): CarbonPairMetadata[] {
   }));
 }
 
-export function toStoredV2Pool(pool: V2PoolMetadata): StoredPool {
+function toStoredV2Pool(pool: V2PoolMetadata): StoredPool {
   return {
     address: pool.pairAddress,
     protocol: 'v2',
@@ -156,7 +189,7 @@ export function toStoredV2Pool(pool: V2PoolMetadata): StoredPool {
   };
 }
 
-export function toStoredV3Pool(pool: V3PoolConfig): StoredPool {
+function toStoredV3Pool(pool: V3PoolConfig): StoredPool {
   return {
     address: pool.address,
     protocol: 'v3',
@@ -168,7 +201,7 @@ export function toStoredV3Pool(pool: V3PoolConfig): StoredPool {
   };
 }
 
-export function storedV2Pools(pools: readonly StoredPool[]): V2PoolMetadata[] {
+function storedV2Pools(pools: readonly StoredPool[]): V2PoolMetadata[] {
   return pools
     .filter(pool => pool.protocol === 'v2')
     .map(pool => ({
@@ -180,7 +213,7 @@ export function storedV2Pools(pools: readonly StoredPool[]): V2PoolMetadata[] {
     }));
 }
 
-export function storedV3Pools(pools: readonly StoredPool[]): V3PoolConfig[] {
+function storedV3Pools(pools: readonly StoredPool[]): V3PoolConfig[] {
   return pools
     .filter(pool => pool.protocol === 'v3' && pool.tickSpacing !== null)
     .map(pool => ({

@@ -1,5 +1,5 @@
 import { encodeAbiParameters, type Address } from 'viem';
-import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
+import { ARBITRAGE_SEARCH_POLICY, TOKENS, V3_POOLS } from '../constants';
 import { type CarbonStrategy } from '../market/carbon';
 import { flashLoanFee } from '../execution/execution-planner';
 import { MarketGraph } from '../market-graph/market-graph';
@@ -31,9 +31,9 @@ export class OpportunityEngine {
 
   constructor(
     private readonly policy: ArbitrageSearchPolicy = ARBITRAGE_SEARCH_POLICY,
-    graph = new MarketGraph(policy)
+    configuredV3Pools: readonly V3PoolConfig[] = V3_POOLS
   ) {
-    this.graph = graph;
+    this.graph = new MarketGraph(policy, configuredV3Pools);
     this.strategy = new CircularArbitrageStrategy(this.graph, policy);
   }
 
@@ -112,20 +112,12 @@ export class OpportunityEngine {
     return this.graph.findBestFlashPoolForToken(token, amountIn, excludePools);
   }
 
-  getTokens(): Address[] {
-    return this.graph.getTokens();
-  }
-
   getPairAddresses(): Address[] {
     return this.graph.getPairAddresses();
   }
 
   getAllPairs(): PairInfo[] {
     return this.graph.getAllPairs();
-  }
-
-  clear(): void {
-    this.graph.clear();
   }
 
   private sizeCandidate(candidate: CandidateRoute): ArbitrageOpportunity {

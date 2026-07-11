@@ -3,7 +3,6 @@ import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
 import { type PairInfo } from "../src/market/v2-types";
 import { type V3PoolConfig } from "../src/market/v3-types";
-import { MarketGraph } from "../src/market-graph/market-graph";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { Q96 } from "../src/pricing/v3-swap-math";
@@ -88,7 +87,7 @@ function createUnifiedStressMarket(): {
   changedPair: PairInfo;
   mixedPool: V3PoolConfig;
 } {
-  const engine = new OpportunityEngine(stressPolicy, new MarketGraph(stressPolicy, []));
+  const engine = new OpportunityEngine(stressPolicy, []);
 
   for (let i = 0; i < UNIFIED_V2_DISTRACTORS; i++) {
     engine.addPair(pair(
@@ -170,7 +169,7 @@ describe("Unified graph stress", () => {
     const engine = new OpportunityEngine({
       ...stressPolicy,
       allowProtocolMixing: false,
-    }, new MarketGraph({ ...stressPolicy, allowProtocolMixing: false }, []));
+    }, []);
     engine.addPair(changedPair);
     engine.addPair(pair(2, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")));
     addLivePool(engine, mixedPool, Q96 * 2n, 10n ** 24n);

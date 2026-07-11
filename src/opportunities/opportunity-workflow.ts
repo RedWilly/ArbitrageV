@@ -16,14 +16,20 @@ export type OpportunityWorkflowRequest = {
   releasedPairs?: readonly Address[];
 };
 
-let sharedManager: OpportunityManager | null = null;
-
-export async function scanAndExecuteOpportunities(
+export function createOpportunityScanner(
   engine: OpportunityEngine,
-  networkConfig: NetworkConfig,
+  networkConfig: NetworkConfig
+): (request?: OpportunityWorkflowRequest) => Promise<ArbitrageSearchResult> {
+  const manager = EXECUTION_POLICY.executeTrades ? new OpportunityManager(networkConfig) : null;
+  if (manager) void manager.warmNonce();
+  return request => scanAndExecuteOpportunities(engine, manager, request);
+}
+
+async function scanAndExecuteOpportunities(
+  engine: OpportunityEngine,
+  manager: OpportunityManager | null,
   request: OpportunityWorkflowRequest = {}
 ): Promise<ArbitrageSearchResult> {
-  const manager = opportunityManager(networkConfig);
   if (manager && request.releasedPairs) manager.releasePairs(request.releasedPairs);
 
   const opportunities = engine.findOpportunities(createSearchRequest(request));
@@ -31,19 +37,9 @@ export async function scanAndExecuteOpportunities(
 
   if (manager && opportunities.length > 0) {
     const executableOpportunities: ExecutableOpportunity[] = opportunities
-      .map(opportunity => ({
-        path: opportunity.path,
-        pairs: opportunity.pairs,
-        protocols: opportunity.protocols,
-        fees: opportunity.fees,
-        routeData: opportunity.routeData,
-        optimalAmount: opportunity.optimalInput,
-        expectedProfit: opportunity.profit,
-      }))
-      .filter((opportunity): opportunity is ExecutableOpportunity =>
+      .filter(opportunity =>
         opportunity.protocols.length === opportunity.pairs.length &&
-        opportunity.routeData.length === opportunity.pairs.length &&
-        opportunity.protocols.every(isExecutableProtocol)
+        opportunity.routeData.length === opportunity.pairs.length
       );
 
     if (executableOpportunities.length === 0) return opportunities;
@@ -56,17 +52,6 @@ export async function scanAndExecuteOpportunities(
   }
 
   return opportunities;
-}
-
-function opportunityManager(networkConfig: NetworkConfig): OpportunityManager | null {
-  if (!EXECUTION_POLICY.executeTrades) return null;
-
-  if (!sharedManager) {
-    sharedManager = new OpportunityManager(networkConfig);
-    void sharedManager.warmNonce();
-  }
-
-  return sharedManager;
 }
 
 function createSearchRequest(request: OpportunityWorkflowRequest): FindOpportunitiesRequest {
@@ -123,9 +108,5 @@ function logOpportunities(opportunities: ArbitrageSearchResult): void {
 function routeKindFromProtocols(protocols: MarketProtocol[]): 'v2' | 'v3' | 'carbon' | 'mixed' {
   if (protocols.length === 0) return 'mixed';
   return protocols.every(protocol => protocol === protocols[0]) ? protocols[0] : 'mixed';
-}
-
-function isExecutableProtocol(protocol: MarketProtocol): protocol is ExecutableOpportunity['protocols'][number] {
-  return protocol === 'v2' || protocol === 'v3' || protocol === 'carbon';
 }
 

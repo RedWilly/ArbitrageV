@@ -1,20 +1,14 @@
-import { decodeEventLog, type Address, type PublicClient } from 'viem';
+import { type Address, type PublicClient } from 'viem';
 import { RUNTIME } from '../constants';
 import { type ReserveUpdate } from '../market/v2-types';
 import { type V3PoolUpdate } from '../market/v3-types';
-import { addressMap, decodeV2SyncEvent, V2_SYNC_EVENT_ABI } from './v2-events';
-import { V3_POOL_EVENT_ABI } from './v3-events';
+import { addressMap, decodeV2SyncEvent, decodeV3PoolEvent, V2_SYNC_EVENT_ABI, V3_POOL_EVENT_ABI } from './market-events';
 
 export type BufferedStartupEvents = {
   v2ReserveUpdates: ReserveUpdate[];
   v3PoolUpdates: V3PoolUpdate[];
   v3PoolsToRefresh: Address[];
 };
-
-type DecodedV3StartupEvent =
-  | { kind: 'swap'; update: Omit<V3PoolUpdate, 'poolAddress'> }
-  | { kind: 'liquidity' }
-  | { kind: 'collect' };
 
 export class StartupEventBuffer {
   private readonly client: PublicClient;
@@ -62,7 +56,7 @@ export class StartupEventBuffer {
       onLogs: logs => {
         for (const log of logs) {
           const poolAddress = poolsByAddress.get(log.address?.toLowerCase() ?? '');
-          const decoded = poolAddress ? this.decodeV3StartupEvent(log) : null;
+          const decoded = poolAddress ? decodeV3PoolEvent(log) : null;
           if (!poolAddress || !decoded) continue;
 
           if (decoded.kind === 'swap') {
@@ -92,29 +86,4 @@ export class StartupEventBuffer {
     };
   }
 
-  private decodeV3StartupEvent(log: any): DecodedV3StartupEvent | null {
-    try {
-      const decoded = decodeEventLog({ abi: V3_POOL_EVENT_ABI, data: log.data, topics: log.topics });
-
-      if (decoded.eventName === 'Swap') {
-        return {
-          kind: 'swap',
-          update: {
-            sqrtPriceX96: decoded.args.sqrtPriceX96,
-            liquidity: decoded.args.liquidity,
-            tick: Number(decoded.args.tick),
-          },
-        };
-      }
-
-      if (decoded.eventName === 'Mint' || decoded.eventName === 'Burn') {
-        return { kind: 'liquidity' };
-      }
-
-      return { kind: 'collect' };
-    } catch (error) {
-      // console.error('Failed to decode startup V3 pool event:', error);
-      return null;
-    }
-  }
 }

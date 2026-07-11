@@ -1,5 +1,6 @@
 import { type Address } from 'viem';
 import { type FlashPoolCandidate } from '../market-graph/types';
+import { type ArbitrageOpportunity } from '../opportunities/opportunity-types';
 
 export const CONTRACT_PROTOCOL = {
   v2: 0,
@@ -7,18 +8,12 @@ export const CONTRACT_PROTOCOL = {
   carbon: 2,
 } as const;
 
-type ExecutableProtocol = keyof typeof CONTRACT_PROTOCOL;
 type FlashProtocol = 'v2' | 'v3';
 
-export type ExecutableOpportunity = {
-  path: Address[];
-  pairs: Address[];
-  protocols: ExecutableProtocol[];
-  fees: number[];
-  routeData: `0x${string}`[];
-  optimalAmount: bigint;
-  expectedProfit: bigint;
-};
+export type ExecutableOpportunity = Pick<
+  ArbitrageOpportunity,
+  'path' | 'pairs' | 'protocols' | 'fees' | 'routeData' | 'optimalInput' | 'profit'
+>;
 
 export type FlashPoolLookup = {
   findBestFlashPoolForToken(
@@ -68,7 +63,7 @@ export function createExecutionPlan(graph: FlashPoolLookup, opportunity: Executa
   const borrowToken = opportunity.path[0];
   const flashPool = graph.findBestFlashPoolForToken(
     borrowToken,
-    opportunity.optimalAmount,
+    opportunity.optimalInput,
     opportunity.pairs
   );
 
@@ -81,7 +76,7 @@ export function createExecutionPlan(graph: FlashPoolLookup, opportunity: Executa
       flashProtocol: CONTRACT_PROTOCOL[flashPool.protocol],
       flashPool: flashPool.poolAddress,
       borrowToken,
-      borrowAmount: opportunity.optimalAmount,
+      borrowAmount: opportunity.optimalInput,
       v2RepayFee: flashPool.protocol === 'v2' ? BigInt(flashPool.fee) : 0n,
       pools: opportunity.pairs,
       protocols: opportunity.protocols.map(protocol => CONTRACT_PROTOCOL[protocol]),

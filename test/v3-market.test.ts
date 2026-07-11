@@ -35,7 +35,6 @@ describe("MarketGraph V3 pools", () => {
     const graph = new MarketGraph(ARBITRAGE_SEARCH_POLICY, [enabledPool, disabledPool]);
 
     expect(graph.getV3PoolAddresses()).toEqual([enabledPool.address]);
-    expect(graph.getTokens()).toEqual([tokenA, tokenB]);
     expect(graph.getV3Pools().some(pool => pool.address === disabledPool.address)).toBe(false);
   });
 

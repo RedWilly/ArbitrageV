@@ -40,8 +40,8 @@ describe("createExecutionPlan", () => {
       protocols: ["v2", "v3", "v2"],
       fees: [30, 500, 30],
       routeData: ["0x", "0x", "0x"],
-      optimalAmount: 1_000n,
-      expectedProfit: 100n,
+      optimalInput: 1_000n,
+      profit: 100n,
     });
 
     expect(plan?.params).toEqual({
@@ -71,8 +71,8 @@ describe("createExecutionPlan", () => {
       protocols: ["v2", "v3"],
       fees: [30, 500],
       routeData: ["0x", "0x"],
-      optimalAmount: 1_000n,
-      expectedProfit: 100n,
+      optimalInput: 1_000n,
+      profit: 100n,
     });
 
     expect(plan?.params.flashProtocol).toBe(1);
@@ -99,8 +99,8 @@ describe("createExecutionPlan", () => {
       protocols: ["carbon", "v2"],
       fees: [4000, 30],
       routeData: [carbonData, "0x"],
-      optimalAmount: 1_000n,
-      expectedProfit: 100n,
+      optimalInput: 1_000n,
+      profit: 100n,
     });
 
     expect(plan?.params).toEqual({
@@ -127,8 +127,8 @@ describe("createExecutionPlan", () => {
       protocols: ["v2", "v3"],
       fees: [30, 500],
       routeData: ["0x", "0x"],
-      optimalAmount: 1_000n,
-      expectedProfit: 100n,
+      optimalInput: 1_000n,
+      profit: 100n,
     });
 
     expect(plan).toBeNull();
@@ -145,8 +145,8 @@ describe("createExecutionPlan", () => {
       protocols: ["v2"],
       fees: [30, 30],
       routeData: ["0x", "0x"],
-      optimalAmount: 1_000n,
-      expectedProfit: 100n,
+      optimalInput: 1_000n,
+      profit: 100n,
     });
 
     expect(plan).toBeNull();

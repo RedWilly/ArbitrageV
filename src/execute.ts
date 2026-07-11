@@ -96,7 +96,13 @@ export class OpportunityManager {
     private lockedPairs: Map<string, number> = new Map();
     private nonceTracker: NonceTracker;
 
-    constructor(private readonly networkConfig: NetworkConfig) {
+    constructor(
+        private readonly networkConfig: NetworkConfig,
+        private readonly submitOpportunity?: (
+            graph: FlashPoolLookup,
+            opportunity: ExecutableOpportunity
+        ) => Promise<boolean>
+    ) {
         this.nonceTracker = new NonceTracker(networkConfig);
     }
 
@@ -131,8 +137,8 @@ export class OpportunityManager {
         const sortedOpps = [...opportunities].sort((a, b) => {
             const aScale = TOKEN_PROFIT_SCALE.get(a.path[0].toLowerCase()) ?? 1n;
             const bScale = TOKEN_PROFIT_SCALE.get(b.path[0].toLowerCase()) ?? 1n;
-            const aValue = a.expectedProfit * bScale;
-            const bValue = b.expectedProfit * aScale;
+            const aValue = a.profit * bScale;
+            const bValue = b.profit * aScale;
             if (bValue > aValue) return 1;
             if (bValue < aValue) return -1;
             return 0;
@@ -156,7 +162,9 @@ export class OpportunityManager {
 
             try {
                 // Execute the opportunity
-                const executed = await this.executeArbitrageOpportunity(graph, opp);
+                const executed = await (this.submitOpportunity
+                    ? this.submitOpportunity(graph, opp)
+                    : this.executeArbitrageOpportunity(graph, opp));
                 if (!executed) {
                     this.releasePairs(opp.pairs);
                     continue;
@@ -164,7 +172,7 @@ export class OpportunityManager {
 
                 if (RUNTIME.debug) {
                     console.log('Submitted opportunity:', {
-                        profit: opp.expectedProfit.toString(),
+                        profit: opp.profit.toString(),
                         pairs: opp.pairs
                     });
                 }
@@ -205,14 +213,14 @@ export class OpportunityManager {
                     v2RepayFee: plan.params.v2RepayFee.toString(),
                     fees: plan.params.fees.map(fee => fee.toString()),
                 },
-                expectedProfit: opportunity.expectedProfit.toString()
+                expectedProfit: opportunity.profit.toString()
             });
         }
 
         const nonce = await this.nonceTracker.next();
 
         // Calculate dynamic gas fees based on opportunity's expected profit
-        const { maxFeePerGas, maxPriorityFeePerGas } = this.calculateGasFees(opportunity.expectedProfit);
+        const { maxFeePerGas, maxPriorityFeePerGas } = this.calculateGasFees(opportunity.profit);
 
         // Send transaction directly with gas parameters
         const hash = await this.networkConfig.walletClient.writeContract({
@@ -240,7 +248,7 @@ export class OpportunityManager {
         await sendTransactionNotification(
             hash,
             'flashswap',
-            opportunity.expectedProfit,
+            opportunity.profit,
             opportunity.path[opportunity.path.length - 1]
         );
 

@@ -4,6 +4,8 @@ import UniswapFlashQueryABI from './ABI/UniswapFlashQuery.json';
 import bannedTokens from './bannedtax.json';
 import { type PairInfo as MarketPairInfo } from './market/v2-types';
 
+const bannedTokenSet = new Set(bannedTokens.map(token => token.toLowerCase()));
+
 export type V2PoolMetadata = {
     pairAddress: Address;
     token0: Address;
@@ -18,22 +20,15 @@ type DiscoveredPairInfo = V2PoolMetadata & {
     lastTimestamp: number;
 };
 
-/**
- * Check if a pair is active based on its last timestamp
- */
 function isPairActive(lastTimestamp: number): boolean {
-    const currentTime = Math.floor(Date.now() / 1000); // Current time in seconds
+    const currentTime = Math.floor(Date.now() / 1000);
     const pairAge = currentTime - lastTimestamp;
     return pairAge <= PAIR_DISCOVERY_POLICY.maxPairAgeSeconds;
 }
 
-/**
- * Check if a pair has sufficient liquidity for monitored tokens based on TOKENS configuration
- */
-function hasEnoughWethLiquidity(pair: DiscoveredPairInfo): boolean {
+function hasEnoughLiquidity(pair: DiscoveredPairInfo): boolean {
     let hasMonitoredToken = false;
     
-    // First check if pair contains any monitored tokens and verify their liquidity
     for (const { address, liquidityAmount } of TOKENS) {
         if (pair.token0 === address) {
             hasMonitoredToken = true;
@@ -53,12 +48,10 @@ function hasEnoughWethLiquidity(pair: DiscoveredPairInfo): boolean {
         }
     }
     
-    // If pair has monitored tokens and passed all checks above, it's valid
     if (hasMonitoredToken) {
         return true;
     }
     
-    // For pairs with no monitored tokens, check if either reserve meets the minimum requirement
     const hasEnoughLiquidity = pair.reserve0 >= PAIR_DISCOVERY_POLICY.minOtherTokenLiquidity ||
                               pair.reserve1 >= PAIR_DISCOVERY_POLICY.minOtherTokenLiquidity;
                               
@@ -71,9 +64,6 @@ function hasEnoughWethLiquidity(pair: DiscoveredPairInfo): boolean {
     return hasEnoughLiquidity;
 }
 
-/**
- * Get total pairs for each factory
- */
 async function getPairsLength(
     client: ReturnType<typeof createPublicClient>,
     factories: typeof DEX_FACTORIES
@@ -100,9 +90,6 @@ async function getPairsLength(
     }
 }
 
-/**
- * Fetches pairs from a specific factory within a range and only filters out pairs with banned tokens
- */
 async function getPairsInRange(
     client: ReturnType<typeof createPublicClient>,
     factory: typeof DEX_FACTORIES[number],
@@ -119,7 +106,6 @@ async function getPairsInRange(
 
         if (RUNTIME.debug) console.log(`Raw pairs data from contract: ${pairsData.length} pairs`);
 
-        // Map raw data to PairInfo objects
         const pairs = pairsData
             .map(([token0, token1, pairAddress]) => ({
                 pairAddress,
@@ -127,34 +113,22 @@ async function getPairsInRange(
                 token1,
                 reserve0: 0n,
                 reserve1: 0n,
-                lastTimestamp: 0,  // Will be updated when fetching reserves
+                lastTimestamp: 0,
                 factory: factory.name,
                 fee: factory.fee,
             }));
 
         if (RUNTIME.debug) console.log(`Mapped ${pairs.length} pairs for ${factory.name}`);
 
-        // Only filter out banned tokens at this stage
-        let bannedTokenPairs = 0;
-        const filteredPairs = pairs.filter(pair => {
-            // Check banned token condition
-            const hasBannedToken = bannedTokens.some(bannedToken => {
-                const bannedTokenLower = bannedToken.toLowerCase();
-                return pair.token0.toLowerCase() === bannedTokenLower || pair.token1.toLowerCase() === bannedTokenLower;
-            });
-            
-            if (hasBannedToken) {
-                bannedTokenPairs++;
-                return false;
-            }
-            
-            return true;
-        });
+        const filteredPairs = pairs.filter(pair =>
+            !bannedTokenSet.has(pair.token0.toLowerCase()) &&
+            !bannedTokenSet.has(pair.token1.toLowerCase())
+        );
 
         if (RUNTIME.debug) {
             console.log(`Filtering stats for ${factory.name}:`);
             console.log(`- Original pairs: ${pairs.length}`);
-            console.log(`- Filtered out ${bannedTokenPairs} pairs with banned tokens`);
+            console.log(`- Filtered out ${pairs.length - filteredPairs.length} pairs with banned tokens`);
             console.log(`- Remaining pairs: ${filteredPairs.length}`);
         }
 
@@ -167,9 +141,6 @@ async function getPairsInRange(
     }
 }
 
-/**
- * Check if pairs are volatile (non-stable) pairs using Hermes filter
- */
 async function filterVolatilePairs(
     client: ReturnType<typeof createPublicClient>,
     pairs: DiscoveredPairInfo[]
@@ -192,9 +163,6 @@ async function filterVolatilePairs(
     }
 }
 
-/**
- * Fetches reserves for a batch of pairs
- */
 async function getReservesForPairs(
     client: ReturnType<typeof createPublicClient>,
     pairs: DiscoveredPairInfo[]
@@ -205,25 +173,22 @@ async function getReservesForPairs(
             abi: UniswapFlashQueryABI,
             functionName: 'getReservesByPairs',
             args: [pairs.map(p => p.pairAddress)],
-        }) as bigint[][];  // Contract returns uint256[3][] which viem converts to bigint[][]
+        }) as bigint[][];
 
         return pairs.map((pair, i) => ({
             ...pair,
             reserve0: reserves[i][0],
             reserve1: reserves[i][1],
-            lastTimestamp: Number(reserves[i][2])  // Convert bigint timestamp to number
+            lastTimestamp: Number(reserves[i][2])
         }));
     } catch (error) {
         if (RUNTIME.debug) {
             console.error('Error fetching reserves:', error);
         }
-        throw error; // Propagate error to handle batch removal
+        throw error;
     }
 }
 
-/**
- * Fetches reserves for pairs in appropriate batch sizes based on factory
- */
 async function getReservesWithRetry(
     client: ReturnType<typeof createPublicClient>,
     pairs: DiscoveredPairInfo[]
@@ -260,7 +225,6 @@ async function getReservesWithRetry(
                     console.log(`Fetching reserves for ${batch.length} pairs from ${factory} (${i + 1} to ${i + batch.length})`);
                 }
 
-                // For Woof factory, filter out stable pairs first
                 let filteredBatch = batch;
                 if (isWoofFactory) {
                     const isStablePair = await filterVolatilePairs(client, batch);
@@ -270,7 +234,6 @@ async function getReservesWithRetry(
                         console.log(`Filtered out ${batch.length - filteredBatch.length} stable pairs from Woof factory`);
                     }
 
-                    // If all pairs in batch were stable, skip to next batch
                     if (filteredBatch.length === 0) {
                         continue;
                     }
@@ -278,10 +241,9 @@ async function getReservesWithRetry(
 
                 const pairsWithReserves = await getReservesForPairs(client, filteredBatch);
                 
-                // Filter pairs that are active and have sufficient reserves
                 const validPairs = pairsWithReserves.filter(pair => 
                     isPairActive(pair.lastTimestamp) && 
-                    hasEnoughWethLiquidity(pair)
+                    hasEnoughLiquidity(pair)
                 );
                 
                 const skippedCount = filteredBatch.length - validPairs.length;
@@ -291,13 +253,12 @@ async function getReservesWithRetry(
                     } with zero reserves, ${
                         pairsWithReserves.filter(p => !isPairActive(p.lastTimestamp)).length
                     } inactive, ${
-                        pairsWithReserves.filter(p => !hasEnoughWethLiquidity(p)).length
+                        pairsWithReserves.filter(p => !hasEnoughLiquidity(p)).length
                     } insufficient liquidity)`);
                 }
                 
                 result.push(...validPairs);
             } catch (error) {
-                // Only show minimal error message when RUNTIME.debug is false
                 console.error(`Failed to fetch reserves for batch ${i} to ${i + batch.length}${RUNTIME.debug ? `, skipping these pairs: ${
                     batch.map(p => p.pairAddress).join(', ')
                 }` : ''}`);
@@ -313,18 +274,15 @@ export async function discoverV2PoolMetadata(
     client: ReturnType<typeof createPublicClient>
 ): Promise<V2PoolMetadata[]> {
     try {
-        // First get the total number of pairs for each factory
         console.log('Getting total pairs for each factory...');
         const pairsLength = await getPairsLength(client, DEX_FACTORIES);
         
         let allPairs: DiscoveredPairInfo[] = [];
 
-        // Fetch pairs in batches for each factory
         for (const factory of DEX_FACTORIES) {
             const totalPairs = pairsLength.get(factory.name) || 0;
             console.log(`Found ${totalPairs} pairs for factory ${factory.name}`);
 
-            // Get all pairs for this factory first
             const factoryPairs: DiscoveredPairInfo[] = [];
             for (let start = 0; start < totalPairs; start += PAIR_DISCOVERY_POLICY.batchSize) {
                 const stop = Math.min(start + PAIR_DISCOVERY_POLICY.batchSize, totalPairs);
@@ -337,7 +295,6 @@ export async function discoverV2PoolMetadata(
             }
 
             console.log(`Total pairs collected for ${factory.name}: ${factoryPairs.length}`);
-            // Add this factory's pairs to the overall list
             allPairs.push(...factoryPairs);
         }
 

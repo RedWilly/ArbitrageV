@@ -1,15 +1,19 @@
-import { type Address, decodeEventLog, type PublicClient } from 'viem';
+import { type Address, type PublicClient } from 'viem';
 import { CARBON_CONTROLLERS, RUNTIME } from './constants';
 import { type CarbonStrategyStore } from './market/carbon';
 import { loadConfiguredV3StartupState } from './market/v3-loader';
 import { type ReserveUpdate } from './market/v2-types';
-import { type V3PoolConfig, type V3PoolInfo, type V3PoolUpdate, type V3Tick } from './market/v3-types';
+import { type V3PoolConfig, type V3PoolInfo, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
-import { scanAndExecuteOpportunities } from './opportunities/opportunity-workflow';
 import { LatestUpdateScheduler } from './runtime/event-scheduler';
-import { CARBON_CONTROLLER_EVENT_ABI } from './runtime/carbon-events';
-import { addressMap, decodeV2SyncEvent, V2_SYNC_EVENT_ABI } from './runtime/v2-events';
-import { V3_POOL_EVENT_ABI } from './runtime/v3-events';
+import {
+    addressMap,
+    CARBON_CONTROLLER_EVENT_ABI,
+    decodeV2SyncEvent,
+    decodeV3PoolEvent,
+    V2_SYNC_EVENT_ABI,
+    V3_POOL_EVENT_ABI,
+} from './runtime/market-events';
 
 // Maximum WebSocket reconnection attempts before falling back to HTTP
 const MAX_WEBSOCKET_RECONNECT_ATTEMPTS = 9;
@@ -26,12 +30,8 @@ type EventMonitorOptions = {
     v3Pools?: readonly Address[];
     v3PoolConfigs?: readonly V3PoolConfig[];
     carbonStore?: CarbonStrategyStore;
-    scan?: (changedPairs: readonly string[], releasedPairs?: readonly Address[]) => Promise<void>;
+    scan: (changedPairs: readonly string[], releasedPairs?: readonly Address[]) => Promise<void>;
 };
-
-type DecodedV3PoolEvent =
-    | { kind: 'swap'; update: Omit<V3PoolUpdate, 'poolAddress'> }
-    | { kind: 'liquidity'; update: { kind: 'mint' | 'burn'; tickLower: number; tickUpper: number; amount: bigint } };
 
 export class EventMonitor {
     private client: PublicClient;
@@ -48,7 +48,7 @@ export class EventMonitor {
     private v3PoolAddressMap = new Map<string, Address>();
     private v2PoolByAddress = new Map<string, V2WatchPool>();
 
-    constructor(graph: OpportunityEngine, networkConfig: any, private readonly options: EventMonitorOptions = {}) {
+    constructor(graph: OpportunityEngine, networkConfig: any, private readonly options: EventMonitorOptions) {
         this.graph = graph;
         this.networkConfig = networkConfig;
         this.scheduler = new LatestUpdateScheduler(
@@ -84,7 +84,7 @@ export class EventMonitor {
         this.pairAddressMap = addressMap(pairAddresses);
         this.v3PoolAddressMap = addressMap(v3PoolAddresses);
         
-        const carbonPairCount = this.options.carbonStore?.pairCount() ?? 0;
+        const carbonPairCount = this.options.carbonStore?.stats().pairCount ?? 0;
         const carbonText = carbonPairCount ? `, and ${carbonPairCount} Carbon pairs` : '';
         console.log(`Starting event monitor for ${pairAddresses.length} V2 pairs, ${v3PoolAddresses.length} V3 pools${carbonText}...`);
         if (RUNTIME.debug) {
@@ -155,14 +155,14 @@ export class EventMonitor {
             
             // If WebSocket failed, try reconnecting or fall back to HTTP
             if (this.usingWebSocket) {
-                await this.handleWebSocketFailure(error);
+                await this.handleWebSocketFailure();
             } else {
                 this.isRunning = false;
             }
         }
     }
 
-    private async handleWebSocketFailure(error: any) {
+    private async handleWebSocketFailure() {
         await this.recoverWebSocket(
             'WebSocket connection failed',
             async () => {
@@ -210,7 +210,7 @@ export class EventMonitor {
                 }
 
                 if (RUNTIME.debug) {
-                    const logForDisplay = JSON.parse(JSON.stringify(log, (key, value) =>
+                    const logForDisplay = JSON.parse(JSON.stringify(log, (_, value) =>
                         typeof value === 'bigint' ? value.toString() : value
                     ));
                     console.log('Raw event log:', JSON.stringify(logForDisplay, null, 2));
@@ -241,48 +241,6 @@ export class EventMonitor {
         }
     }
 
-    private decodeV3PoolEvent(log: any): DecodedV3PoolEvent | null {
-        try {
-            if (!log.topics || !log.topics[0]) {
-                return null;
-            }
-
-            const decoded = decodeEventLog({
-                abi: V3_POOL_EVENT_ABI,
-                data: log.data,
-                topics: log.topics
-            });
-
-            if (decoded.eventName === 'Swap') {
-                return {
-                    kind: 'swap',
-                    update: {
-                        sqrtPriceX96: decoded.args.sqrtPriceX96,
-                        liquidity: decoded.args.liquidity,
-                        tick: Number(decoded.args.tick),
-                    },
-                };
-            }
-
-            if (decoded.eventName === 'Mint' || decoded.eventName === 'Burn') {
-                return {
-                    kind: 'liquidity',
-                    update: {
-                        kind: decoded.eventName === 'Mint' ? 'mint' : 'burn',
-                        tickLower: Number(decoded.args.tickLower),
-                        tickUpper: Number(decoded.args.tickUpper),
-                        amount: decoded.args.amount,
-                    },
-                };
-            }
-
-            return null;
-        } catch (error) {
-            // console.error('Failed to decode V3 pool event:', error);
-            return null;
-        }
-    }
-
     private async processUpdates(updates: ReserveUpdate[]) {
         await this.scheduler.submit(updates);
     }
@@ -302,12 +260,13 @@ export class EventMonitor {
                     continue;
                 }
 
-                const decodedEvent = this.decodeV3PoolEvent(log);
+                const decodedEvent = decodeV3PoolEvent(log);
                 if (!decodedEvent) {
                     if (RUNTIME.debug) console.log('Failed to decode V3 pool event');
                     continue;
                 }
 
+                if (decodedEvent.kind === 'collect') continue;
                 affectedPools.set(poolAddress.toLowerCase(), poolAddress);
                 if (decodedEvent.kind === 'swap') {
                     if (RUNTIME.debug) console.log(`V3 Swap event from ${poolAddress}:`, {
@@ -451,14 +410,7 @@ export class EventMonitor {
 
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
         try {
-            if (this.options.scan) {
-                await this.options.scan(affectedPairs ?? [], affectedPairs);
-                return;
-            }
-            await scanAndExecuteOpportunities(this.graph, this.networkConfig, {
-                changedPairs: affectedPairs,
-                releasedPairs: affectedPairs,
-            });
+            await this.options.scan(affectedPairs ?? [], affectedPairs);
         } catch (error) {
             console.error('Error checking arbitrage opportunities:', error);
         }

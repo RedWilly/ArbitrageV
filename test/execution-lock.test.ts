@@ -11,20 +11,18 @@ const opportunity: ExecutableOpportunity = {
   protocols: ["v2"],
   fees: [30],
   routeData: ["0x"],
-  optimalAmount: 1n,
-  expectedProfit: 1n,
+  optimalInput: 1n,
+  profit: 1n,
 };
 
 test("locks pools before an overlapping fire-and-forget submission", async () => {
-  const manager = new OpportunityManager({} as never);
   let submissions = 0;
   let releaseFirst!: () => void;
-
-  (manager as any).executeArbitrageOpportunity = async () => {
+  const manager = new OpportunityManager({} as never, async () => {
     submissions++;
     await new Promise<void>(resolve => { releaseFirst = resolve; });
     return true;
-  };
+  });
 
   const first = manager.processOpportunities({} as never, [opportunity]);
   await Promise.resolve();

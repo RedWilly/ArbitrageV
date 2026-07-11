@@ -28,12 +28,6 @@ export class CircularArbitrageStrategy {
     private readonly policy: ArbitrageSearchPolicy
   ) {}
 
-  findCandidates(request: FindOpportunitiesRequest): CandidateRoute[] {
-    const candidates: CandidateRoute[] = [];
-    this.visitCandidates(request, candidate => candidates.push(candidate));
-    return candidates;
-  }
-
   visitCandidates(request: FindOpportunitiesRequest, visit: CandidateVisitor): void {
     const changedPoolIndexes = this.changedPoolIndexes(request.changedPairs || []);
     const startTokenIndexes = request.startTokens

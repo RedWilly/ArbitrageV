@@ -1,7 +1,6 @@
 import { TOKENS } from '../src/constants';
 import { type PairInfo, type ReserveUpdate } from '../src/market/v2-types';
 import { type V3PoolConfig } from '../src/market/v3-types';
-import { MarketGraph } from '../src/market-graph/market-graph';
 import { type ArbitrageSearchPolicy } from '../src/market-graph/types';
 import { OpportunityEngine } from '../src/opportunities/opportunity-engine';
 import { Q96 } from '../src/pricing/v3-swap-math';
@@ -61,7 +60,7 @@ function addLivePool(engine: OpportunityEngine, config: V3PoolConfig, sqrtPriceX
 }
 
 function createUnifiedMarket(): { engine: OpportunityEngine; changedPair: PairInfo } {
-  const engine = new OpportunityEngine(policy, new MarketGraph(policy, []));
+  const engine = new OpportunityEngine(policy, []);
 
   for (let i = 0; i < 15_000; i++) {
     engine.addPair(pair(10_000 + i, tokenA, tokenAddress(i), tokenAmount('1000000'), tokenAmount('999000')));
@@ -79,7 +78,7 @@ function createUnifiedMarket(): { engine: OpportunityEngine; changedPair: PairIn
 }
 
 function createV2Market(): { engine: OpportunityEngine; changedPair: PairInfo } {
-  const engine = new OpportunityEngine(policy, new MarketGraph(policy, []));
+  const engine = new OpportunityEngine(policy, []);
 
   for (let i = 0; i < 25_000; i++) {
     engine.addPair(pair(10_000 + i, tokenA, tokenAddress(i), tokenAmount('1000000'), tokenAmount('999000')));

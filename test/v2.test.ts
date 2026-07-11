@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
 import { type PairInfo } from "../src/market/v2-types";
-import { MarketGraph } from "../src/market-graph/market-graph";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { tokenAmount } from "../src/values";
@@ -221,7 +220,7 @@ describe("V2 arbitrage graph", () => {
       maxInputReserveFraction: 10n,
       maxOpportunities: 5,
     };
-    const graph = new OpportunityEngine(policy, new MarketGraph(policy, []));
+    const graph = new OpportunityEngine(policy, []);
     for (const pool of [
       pair(10, tokenA, tokenC, tokenAmount("1000"), tokenAmount("2000")),
       pair(11, tokenB, tokenC, tokenAmount("1000"), tokenAmount("3000")),

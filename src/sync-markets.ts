@@ -4,7 +4,7 @@ import { CONTRACTS, NETWORK, RUNTIME, V3_POOLS } from './constants';
 import { discoverV2PoolMetadata } from './getinfo';
 import { filterDiscoveredMarkets, marketTokens } from './market-filter';
 import { discoverCarbonPairs } from './market/carbon';
-import { openMarketDb, replaceStoredCarbonPairs, replaceStoredPools, toStoredV2Pool, toStoredV3Pool } from './market-db';
+import { replaceMarketSnapshot } from './market-db';
 
 async function main(): Promise<void> {
   if (!NETWORK.rpcUrl) throw new Error('RPC_URL is required');
@@ -28,17 +28,11 @@ async function main(): Promise<void> {
       carbon: `${carbonPairs.length} -> ${filtered.carbonPairs.length}`,
     });
   }
-  const db = openMarketDb();
-
-  try {
-    replaceStoredPools(db, [
-      ...filtered.v2Pools.map(toStoredV2Pool),
-      ...filtered.v3Pools.map(toStoredV3Pool),
-    ]);
-    replaceStoredCarbonPairs(db, filtered.carbonPairs);
-  } finally {
-    db.close();
-  }
+  replaceMarketSnapshot({
+    v2Pools: filtered.v2Pools,
+    v3Pools: filtered.v3Pools,
+    carbonPairs: filtered.carbonPairs,
+  });
 
   console.log(`Stored ${filtered.v2Pools.length} V2 pools, ${filtered.v3Pools.length} V3 pools, and ${filtered.carbonPairs.length} Carbon pairs`);
 }

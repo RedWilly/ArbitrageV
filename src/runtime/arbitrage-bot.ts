@@ -2,14 +2,13 @@ import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, RUNTIME } from '../constants';
 import { EventMonitor } from '../event';
 import { getKnownPairsInfo } from '../getinfo';
-import { loadStoredCarbonPairs, loadStoredPools, openMarketDb, storedV2Pools, storedV3Pools } from '../market-db';
+import { loadMarketSnapshot } from '../market-db';
 import { CarbonStrategyStore } from '../market/carbon';
 import { loadConfiguredV3StartupState } from '../market/v3-loader';
 import { type PairInfo, type ReserveUpdate } from '../market/v2-types';
-import { MarketGraph } from '../market-graph/market-graph';
 import { initializeNetwork } from '../network';
 import { OpportunityEngine } from '../opportunities/opportunity-engine';
-import { scanAndExecuteOpportunities } from '../opportunities/opportunity-workflow';
+import { createOpportunityScanner } from '../opportunities/opportunity-workflow';
 import { StartupEventBuffer } from './startup-event-buffer';
 import { LatestUpdateScheduler } from './event-scheduler';
 
@@ -20,17 +19,12 @@ export async function runArbitrageBot(): Promise<void> {
   const network = await initializeNetwork();
 
   console.log('Loading market metadata...');
-  const db = openMarketDb();
-  const storedPools = loadStoredPools(db);
-  const carbonPairs = loadStoredCarbonPairs(db);
-  db.close();
+  const { v2Pools, v3Pools, carbonPairs } = loadMarketSnapshot();
 
-  if (storedPools.length === 0) {
+  if (v2Pools.length + v3Pools.length === 0) {
     throw new Error('Market database is empty. Run `bun run sync:markets` first.');
   }
 
-  const v2Pools = storedV2Pools(storedPools);
-  const v3Pools = storedV3Pools(storedPools);
   const v2PoolByAddress = new Map(v2Pools.map(pool => [pool.pairAddress.toLowerCase(), pool]));
 
   console.log(`Loaded ${v2Pools.length} V2 pools, ${v3Pools.length} V3 pools, and ${carbonPairs.length} Carbon pairs from SQLite`);
@@ -38,18 +32,19 @@ export async function runArbitrageBot(): Promise<void> {
   console.log('Building arbitrage graph...');
   const graph = new OpportunityEngine(
     ARBITRAGE_SEARCH_POLICY,
-    new MarketGraph(ARBITRAGE_SEARCH_POLICY, [])
+    []
   );
   for (const pool of v3Pools) {
     graph.addV3Pool(pool);
   }
+  const scanOpportunities = createOpportunityScanner(graph, network);
   const scanScheduler = new LatestUpdateScheduler<ScanUpdate>(
     async updates => {
       const releasedPairs = new Map<string, Address>();
       for (const update of updates) {
         for (const pair of update.releasedPairs) releasedPairs.set(pair.toLowerCase(), pair);
       }
-      await scanAndExecuteOpportunities(graph, network, {
+      await scanOpportunities({
         changedPairs: updates.map(update => update.key),
         releasedPairs: [...releasedPairs.values()],
       });
@@ -82,7 +77,7 @@ export async function runArbitrageBot(): Promise<void> {
   ]);
 
   if (RUNTIME.debug) console.log(`Loaded live reserves for ${pairs.length} V2 pairs`);
-  if (carbonPairs.length > 0) console.log(`Loaded ${carbonStore.strategyCount()} live Carbon strategies`);
+  if (carbonPairs.length > 0) console.log(`Loaded ${carbonStore.stats().strategyCount} live Carbon strategies`);
 
   for (const pair of pairs) {
     graph.addPair(pair);
@@ -106,7 +101,7 @@ export async function runArbitrageBot(): Promise<void> {
   }
 
   console.log('Searching for initial arbitrage opportunities...');
-  await scanAndExecuteOpportunities(graph, network);
+  await scanOpportunities();
 
   console.log('\nStarting event monitor...');
   const monitor = new EventMonitor(graph, network, {

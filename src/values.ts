@@ -1,5 +1,6 @@
 import { formatUnits, parseGwei, parseUnits } from 'viem';
-import { type TokenConfig } from './constants';
+
+type TokenDisplay = { name: string; decimals: number };
 
 export function tokenAmount(value: string, decimals = 18): bigint {
     return parseUnits(value, decimals);
@@ -13,13 +14,13 @@ export function feeMultiplier(feeBasisPoints: number): bigint {
     return BigInt(10000 - feeBasisPoints);
 }
 
-export function formatTokenAmount(amount: bigint, token: Pick<TokenConfig, 'decimals'>): string {
+export function formatTokenAmount(amount: bigint, token: Pick<TokenDisplay, 'decimals'>): string {
     return formatUnits(amount, token.decimals);
 }
 
 export function formatTokenAmountWithSymbol(
     amount: bigint,
-    token: Pick<TokenConfig, 'decimals' | 'name'>
+    token: TokenDisplay
 ): string {
     return `${formatTokenAmount(amount, token)} ${token.name}`;
 }

@@ -162,15 +162,14 @@ export class CarbonStrategyStore {
     }
   }
 
-  pairCount(): number {
-    return this.activePairKeys.size;
+  stats(): { pairCount: number; strategyCount: number } {
+    return {
+      pairCount: this.activePairKeys.size,
+      strategyCount: this.strategiesById.size,
+    };
   }
 
-  strategyCount(): number {
-    return this.strategiesById.size;
-  }
-
-  strategies(): CarbonStrategy[] {
+  private strategies(): CarbonStrategy[] {
     return Array.from(this.strategiesById.values());
   }
 
