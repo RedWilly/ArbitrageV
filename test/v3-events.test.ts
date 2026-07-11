@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { encodeAbiParameters, encodeEventTopics, type Address } from "viem";
-import { ARBITRAGE_SEARCH_POLICY, TOKENS } from "../src/constants";
+import { ARBITRAGE_SEARCH_POLICY, CONTRACTS, TOKENS } from "../src/constants";
 import { EventMonitor } from "../src/event";
 import { type V3PoolConfig } from "../src/market/v3-types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
@@ -22,6 +22,30 @@ const pool: V3PoolConfig = {
 };
 
 describe("EventMonitor V3 pool events", () => {
+  test("uses one feed for startup buffering and rejects stale live logs", async () => {
+    const graph = new OpportunityEngine(ARBITRAGE_SEARCH_POLICY, []);
+    const pairAddress = "0x0000000000000000000000000000000000000a22" as Address;
+    const feed = fakeEventClient();
+    const monitor = new EventMonitor(graph, { client: feed.client }, {
+      v2Pools: [{ pairAddress, token0, token1, fee: 30 }],
+      scan: async () => {},
+    });
+
+    await monitor.startBuffering();
+    await feed.emit([syncLog(pairAddress, 1, 200n, 201n, 2n)]);
+    expect(graph.getAllPairs()).toHaveLength(0);
+
+    await monitor.activate();
+    expect(graph.getAllPairs()[0]).toMatchObject({ reserve0: 200n, reserve1: 201n });
+
+    await feed.emit([syncLog(pairAddress, 9, 100n, 101n, 1n)]);
+    expect(graph.getAllPairs()[0]).toMatchObject({ reserve0: 200n, reserve1: 201n });
+
+    await feed.emit([syncLog(pairAddress, 0, 300n, 301n, 3n)]);
+    expect(graph.getAllPairs()[0]).toMatchObject({ reserve0: 300n, reserve1: 301n });
+    await monitor.stop();
+  });
+
   test("keeps the latest V2 Sync by chain log order", async () => {
     const graph = new OpportunityEngine(
       ARBITRAGE_SEARCH_POLICY,
@@ -87,9 +111,44 @@ describe("EventMonitor V3 pool events", () => {
     ]);
     await monitor.stop();
   });
+
+  test("refreshes a V3 pool touched by startup liquidity instead of replaying its delta", async () => {
+    const previousFlashQuery = CONTRACTS.flashQuery;
+    (CONTRACTS as any).flashQuery = "0x0000000000000000000000000000000000000999";
+    const graph = new OpportunityEngine(ARBITRAGE_SEARCH_POLICY, [pool]);
+    const feed = fakeEventClient([[
+      [poolAddress, Q96 + 2n, 120, 2_000n],
+      [[0, 1n]],
+      [[60, 700n, 700n, true], [180, 700n, -700n, true]],
+    ]]);
+    const monitor = new EventMonitor(graph, { client: feed.client }, {
+      v3Pools: [poolAddress],
+      v3PoolConfigs: [pool],
+      scan: async () => {},
+    });
+
+    try {
+      await monitor.startBuffering();
+      await feed.emit([mintLog(1, 60, 180, 500n)]);
+      await monitor.activate();
+
+      expect(graph.getV3Pools()[0].state).toEqual({
+        sqrtPriceX96: Q96 + 2n,
+        liquidity: 2_000n,
+        tick: 120,
+      });
+      expect(graph.getV3InitializedTicks(poolAddress)).toEqual([
+        { index: 60, liquidityGross: 700n, liquidityNet: 700n },
+        { index: 180, liquidityGross: 700n, liquidityNet: -700n },
+      ]);
+    } finally {
+      await monitor.stop();
+      (CONTRACTS as any).flashQuery = previousFlashQuery;
+    }
+  });
 });
 
-function fakeEventClient(): { client: any; emit(logs: any[]): Promise<void> } {
+function fakeEventClient(readResult?: unknown): { client: any; emit(logs: any[]): Promise<void> } {
   let onLogs: ((logs: any[]) => void | Promise<void>) | undefined;
   return {
     client: {
@@ -97,6 +156,7 @@ function fakeEventClient(): { client: any; emit(logs: any[]): Promise<void> } {
         onLogs = options.onLogs;
         return () => {};
       },
+      readContract: async () => readResult,
     },
     async emit(logs) {
       if (!onLogs) throw new Error('event monitor is not started');
@@ -105,10 +165,16 @@ function fakeEventClient(): { client: any; emit(logs: any[]): Promise<void> } {
   };
 }
 
-function syncLog(pairAddress: Address, logIndex: number, reserve0: bigint, reserve1: bigint): any {
+function syncLog(
+  pairAddress: Address,
+  logIndex: number,
+  reserve0: bigint,
+  reserve1: bigint,
+  blockNumber = 1n
+): any {
   return {
     address: pairAddress,
-    blockNumber: 1n,
+    blockNumber,
     transactionIndex: 0,
     logIndex,
     topics: encodeEventTopics({

@@ -7,10 +7,15 @@ import { type V3PoolConfig, type V3PoolInfo, type V3Tick } from './market/v3-typ
 import { OpportunityEngine } from './opportunities/opportunity-engine';
 import { LatestUpdateScheduler } from './runtime/event-scheduler';
 import {
+    advanceCursor,
     addressMap,
     CARBON_CONTROLLER_EVENT_ABI,
+    chainLogBlockNumber,
+    type ChainCursor,
+    compareChainLogs,
     decodeV2SyncEvent,
     decodeV3PoolEvent,
+    isLogAfterCursor,
     V2_SYNC_EVENT_ABI,
     V3_POOL_EVENT_ABI,
 } from './runtime/market-events';
@@ -47,6 +52,16 @@ export class EventMonitor {
     private pairAddressMap = new Map<string, Address>();
     private v3PoolAddressMap = new Map<string, Address>();
     private v2PoolByAddress = new Map<string, V2WatchPool>();
+    private v3PoolConfigByAddress = new Map<string, V3PoolConfig>();
+    private buffering = false;
+    private bufferedV2 = new Map<string, any>();
+    private bufferedV3Swaps = new Map<string, any>();
+    private bufferedV3Liquidity = new Map<string, any>();
+    private bufferedCarbon = new Map<string, any>();
+    private readonly cursors = new Map<string, ChainCursor>();
+    private firstBufferedBlock: bigint | null = null;
+    private lastBufferedBlock: bigint | null = null;
+    private bufferedLogCount = 0;
 
     constructor(graph: OpportunityEngine, networkConfig: any, private readonly options: EventMonitorOptions) {
         this.graph = graph;
@@ -59,6 +74,9 @@ export class EventMonitor {
         for (const pool of options.v2Pools ?? []) {
             this.v2PoolByAddress.set(pool.pairAddress.toLowerCase(), pool);
         }
+        for (const pool of options.v3PoolConfigs ?? []) {
+            this.v3PoolConfigByAddress.set(pool.address.toLowerCase(), pool);
+        }
         
         // Use WebSocket client if available
         if (RUNTIME.websocketEnabled && networkConfig.wsClient) {
@@ -68,6 +86,11 @@ export class EventMonitor {
         } else {
             console.log('EventMonitor will use HTTP polling for events');
         }
+    }
+
+    async startBuffering(): Promise<void> {
+        this.buffering = true;
+        await this.start();
     }
 
     async start() {
@@ -109,7 +132,7 @@ export class EventMonitor {
                 const unwatchV2 = await eventClient.watchContractEvent({
                     address: pairAddresses,
                     abi: V2_SYNC_EVENT_ABI,
-                    onLogs: this.handleSyncEvents.bind(this),
+                    onLogs: this.routeV2Logs.bind(this),
                     onError: this.onError.bind(this),
                     strict: true
                 });
@@ -120,7 +143,7 @@ export class EventMonitor {
                 const unwatchV3 = await eventClient.watchContractEvent({
                     address: v3PoolAddresses,
                     abi: V3_POOL_EVENT_ABI,
-                    onLogs: this.handleV3PoolEvents.bind(this),
+                    onLogs: this.routeV3Logs.bind(this),
                     onError: this.onError.bind(this),
                     strict: true
                 });
@@ -135,9 +158,7 @@ export class EventMonitor {
                         address: controller.address,
                         abi: CARBON_CONTROLLER_EVENT_ABI,
                         strict: true,
-                        onLogs: async (logs: any[]) => {
-                            await this.options.carbonStore?.handleEvents(controller.address, this.sortLogsByChainOrder(logs));
-                        },
+                        onLogs: (logs: any[]) => this.routeCarbonLogs(controller.address, logs),
                         onError: this.onError.bind(this),
                     });
                     this.unwatchFns.push(unwatchCarbon);
@@ -158,8 +179,38 @@ export class EventMonitor {
                 await this.handleWebSocketFailure();
             } else {
                 this.isRunning = false;
+                throw error;
             }
         }
+    }
+
+    async activate(): Promise<void> {
+        if (!this.isRunning || !this.buffering) return;
+
+        while (this.hasBufferedLogs()) {
+            const v2 = this.takeBuffered(this.bufferedV2);
+            const v3Swaps = this.takeBuffered(this.bufferedV3Swaps);
+            const v3Liquidity = this.takeBuffered(this.bufferedV3Liquidity);
+            const carbon = this.takeBuffered(this.bufferedCarbon);
+
+            this.markApplied(v2);
+            this.markApplied(v3Swaps);
+            this.markApplied(v3Liquidity);
+            this.markApplied(carbon);
+
+            if (v2.length > 0) await this.handleSyncEvents(v2);
+            if (v3Swaps.length > 0) await this.handleV3PoolEvents(v3Swaps);
+            if (v3Liquidity.length > 0) {
+                await this.reloadV3Pools(v3Liquidity.map(log => log.address as Address));
+            }
+            if (carbon.length > 0) await this.applyCarbonLogs(carbon);
+        }
+
+        this.buffering = false;
+        const range = this.firstBufferedBlock === null
+            ? 'no market events arrived during hydration'
+            : `${this.bufferedLogCount} events observed across blocks ${this.firstBufferedBlock}-${this.lastBufferedBlock}`;
+        console.log(`Market event feed caught up and is now live (${range})`);
     }
 
     private async handleWebSocketFailure() {
@@ -191,6 +242,123 @@ export class EventMonitor {
         await reconnect();
     }
 
+    private async routeV2Logs(logs: any[]): Promise<void> {
+        const ordered = this.sortLogsByChainOrder(logs);
+        if (this.buffering) {
+            for (const log of ordered) {
+                const key = log.address?.toLowerCase();
+                if (key && this.pairAddressMap.has(key)) this.keepLatest(this.bufferedV2, key, log);
+            }
+            return;
+        }
+
+        const fresh = this.freshLogs(ordered);
+        if (fresh.length > 0) await this.handleSyncEvents(fresh);
+    }
+
+    private async routeV3Logs(logs: any[]): Promise<void> {
+        const ordered = this.sortLogsByChainOrder(logs);
+        if (this.buffering) {
+            for (const log of ordered) {
+                const key = log.address?.toLowerCase();
+                if (!key || !this.v3PoolAddressMap.has(key)) continue;
+                const decoded = decodeV3PoolEvent(log);
+                if (decoded?.kind === 'swap') this.keepLatest(this.bufferedV3Swaps, key, log);
+                if (decoded?.kind === 'liquidity') this.keepLatest(this.bufferedV3Liquidity, key, log);
+            }
+            return;
+        }
+
+        const fresh = this.freshLogs(ordered);
+        if (fresh.length > 0) await this.handleV3PoolEvents(fresh);
+    }
+
+    private async routeCarbonLogs(controller: Address, logs: any[]): Promise<void> {
+        const ordered = this.sortLogsByChainOrder(logs);
+        if (this.buffering) {
+            for (const log of ordered) {
+                const id = log.args?.id;
+                if (id === undefined) continue;
+                this.keepLatest(this.bufferedCarbon, `${controller.toLowerCase()}:${id.toString()}`, log);
+            }
+            return;
+        }
+
+        const fresh = this.freshLogs(ordered);
+        if (fresh.length > 0) await this.options.carbonStore?.handleEvents(controller, fresh);
+    }
+
+    private freshLogs(logs: any[]): any[] {
+        let freshCount = 0;
+        for (const log of logs) {
+            const key = log.address?.toLowerCase();
+            if (!key) continue;
+            const cursor = this.cursors.get(key);
+            if (cursor && !isLogAfterCursor(log, cursor)) continue;
+            this.cursors.set(key, advanceCursor(cursor, log));
+            logs[freshCount++] = log;
+        }
+        logs.length = freshCount;
+        return logs;
+    }
+
+    private keepLatest(buffer: Map<string, any>, key: string, log: any): void {
+        const blockNumber = chainLogBlockNumber(log);
+        if (this.firstBufferedBlock === null || blockNumber < this.firstBufferedBlock) this.firstBufferedBlock = blockNumber;
+        if (this.lastBufferedBlock === null || blockNumber > this.lastBufferedBlock) this.lastBufferedBlock = blockNumber;
+        this.bufferedLogCount++;
+        const previous = buffer.get(key);
+        if (!previous || compareChainLogs(previous, log) < 0) buffer.set(key, log);
+    }
+
+    private takeBuffered(buffer: Map<string, any>): any[] {
+        if (buffer.size === 0) return [];
+        const logs = Array.from(buffer.values()).sort(compareChainLogs);
+        buffer.clear();
+        return logs;
+    }
+
+    private markApplied(logs: readonly any[]): void {
+        for (const log of logs) {
+            const key = log.address?.toLowerCase();
+            if (!key) continue;
+            const cursor = this.cursors.get(key);
+            if (!cursor || isLogAfterCursor(log, cursor)) {
+                this.cursors.set(key, advanceCursor(cursor, log));
+            }
+        }
+    }
+
+    private hasBufferedLogs(): boolean {
+        return this.bufferedV2.size > 0 ||
+            this.bufferedV3Swaps.size > 0 ||
+            this.bufferedV3Liquidity.size > 0 ||
+            this.bufferedCarbon.size > 0;
+    }
+
+    private async reloadV3Pools(addresses: readonly Address[]): Promise<void> {
+        const pools: V3PoolConfig[] = [];
+        for (const address of addresses) {
+            const pool = this.v3PoolConfigByAddress.get(address.toLowerCase());
+            if (pool) pools.push(pool);
+        }
+        if (pools.length > 0) await loadConfiguredV3StartupState(this.client, this.graph, pools);
+    }
+
+    private async applyCarbonLogs(logs: readonly any[]): Promise<void> {
+        const byController = new Map<string, any[]>();
+        for (const log of logs) {
+            const key = log.address?.toLowerCase();
+            if (!key) continue;
+            const group = byController.get(key);
+            if (group) group.push(log);
+            else byController.set(key, [log]);
+        }
+        for (const [key, controllerLogs] of byController) {
+            await this.options.carbonStore?.handleEvents(key as Address, controllerLogs);
+        }
+    }
+
     private async handleSyncEvents(logs: any[]) {
         try {
             if (RUNTIME.debug) console.log(`Received ${logs.length} events`);
@@ -198,7 +366,7 @@ export class EventMonitor {
             // Collect all valid updates
             const updates: ReserveUpdate[] = [];
             
-            for (const log of this.sortLogsByChainOrder(logs)) {
+            for (const log of logs) {
                 // Check if this pair is in our graph before proceeding
                 const lowercaseAddress = log.address?.toLowerCase();
                 const pairAddress = this.pairAddressMap.get(lowercaseAddress);
@@ -249,8 +417,9 @@ export class EventMonitor {
         try {
             if (RUNTIME.debug) console.log(`Received ${logs.length} V3 pool events`);
             const affectedPools = new Map<string, Address>();
+            const liquidityPoolsToReload = new Map<string, Address>();
 
-            for (const log of this.sortLogsByChainOrder(logs)) {
+            for (const log of logs) {
                 const lowercaseAddress = log.address?.toLowerCase();
                 const poolAddress = this.v3PoolAddressMap.get(lowercaseAddress);
                 if (!poolAddress) {
@@ -282,6 +451,11 @@ export class EventMonitor {
                     continue;
                 }
 
+                if (this.hasV3PoolConfig(poolAddress)) {
+                    liquidityPoolsToReload.set(poolAddress.toLowerCase(), poolAddress);
+                    continue;
+                }
+
                 this.applyV3LiquidityUpdate(poolAddress, decodedEvent.update);
 
                 const pool = this.findV3Pool(poolAddress);
@@ -302,6 +476,9 @@ export class EventMonitor {
             if (RUNTIME.debug) console.log(`Successfully updated ${affectedPools.size} V3 pools`);
             if (affectedPools.size === 0) return;
 
+            if (liquidityPoolsToReload.size > 0) {
+                await this.reloadV3Pools(Array.from(liquidityPoolsToReload.values()));
+            }
             await this.refreshV3Windows(Array.from(affectedPools.values()));
 
             console.log('Starting arbitrage check after V3 batch update...');
@@ -312,25 +489,11 @@ export class EventMonitor {
     }
 
     private sortLogsByChainOrder(logs: any[]): any[] {
-        return [...logs].sort((a, b) => {
-            const block = this.compareLogField(a.blockNumber, b.blockNumber);
-            if (block !== 0) return block;
-            const transaction = this.compareLogField(a.transactionIndex, b.transactionIndex);
-            if (transaction !== 0) return transaction;
-            return this.compareLogField(a.logIndex, b.logIndex);
-        });
+        return logs.sort(compareChainLogs);
     }
 
-    private compareLogField(a: unknown, b: unknown): number {
-        const left = this.logFieldToBigInt(a);
-        const right = this.logFieldToBigInt(b);
-        if (left < right) return -1;
-        if (left > right) return 1;
-        return 0;
-    }
-
-    private logFieldToBigInt(value: unknown): bigint {
-        return typeof value === 'bigint' ? value : BigInt(typeof value === 'number' ? value : 0);
+    private hasV3PoolConfig(poolAddress: Address): boolean {
+        return this.v3PoolConfigByAddress.has(poolAddress.toLowerCase());
     }
 
     private async processReserveUpdateBatch(batch: ReserveUpdate[]): Promise<void> {
@@ -409,6 +572,7 @@ export class EventMonitor {
     }
 
     private async checkArbitrageOpportunities(affectedPairs?: Address[]) {
+        if (this.buffering) return;
         try {
             await this.options.scan(affectedPairs ?? [], affectedPairs);
         } catch (error) {
@@ -424,7 +588,11 @@ export class EventMonitor {
         if (pools.length > 0) await loadConfiguredV3StartupState(this.client, this.graph, pools);
     }
 
-    async stop() {
+    async stop(): Promise<void> {
+        await this.stopInternal(false);
+    }
+
+    private async stopInternal(preserveCursors: boolean): Promise<void> {
         if (!this.isRunning) return;
         
         this.isRunning = false;
@@ -455,6 +623,14 @@ export class EventMonitor {
         
         // Clear any pending updates
         this.scheduler.clear();
+        this.bufferedV2.clear();
+        this.bufferedV3Swaps.clear();
+        this.bufferedV3Liquidity.clear();
+        this.bufferedCarbon.clear();
+        this.firstBufferedBlock = null;
+        this.lastBufferedBlock = null;
+        this.bufferedLogCount = 0;
+        if (!preserveCursors) this.cursors.clear();
     }
 
     private async restart() {
@@ -466,7 +642,7 @@ export class EventMonitor {
         this.reconnecting = true;
         
         try {
-            await this.stop();
+            await this.stopInternal(true);
             
             // Reset WebSocket status to try again with the original configuration
             if (RUNTIME.websocketEnabled && this.networkConfig.wsClient && this.usingWebSocket) {

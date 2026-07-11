@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
+import { ARBITRAGE_SEARCH_POLICY, CARBON_CONTROLLERS } from "../src/constants";
+import { EventMonitor } from "../src/event";
 import { CarbonStrategyStore, type CarbonPairMetadata } from "../src/market/carbon";
+import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 
 const controller = "0x0000000000000000000000000000000000000c01" as Address;
 const token0 = "0x0000000000000000000000000000000000000c02" as Address;
@@ -15,6 +18,45 @@ const pair: CarbonPairMetadata = {
 };
 
 describe("CarbonStrategyStore events", () => {
+  test("buffers Carbon with the same feed used after startup", async () => {
+    const carbonController = CARBON_CONTROLLERS[0].address;
+    const carbonPair = { ...pair, controller: carbonController };
+    const store = new CarbonStrategyStore({ readContract: async () => [] }, [carbonPair]);
+    let onLogs: ((logs: any[]) => void | Promise<void>) | undefined;
+    const client = {
+      watchContractEvent: async (options: { onLogs: typeof onLogs }) => {
+        onLogs = options.onLogs;
+        return () => {};
+      },
+    };
+    const monitor = new EventMonitor(
+      new OpportunityEngine(ARBITRAGE_SEARCH_POLICY, []),
+      { client },
+      { carbonStore: store, scan: async () => {} }
+    );
+
+    await monitor.startBuffering();
+    await onLogs?.([{
+      address: carbonController,
+      blockNumber: 2n,
+      transactionIndex: 0,
+      logIndex: 1,
+      eventName: "StrategyUpdated",
+      args: {
+        id: 12n,
+        token0,
+        token1,
+        order0: order(1_000n),
+        order1: order(2_000n),
+      },
+    }]);
+
+    expect(store.stats().strategyCount).toBe(0);
+    await monitor.activate();
+    expect(store.stats()).toEqual({ strategyCount: 1, pairCount: 1 });
+    await monitor.stop();
+  });
+
   test("updates strategy state from StrategyUpdated without runtime refetch", async () => {
     const client = {
       readContract: async () => {
