@@ -10,7 +10,7 @@ import {
   Q96,
   quoteV3MultiRangeExactInput,
   quoteV3SingleRangeExactInput,
-} from "../src/pricing/v3-swap-math";
+} from "../src/protocols/v3/quote";
 
 describe("V3 swap math", () => {
   test("applies V3 fee units with bigint precision", () => {

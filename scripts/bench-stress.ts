@@ -1,9 +1,9 @@
 import { TOKENS } from '../src/constants';
-import { type PairInfo, type ReserveUpdate } from '../src/market/v2-types';
-import { type V3PoolConfig } from '../src/market/v3-types';
+import { type PairInfo, type ReserveUpdate } from '../src/protocols/v2/types';
+import { type V3PoolConfig } from '../src/protocols/v3/types';
 import { type ArbitrageSearchPolicy } from '../src/market-graph/types';
 import { OpportunityEngine } from '../src/opportunities/opportunity-engine';
-import { Q96 } from '../src/pricing/v3-swap-math';
+import { Q96 } from '../src/protocols/v3/quote';
 import { tokenAmount } from '../src/values';
 import { LatestUpdateScheduler } from '../src/runtime/event-scheduler';
 import { type Address } from 'viem';

@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { encodeAbiParameters, encodeEventTopics, type Address } from "viem";
 import { ARBITRAGE_SEARCH_POLICY, CONTRACTS, TOKENS } from "../src/constants";
-import { EventMonitor } from "../src/event";
-import { type V3PoolConfig } from "../src/market/v3-types";
+import { EventMonitor } from "../src/runtime/event-monitor";
+import { type V3PoolConfig } from "../src/protocols/v3/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
-import { Q96 } from "../src/pricing/v3-swap-math";
-import { V2_SYNC_EVENT_ABI, V3_POOL_EVENT_ABI } from "../src/runtime/market-events";
+import { Q96 } from "../src/protocols/v3/quote";
+import { V2_SYNC_EVENT_ABI } from "../src/protocols/v2/events";
+import { V3_POOL_EVENT_ABI } from "../src/protocols/v3/events";
+import { V2EventAdapter } from "../src/protocols/v2/live";
+import { V3EventAdapter } from "../src/protocols/v3/live";
 
 const [token0, token1] = TOKENS.map(token => token.address);
 const poolAddress = "0x0000000000000000000000000000000000000a11" as Address;
@@ -26,10 +29,9 @@ describe("EventMonitor V3 pool events", () => {
     const graph = new OpportunityEngine(ARBITRAGE_SEARCH_POLICY, []);
     const pairAddress = "0x0000000000000000000000000000000000000a22" as Address;
     const feed = fakeEventClient([[200n, 201n, BigInt(Math.floor(Date.now() / 1000))]]);
-    const monitor = new EventMonitor(graph, { client: feed.client }, {
-      v2Pools: [{ pairAddress, token0, token1, fee: 30 }],
-      scan: async () => {},
-    });
+    const monitor = new EventMonitor({ client: feed.client }, [
+      new V2EventAdapter(feed.client, graph, [{ pairAddress, token0, token1, fee: 30, factory: '' }], async () => {}),
+    ]);
 
     await monitor.startBuffering();
     await feed.emit([syncLog(pairAddress, 1, 200n, 201n, 2n)]);
@@ -53,15 +55,15 @@ describe("EventMonitor V3 pool events", () => {
     );
     const pairAddress = "0x0000000000000000000000000000000000000a22" as Address;
     const feed = fakeEventClient();
-    const monitor = new EventMonitor(graph, { client: feed.client }, {
-      v2Pools: [{
+    const monitor = new EventMonitor({ client: feed.client }, [
+      new V2EventAdapter(feed.client, graph, [{
         pairAddress,
         token0,
         token1,
         fee: 30,
-      }],
-      scan: async () => {},
-    });
+        factory: '',
+      }], async () => {}),
+    ]);
     await monitor.start();
 
     await feed.emit([
@@ -89,11 +91,14 @@ describe("EventMonitor V3 pool events", () => {
       tick: 120,
     }]);
 
-    const feed = fakeEventClient();
-    const monitor = new EventMonitor(graph, { client: feed.client }, {
-      v3Pools: [poolAddress],
-      scan: async () => {},
-    });
+    const feed = fakeEventClient([[
+      [poolAddress, Q96 + 1n, 120, 1_600n],
+      [[0, 1n]],
+      [[60, 500n, 500n, true], [180, 500n, -500n, true]],
+    ]]);
+    const monitor = new EventMonitor({ client: feed.client }, [
+      new V3EventAdapter(feed.client, graph, [pool], async () => {}),
+    ]);
     await monitor.start();
 
     await feed.emit([
@@ -121,11 +126,9 @@ describe("EventMonitor V3 pool events", () => {
       [[0, 1n]],
       [[60, 700n, 700n, true], [180, 700n, -700n, true]],
     ]]);
-    const monitor = new EventMonitor(graph, { client: feed.client }, {
-      v3Pools: [poolAddress],
-      v3PoolConfigs: [pool],
-      scan: async () => {},
-    });
+    const monitor = new EventMonitor({ client: feed.client }, [
+      new V3EventAdapter(feed.client, graph, [pool], async () => {}),
+    ]);
 
     try {
       await monitor.startBuffering();

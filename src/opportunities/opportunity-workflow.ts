@@ -105,7 +105,7 @@ function logOpportunities(opportunities: ArbitrageSearchResult): void {
   });
 }
 
-function routeKindFromProtocols(protocols: MarketProtocol[]): 'v2' | 'v3' | 'carbon' | 'mixed' {
+function routeKindFromProtocols(protocols: MarketProtocol[]): MarketProtocol | 'mixed' {
   if (protocols.length === 0) return 'mixed';
   return protocols.every(protocol => protocol === protocols[0]) ? protocols[0] : 'mixed';
 }

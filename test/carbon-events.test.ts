@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
-import { ARBITRAGE_SEARCH_POLICY } from "../src/constants";
-import { EventMonitor } from "../src/event";
-import { CarbonStrategyStore, type CarbonPairMetadata } from "../src/market/carbon";
-import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
-import { CARBON_CONTROLLERS } from "../src/protocols/carbon-config";
+import { EventMonitor } from "../src/runtime/event-monitor";
+import { CarbonStrategyStore, type CarbonPairMetadata } from "../src/protocols/carbon/market";
+import { CarbonEventAdapter } from "../src/protocols/carbon/live";
+import { CARBON_CONTROLLERS } from "../src/protocols/carbon/config";
 
 const controller = "0x0000000000000000000000000000000000000c01" as Address;
 const token0 = "0x0000000000000000000000000000000000000c02" as Address;
@@ -40,11 +39,7 @@ describe("CarbonStrategyStore events", () => {
         return () => {};
       },
     };
-    const monitor = new EventMonitor(
-      new OpportunityEngine(ARBITRAGE_SEARCH_POLICY, []),
-      { client },
-      { carbonStore: store, scan: async () => {} }
-    );
+    const monitor = new EventMonitor({ client }, [new CarbonEventAdapter(store)]);
 
     await monitor.startBuffering();
     await onLogs?.([{

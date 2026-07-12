@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
-import { type V3PoolConfig } from "../src/market/v3-types";
+import { type V3PoolConfig } from "../src/protocols/v3/types";
 import { MarketGraph } from "../src/market-graph/market-graph";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
-import { Q96 } from "../src/pricing/v3-swap-math";
-import { type PairInfo } from "../src/market/v2-types";
+import { Q96 } from "../src/protocols/v3/quote";
+import { type PairInfo } from "../src/protocols/v2/types";
 import { tokenAmount } from "../src/values";
 
 const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { carbonMarginalRate, decodeCarbonRate, quoteCarbonExactInput } from '../src/pricing/carbon-swap-math';
+import { carbonMarginalRate, decodeCarbonRate, quoteCarbonExactInput } from '../src/protocols/carbon/quote';
 
 const ONE = 1n << 48n;
 

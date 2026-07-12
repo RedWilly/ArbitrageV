@@ -1,4 +1,4 @@
-import { type V3SwapDirection, type V3Tick } from '../market/v3-types';
+import { type V3SwapDirection, type V3Tick } from './types';
 
 export const Q96 = 2n ** 96n;
 export const V3_FEE_DENOMINATOR = 1_000_000n;

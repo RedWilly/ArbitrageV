@@ -1,11 +1,13 @@
-import { encodeAbiParameters, type Address } from 'viem';
-import { ARBITRAGE_SEARCH_POLICY, TOKENS, V3_POOLS } from '../constants';
-import { type CarbonStrategy } from '../market/carbon';
+import { type Address } from 'viem';
+import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
+import { V3_POOLS } from '../protocols/v3/config';
+import { type CarbonStrategy } from '../protocols/carbon/market';
+import { encodeCarbonRouteData } from '../protocols/carbon/execution';
 import { flashLoanFee } from '../execution/execution-planner';
 import { MarketGraph } from '../market-graph/market-graph';
 import { sizeRoute } from '../market-graph/route-sizer';
 import { type ArbitrageSearchPolicy, type FlashPoolCandidate } from '../market-graph/types';
-import { type PairInfo, type ReserveUpdate } from '../market/v2-types';
+import { type PairInfo, type ReserveUpdate } from '../protocols/v2/types';
 import {
   type V3BitmapWord,
   type V3BitmapWordUpdate,
@@ -14,7 +16,7 @@ import {
   type V3PoolUpdate,
   type V3Tick,
   type V3TickUpdate,
-} from '../market/v3-types';
+} from '../protocols/v3/types';
 import { CircularArbitrageStrategy } from '../strategies/circular-arbitrage';
 import {
   type ArbitrageOpportunity,
@@ -71,6 +73,10 @@ export class OpportunityEngine {
 
   getV3Pools(): V3PoolInfo[] {
     return this.graph.getV3Pools();
+  }
+
+  getV3Pool(poolAddress: Address): V3PoolInfo | null {
+    return this.graph.getV3Pool(poolAddress);
   }
 
   getV3InitializedTicks(poolAddress: Address): V3Tick[] {
@@ -184,17 +190,7 @@ export class OpportunityEngine {
     const execution = this.graph.carbonExecution(edgeIndex, amountIn);
     if (!execution) throw new Error(`Missing Carbon execution data for edge ${edgeIndex}`);
 
-    if (execution.strategyIds.length === 1) {
-      return encodeAbiParameters(
-        [{ type: 'uint256' }, { type: 'address' }, { type: 'address' }],
-        [execution.strategyIds[0], execution.rawFrom, execution.rawTo]
-      );
-    }
-
-    return encodeAbiParameters(
-      [{ type: 'address' }, { type: 'address' }, { type: 'uint256[]' }, { type: 'uint128[]' }],
-      [execution.rawFrom, execution.rawTo, execution.strategyIds, execution.amounts]
-    );
+    return encodeCarbonRouteData(execution);
   }
 
   private emptyExecutionMetadata(candidate: CandidateRoute): { fees: number[]; routeData: `0x${string}`[] } {

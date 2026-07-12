@@ -1,4 +1,6 @@
-import { type CarbonOrder } from '../market/carbon';
+import { type CarbonOrder } from './market';
+import { compareFractions } from '../../fractions';
+import { type CarbonGroupedMarketEdge, type MarketRouteQuote } from '../../market-graph/types';
 
 export type CarbonQuote = {
   amountIn: bigint;
@@ -9,6 +11,71 @@ export type CarbonQuote = {
 const PPM = 1_000_000n;
 const ONE = 1n << 48n;
 const RATE_MANTISSA_MASK = (1n << 48n) - 1n;
+
+export type CarbonAllocation = {
+  strategyId: bigint;
+  amountIn: bigint;
+};
+
+export class CarbonGroupQuoter {
+  private readonly allocated: bigint[] = [];
+  private readonly capacities: bigint[] = [];
+
+  quote(
+    edge: CarbonGroupedMarketEdge,
+    amountIn: bigint,
+    allocations?: CarbonAllocation[]
+  ): MarketRouteQuote {
+    let remaining = amountIn;
+    let amountOutBeforeFee = 0n;
+    this.allocated.length = edge.orders.length;
+    this.capacities.length = edge.orders.length;
+    for (let index = 0; index < edge.orders.length; index++) {
+      this.allocated[index] = 0n;
+      this.capacities[index] = carbonSourceAmountForFullOrder(edge.orders[index].order);
+    }
+    const chunk = (amountIn + 15n) / 16n;
+
+    for (let step = 0; remaining > 0n && step < 16 + edge.orders.length; step++) {
+      let best = -1;
+      for (let index = 0; index < edge.orders.length; index++) {
+        if (this.allocated[index] >= this.capacities[index]) continue;
+        if (best < 0) {
+          best = index;
+          continue;
+        }
+        const rate = carbonMarginalRateAtSource(edge.orders[index].order, this.allocated[index]);
+        const bestRate = carbonMarginalRateAtSource(edge.orders[best].order, this.allocated[best]);
+        if (compareFractions(rate.numerator, rate.denominator, bestRate.numerator, bestRate.denominator) > 0) best = index;
+      }
+      if (best < 0) break;
+
+      const available = this.capacities[best] - this.allocated[best];
+      let input = remaining < chunk ? remaining : chunk;
+      if (available < input) input = available;
+      if (input <= 0n) break;
+      this.allocated[best] += input;
+      remaining -= input;
+    }
+
+    for (let index = 0; index < edge.orders.length; index++) {
+      const input = this.allocated[index];
+      if (input <= 0n) continue;
+      const orderQuote = quoteCarbonExactInputBeforeFee(input, edge.orders[index].order);
+      if (!orderQuote.complete || orderQuote.amountOut <= 0n) return incomplete(amountIn);
+      amountOutBeforeFee += orderQuote.amountOut;
+      allocations?.push({ strategyId: edge.orders[index].strategyId, amountIn: input });
+    }
+
+    if (remaining > 0n || amountOutBeforeFee <= 0n) return incomplete(amountIn, amountOutBeforeFee);
+    const amountOut = subtractFee(amountOutBeforeFee, edge.fee);
+    return { amountIn, amountOut, profit: amountOut - amountIn, complete: amountOut > 0n };
+  }
+}
+
+function incomplete(amountIn: bigint, amountOut = 0n): MarketRouteQuote {
+  return { amountIn, amountOut, profit: -1n, complete: false };
+}
 
 export function quoteCarbonExactInput(amountIn: bigint, order: CarbonOrder, feePpm = 0): CarbonQuote {
   const quote = quoteCarbonExactInputBeforeFee(amountIn, order);

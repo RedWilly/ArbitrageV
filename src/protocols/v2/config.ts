@@ -1,5 +1,5 @@
 import { type Address } from 'viem';
-import { tokenAmount } from '../values';
+import { tokenAmount } from '../../values';
 
 export type DexFactoryConfig = {
   name: string;

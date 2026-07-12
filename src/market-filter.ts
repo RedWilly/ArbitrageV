@@ -1,7 +1,7 @@
 import bannedTokens from './bannedtax.json';
-import { type V2PoolMetadata } from './getinfo';
-import { type CarbonPairMetadata } from './market/carbon';
-import { type V3PoolConfig } from './market/v3-types';
+import { type V2PoolMetadata } from './protocols/v2/market';
+import { type CarbonPairMetadata } from './protocols/carbon/market';
+import { type V3PoolConfig } from './protocols/v3/types';
 import { graphToken } from './tokens';
 
 type Address = `0x${string}`;

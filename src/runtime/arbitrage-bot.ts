@@ -1,8 +1,7 @@
 import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, RUNTIME } from '../constants';
-import { EventMonitor } from '../event';
+import { EventMonitor } from '../runtime/event-monitor';
 import { loadMarketSnapshot } from '../market-db';
-import { CarbonStrategyStore } from '../market/carbon';
 import { initializeNetwork } from '../network';
 import { OpportunityEngine } from '../opportunities/opportunity-engine';
 import { createOpportunityScanner } from '../opportunities/opportunity-workflow';
@@ -17,7 +16,7 @@ export async function runArbitrageBot(): Promise<void> {
 
   console.log('Loading market metadata...');
   const catalog = loadMarketSnapshot();
-  const { v2Pools, v3Pools, carbonPairs } = catalog;
+  const { v2Pools, v3Pools } = catalog;
 
   if (v2Pools.length + v3Pools.length === 0) {
     throw new Error('Market database is empty. Run `bun run sync:markets` first.');
@@ -46,25 +45,11 @@ export async function runArbitrageBot(): Promise<void> {
   );
   const scheduleScan = (changedPairs: readonly string[], releasedPairs: readonly Address[] = []) =>
     scanScheduler.submit(changedPairs.map(key => ({ key, releasedPairs })));
-  let startupReady = false;
-  const carbonStore = new CarbonStrategyStore(
-    network.wsClient ?? network.client,
-    carbonPairs,
-    async (strategies, changedPoolKeys, changedController) => {
-      graph.setCarbonStrategies(strategies);
-      if (!startupReady || changedPoolKeys.length === 0) return;
-      await scheduleScan(changedPoolKeys, changedController ? [changedController] : []);
-    }
-  );
-  const runtimePlugins = createProtocolPlugins(carbonPairs.length > 0 ? carbonStore : undefined);
-
-  const monitor = new EventMonitor(graph, network, {
-    v2Pools,
-    v3Pools: v3Pools.map(pool => pool.address),
-    v3PoolConfigs: v3Pools,
-    carbonStore: carbonPairs.length > 0 ? carbonStore : undefined,
-    scan: scheduleScan,
-  });
+  const runtimePlugins = createProtocolPlugins();
+  const eventAdapters = runtimePlugins
+    .map(plugin => plugin.events({ client: network.client, catalog, engine: graph, scan: scheduleScan }))
+    .filter(adapter => adapter !== null);
+  const monitor = new EventMonitor(network, eventAdapters);
 
   console.log('Starting market event feed in buffering mode...');
   await monitor.startBuffering();
@@ -81,11 +66,8 @@ export async function runArbitrageBot(): Promise<void> {
     console.log(`Initial live state fetched across blocks ${hydrationStartedAtBlock}-${hydrationCompletedAtBlock}`);
 
     if (RUNTIME.debug) console.log(`Loaded live state for ${runtimePlugins.map(plugin => plugin.id).join(', ')}`);
-    if (carbonPairs.length > 0) console.log(`Loaded ${carbonStore.stats().strategyCount} live Carbon strategies`);
-
     console.log('Reconciling events received during startup...');
     await monitor.activate();
-    startupReady = true;
   } catch (error) {
     await monitor.stop();
     throw error;

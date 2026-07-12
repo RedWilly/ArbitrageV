@@ -9,8 +9,8 @@ import {
   toV3BitmapWordUpdates,
   toV3PoolUpdates,
   toV3TickUpdates,
-} from "../src/market/v3-loader";
-import { type V3PoolConfig } from "../src/market/v3-types";
+} from "../src/protocols/v3/runtime";
+import { type V3PoolConfig } from "../src/protocols/v3/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 
 function address(id: number): Address {

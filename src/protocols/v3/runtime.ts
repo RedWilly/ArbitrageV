@@ -1,6 +1,7 @@
 import { type Address, parseAbi } from 'viem';
-import { CONTRACTS, RUNTIME, V3_POOLS, V3_STARTUP_POLICY } from '../constants';
-import { type OpportunityEngine } from '../opportunities/opportunity-engine';
+import { CONTRACTS, RUNTIME } from '../../constants';
+import { V3_POOLS, V3_STARTUP_POLICY } from './config';
+import { type OpportunityEngine } from '../../opportunities/opportunity-engine';
 import {
   type V3BitmapWord,
   type V3BitmapWordUpdate,
@@ -10,7 +11,7 @@ import {
   type V3StartupPolicy,
   type V3Tick,
   type V3TickUpdate,
-} from './v3-types';
+} from './types';
 
 const V3_STARTUP_ABI = parseAbi([
   'function getV3StartupStatesAroundCurrentTick(address[] pools, int24[] tickSpacings) view returns (((address pool, uint160 sqrtPriceX96, int24 tick, uint128 liquidity) live, (int16 wordPosition, uint256 bitmap)[] bitmaps, (int24 tick, uint128 liquidityGross, int128 liquidityNet, bool initialized)[] ticks)[])',

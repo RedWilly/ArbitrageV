@@ -1,7 +1,7 @@
 import { parseAbi, type Address } from 'viem';
-import { CONTRACTS, RUNTIME, TOKENS } from '../constants';
-import { CARBON_CONTROLLERS, CARBON_STARTUP_POLICY } from '../protocols/carbon-config';
-import { graphToken } from '../tokens';
+import { CONTRACTS, RUNTIME, TOKENS } from '../../constants';
+import { CARBON_CONTROLLERS, CARBON_STARTUP_POLICY } from './config';
+import { graphToken } from '../../tokens';
 
 export type CarbonPairMetadata = {
   controller: Address;

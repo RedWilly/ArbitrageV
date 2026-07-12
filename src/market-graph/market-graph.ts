@@ -1,12 +1,13 @@
 import { type Address } from 'viem';
-import { ARBITRAGE_SEARCH_POLICY, TOKENS, V3_POOLS } from '../constants';
-import { type CarbonStrategy } from '../market/carbon';
+import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
+import { V3_POOLS } from '../protocols/v3/config';
+import { type CarbonStrategy } from '../protocols/carbon/market';
 import { graphToken } from '../tokens';
 import {
   type PairInfo,
   type ReserveUpdate,
   type SwapDirection,
-} from '../market/v2-types';
+} from '../protocols/v2/types';
 import {
   type V3BitmapWord,
   type V3BitmapWordUpdate,
@@ -15,22 +16,23 @@ import {
   type V3PoolUpdate,
   type V3Tick,
   type V3TickUpdate,
-} from '../market/v3-types';
-import { compareFractions, FEE_DENOMINATOR, swapV2 } from '../pricing/v2-swap-math';
+} from '../protocols/v3/types';
+import { compareFractions } from '../fractions';
+import { FEE_DENOMINATOR, swapV2 } from '../protocols/v2/quote';
 import {
   carbonMarginalRate,
-  carbonMarginalRateAtSource,
   carbonSourceAmountForFullOrder,
   quoteCarbonExactInput,
-  quoteCarbonExactInputBeforeFee,
-} from '../pricing/carbon-swap-math';
-import { Q96, quoteV3MultiRangeExactInput, V3_FEE_DENOMINATOR } from '../pricing/v3-swap-math';
+  CarbonGroupQuoter,
+  type CarbonAllocation,
+} from '../protocols/carbon/quote';
+import { Q96, quoteV3MultiRangeExactInput, V3_FEE_DENOMINATOR } from '../protocols/v3/quote';
 import { feeMultiplier } from '../values';
+import { protocolPlugin } from '../protocols/registry';
 import {
   type AnyMarketEdge,
   type ArbitrageSearchPolicy,
   type CarbonGroupOrder,
-  type CarbonGroupedMarketEdge,
   type CarbonMarketEdge,
   type FlashPoolCandidate,
   type MarketEdgeId,
@@ -56,11 +58,6 @@ type EdgeSlot = {
 type IndexedEdgeCache = {
   limit: number;
   edgeIndexes: number[];
-};
-
-type CarbonAllocation = {
-  strategyId: bigint;
-  amountIn: bigint;
 };
 
 const Q192 = Q96 * Q96;
@@ -110,8 +107,7 @@ export class MarketGraph {
   private readonly v3TicksCache: Array<V3Tick[] | undefined> = [];
   private readonly v3LoadedWordRanges: Array<{ min: number; max: number } | undefined> = [];
   private readonly carbonEdgeIds = new Set<MarketEdgeId>();
-  private readonly carbonAllocatedScratch: bigint[] = [];
-  private readonly carbonCapacityScratch: bigint[] = [];
+  private readonly carbonGroupQuoter = new CarbonGroupQuoter();
 
   constructor(
     private readonly policy: ArbitrageSearchPolicy = ARBITRAGE_SEARCH_POLICY,
@@ -340,7 +336,7 @@ export class MarketGraph {
     }
 
     const allocations: CarbonAllocation[] = [];
-    const quote = this.quoteCarbonGroupEdge(edge, amountIn, allocations);
+    const quote = this.carbonGroupQuoter.quote(edge, amountIn, allocations);
     if (!quote.complete || allocations.length === 0) return null;
 
     return {
@@ -406,6 +402,11 @@ export class MarketGraph {
     return this.v3Pools.filter((pool): pool is V3PoolInfo => pool !== undefined);
   }
 
+  getV3Pool(poolAddress: Address): V3PoolInfo | null {
+    const poolIndex = this.poolRegistry.get(poolAddress);
+    return poolIndex === undefined ? null : this.v3Pools[poolIndex] ?? null;
+  }
+
   getV3InitializedTicks(poolAddress: Address): V3Tick[] {
     const poolIndex = this.poolRegistry.get(poolAddress);
     if (poolIndex === undefined) return [];
@@ -454,7 +455,7 @@ export class MarketGraph {
     for (const edgeIndex of this.flashEdgeIndexes(tokenIndex)) {
       if (excluded.has(this.edges[edgeIndex].poolIndex)) continue;
       const edge = this.edges[edgeIndex].edge;
-      if (edge.protocol === 'carbon') continue;
+      if (!protocolPlugin(edge.protocol).flashLoanFee) continue;
       if (edge.protocol === 'v2' && edge.reserveIn <= amountIn) continue;
       const inputCapacity = this.edgeInputCapacity(edge);
       if (edge.protocol === 'v3' && inputCapacity <= amountIn) continue;
@@ -567,7 +568,7 @@ export class MarketGraph {
   }
 
   private quoteCarbonEdge(edge: CarbonMarketEdge, amountIn: bigint): MarketRouteQuote {
-    if (edge.carbonKind === 'group') return this.quoteCarbonGroupEdge(edge, amountIn);
+    if (edge.carbonKind === 'group') return this.carbonGroupQuoter.quote(edge, amountIn);
 
     const quote = quoteCarbonExactInput(amountIn, edge.order, edge.fee);
     return {
@@ -575,67 +576,6 @@ export class MarketGraph {
       amountOut: quote.amountOut,
       profit: quote.complete ? quote.amountOut - amountIn : -1n,
       complete: quote.complete,
-    };
-  }
-
-  private quoteCarbonGroupEdge(
-    edge: CarbonGroupedMarketEdge,
-    amountIn: bigint,
-    allocations?: CarbonAllocation[]
-  ): MarketRouteQuote {
-    let remaining = amountIn;
-    let amountOutBeforeFee = 0n;
-    const allocated = this.carbonAllocatedScratch;
-    const capacities = this.carbonCapacityScratch;
-    allocated.length = edge.orders.length;
-    capacities.length = edge.orders.length;
-    for (let index = 0; index < edge.orders.length; index++) {
-      allocated[index] = 0n;
-      capacities[index] = carbonSourceAmountForFullOrder(edge.orders[index].order);
-    }
-    const chunk = (amountIn + 15n) / 16n;
-
-    for (let step = 0; remaining > 0n && step < 16 + edge.orders.length; step++) {
-      let best = -1;
-      for (let index = 0; index < edge.orders.length; index++) {
-        if (allocated[index] >= capacities[index]) continue;
-        if (best < 0) {
-          best = index;
-          continue;
-        }
-        const rate = carbonMarginalRateAtSource(edge.orders[index].order, allocated[index]);
-        const bestRate = carbonMarginalRateAtSource(edge.orders[best].order, allocated[best]);
-        if (compareFractions(rate.numerator, rate.denominator, bestRate.numerator, bestRate.denominator) > 0) best = index;
-      }
-      if (best < 0) break;
-
-      const available = capacities[best] - allocated[best];
-      let input = remaining < chunk ? remaining : chunk;
-      if (available < input) input = available;
-      if (input <= 0n) break;
-      allocated[best] += input;
-      remaining -= input;
-    }
-
-    for (let index = 0; index < edge.orders.length; index++) {
-      const input = allocated[index];
-      if (input <= 0n) continue;
-      const quote = quoteCarbonExactInputBeforeFee(input, edge.orders[index].order);
-      if (!quote.complete || quote.amountOut <= 0n) return { amountIn, amountOut: 0n, profit: -1n, complete: false };
-      amountOutBeforeFee += quote.amountOut;
-      allocations?.push({ strategyId: edge.orders[index].strategyId, amountIn: input });
-    }
-
-    if (remaining > 0n || amountOutBeforeFee <= 0n) {
-      return { amountIn, amountOut: amountOutBeforeFee, profit: -1n, complete: false };
-    }
-
-    const amountOut = (amountOutBeforeFee * BigInt(1_000_000 - edge.fee)) / 1_000_000n;
-    return {
-      amountIn,
-      amountOut,
-      profit: amountOut - amountIn,
-      complete: amountOut > 0n,
     };
   }
 
@@ -940,23 +880,21 @@ export class MarketGraph {
   }
 
   private flashFee(protocol: MarketProtocol, fee: number, amount: bigint): bigint {
-    const rawFee = BigInt(fee);
-    if (protocol === 'v2') return (amount * rawFee) / (FEE_DENOMINATOR - rawFee) + 1n;
-    const feeAmount = amount * rawFee;
-    return feeAmount === 0n ? 0n : ((feeAmount - 1n) / V3_FEE_DENOMINATOR) + 1n;
+    return protocolPlugin(protocol).flashLoanFee?.(fee, amount) ?? 0n;
   }
 
   private flashEdgeIndexes(tokenIndex: number): number[] {
     const cached = this.flashEdgesCache.get(tokenIndex);
     if (cached) return cached;
     const edgeIndexes = this.tokens[tokenIndex].edgeIndexes
-      .filter(edgeIndex => this.edges[edgeIndex].edge.protocol !== 'carbon')
+      .filter(edgeIndex => Boolean(protocolPlugin(this.edges[edgeIndex].edge.protocol).flashLoanFee))
       .sort((aIndex, bIndex) => {
         const a = this.edges[aIndex].edge;
         const b = this.edges[bIndex].edge;
-        const aRate = a.protocol === 'v2' ? a.fee / (10_000 - a.fee) : a.fee / 1_000_000;
-        const bRate = b.protocol === 'v2' ? b.fee / (10_000 - b.fee) : b.fee / 1_000_000;
-        if (aRate !== bRate) return aRate - bRate;
+        const nominal = 10n ** 18n;
+        const aFee = this.flashFee(a.protocol, a.fee, nominal);
+        const bFee = this.flashFee(b.protocol, b.fee, nominal);
+        if (aFee !== bFee) return aFee < bFee ? -1 : 1;
         return a.liquidity > b.liquidity ? -1 : a.liquidity < b.liquidity ? 1 : 0;
       });
     this.flashEdgesCache.set(tokenIndex, edgeIndexes);

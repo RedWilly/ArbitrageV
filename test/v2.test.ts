@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
-import { type PairInfo } from "../src/market/v2-types";
+import { type PairInfo } from "../src/protocols/v2/types";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { tokenAmount } from "../src/values";

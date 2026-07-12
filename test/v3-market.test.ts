@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { ARBITRAGE_SEARCH_POLICY, TOKENS } from "../src/constants";
-import { type V3PoolConfig } from "../src/market/v3-types";
+import { type V3PoolConfig } from "../src/protocols/v3/types";
 import { MarketGraph } from "../src/market-graph/market-graph";
 
 const [tokenA, tokenB, tokenC] = TOKENS.map(({ address }) => address);

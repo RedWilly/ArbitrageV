@@ -1,12 +1,12 @@
 import { type Address } from 'viem';
-import { CONTRACTS, RUNTIME, TOKENS } from './constants';
+import { CONTRACTS, RUNTIME, TOKENS } from '../../constants';
 import {
     V2_DISCOVERY_POLICY as PAIR_DISCOVERY_POLICY,
     V2_FACTORIES as DEX_FACTORIES,
-} from './protocols/v2-config';
-import UniswapFlashQueryABI from './ABI/UniswapFlashQuery.json';
-import bannedTokens from './bannedtax.json';
-import { type PairInfo as MarketPairInfo } from './market/v2-types';
+} from './config';
+import UniswapFlashQueryABI from '../../ABI/UniswapFlashQuery.json';
+import bannedTokens from '../../bannedtax.json';
+import { type PairInfo as MarketPairInfo } from './types';
 
 const bannedTokenSet = new Set(bannedTokens.map(token => token.toLowerCase()));
 

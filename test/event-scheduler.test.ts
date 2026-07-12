@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
-import { type ReserveUpdate } from "../src/market/v2-types";
-import { type V3PoolUpdate } from "../src/market/v3-types";
+import { type ReserveUpdate } from "../src/protocols/v2/types";
+import { type V3PoolUpdate } from "../src/protocols/v3/types";
 import { LatestUpdateScheduler } from "../src/runtime/event-scheduler";
 
 function pairAddress(id: number): Address {

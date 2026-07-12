@@ -6,7 +6,7 @@ import {
   type CandidateRoute,
   type FindOpportunitiesRequest,
 } from '../opportunities/opportunity-types';
-import { compareFractions } from '../pricing/v2-swap-math';
+import { compareFractions } from '../fractions';
 
 type RouteStateStore = {
   tokenIndexes: number[];
