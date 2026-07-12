@@ -56,7 +56,7 @@ The shared runtime already handles startup buffering, scheduling, and reconnects
 
 ## Setup
 
-Requires [Bun](https://bun.sh/) and a Sei RPC endpoint.
+Requires [Bun](https://bun.sh/) and a RPC endpoint.
 
 ```bash
 bun install
