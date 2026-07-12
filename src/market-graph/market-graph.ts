@@ -1,7 +1,7 @@
 import { type Address } from 'viem';
 import { ARBITRAGE_SEARCH_POLICY, TOKENS } from '../constants';
 import { V3_POOLS } from '../protocols/v3/config';
-import { type CarbonStrategy } from '../protocols/carbon/market';
+import { type CarbonStrategy } from '../protocols/carbon/types';
 import { graphToken } from '../tokens';
 import {
   type PairInfo,

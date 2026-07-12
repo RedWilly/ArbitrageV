@@ -7,8 +7,8 @@ import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
 import { Q96 } from "../src/protocols/v3/quote";
 import { V2_SYNC_EVENT_ABI } from "../src/protocols/v2/events";
 import { V3_POOL_EVENT_ABI } from "../src/protocols/v3/events";
-import { V2EventAdapter } from "../src/protocols/v2/live";
-import { V3EventAdapter } from "../src/protocols/v3/live";
+import { V2EventAdapter } from "../src/protocols/v2/runtime";
+import { V3EventAdapter } from "../src/protocols/v3/runtime";
 
 const [token0, token1] = TOKENS.map(token => token.address);
 const poolAddress = "0x0000000000000000000000000000000000000a11" as Address;

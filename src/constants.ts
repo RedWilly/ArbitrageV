@@ -103,4 +103,11 @@ export const TOKENS: TokenConfig[] = [
         minProfit: tokenAmount('10.50'),
         decimals: 18,
     },
+    {
+        name: 'SEIYAN',
+        address: '0x5f0E07dFeE5832Faa00c63F2D33A0D79150E8598',
+        liquidityAmount: tokenAmount('128820', 6),
+        minProfit: tokenAmount('644', 6),
+        decimals: 6,
+    }
 ];

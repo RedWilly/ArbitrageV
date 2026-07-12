@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
-import { type CarbonStrategy } from "../src/protocols/carbon/market";
+import { type CarbonStrategy } from "../src/protocols/carbon/types";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { type PairInfo } from "../src/protocols/v2/types";
 import { type V3PoolConfig } from "../src/protocols/v3/types";

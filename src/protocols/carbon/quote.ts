@@ -1,4 +1,4 @@
-import { type CarbonOrder } from './market';
+import { type CarbonOrder } from './types';
 import { compareFractions } from '../../fractions';
 import { type CarbonGroupedMarketEdge, type MarketRouteQuote } from '../../market-graph/types';
 

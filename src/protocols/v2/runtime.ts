@@ -1,25 +1,19 @@
 import { type Address } from 'viem';
-import { CONTRACTS, RUNTIME, TOKENS } from '../../constants';
-import {
-    V2_DISCOVERY_POLICY as PAIR_DISCOVERY_POLICY,
-    V2_FACTORIES as DEX_FACTORIES,
-} from './config';
-import UniswapFlashQueryABI from '../../ABI/UniswapFlashQuery.json';
-import bannedTokens from '../../bannedtax.json';
-import { type PairInfo as MarketPairInfo } from './types';
+import { type PublicClient } from 'viem';
+import { type OpportunityEngine } from '../../opportunities/opportunity-engine';
+import { LatestUpdateScheduler } from '../../runtime/event-scheduler';
+import { type ProtocolEventAdapter } from '../../runtime/protocol-event-adapter';
+import { decodeV2SyncEvent, V2_SYNC_EVENT_ABI } from './events';
+import { type ReserveUpdate } from './types';
 
-const bannedTokenSet = new Set(bannedTokens.map(token => token.toLowerCase()));
+import { CONTRACTS, RUNTIME, TOKENS } from '../../constants';
+import { V2_DISCOVERY_POLICY as PAIR_DISCOVERY_POLICY, V2_FACTORIES as DEX_FACTORIES } from './config';
+import UniswapFlashQueryABI from '../../ABI/UniswapFlashQuery.json';
+import { type PairInfo as MarketPairInfo } from './types';
+import { type V2PoolMetadata } from './metadata';
 
 type V2Client = {
     readContract(parameters: any): Promise<unknown>;
-};
-
-export type V2PoolMetadata = {
-    pairAddress: Address;
-    token0: Address;
-    token1: Address;
-    fee: number;
-    factory: string;
 };
 
 type DiscoveredPairInfo = V2PoolMetadata & {
@@ -70,83 +64,6 @@ function hasEnoughLiquidity(pair: DiscoveredPairInfo): boolean {
     }
     
     return hasEnoughLiquidity;
-}
-
-async function getPairsLength(
-    client: V2Client,
-    factories: typeof DEX_FACTORIES
-): Promise<Map<string, number>> {
-    try {
-        const lengths = await client.readContract({
-            address: CONTRACTS.flashQuery as Address,
-            abi: UniswapFlashQueryABI,
-            functionName: 'getPairsLength',
-            args: [factories.map(f => f.address)],
-        }) as bigint[];
-
-        return new Map(
-            factories.map((factory, index) => [
-                factory.name,
-                Number(lengths[index])
-            ])
-        );
-    } catch (error) {
-        if (RUNTIME.debug) {
-            console.error('Error fetching pairs length:', error);
-        }
-        return new Map();
-    }
-}
-
-async function getPairsInRange(
-    client: V2Client,
-    factory: typeof DEX_FACTORIES[number],
-    start: number,
-    stop: number
-): Promise<DiscoveredPairInfo[]> {
-    try {
-        const pairsData = await client.readContract({
-            address: CONTRACTS.flashQuery as Address,
-            abi: UniswapFlashQueryABI,
-            functionName: 'getPairsByIndexRange',
-            args: [factory.address, BigInt(start), BigInt(stop)],
-        }) as Address[][];
-
-        if (RUNTIME.debug) console.log(`Raw pairs data from contract: ${pairsData.length} pairs`);
-
-        const pairs = pairsData
-            .map(([token0, token1, pairAddress]) => ({
-                pairAddress,
-                token0,
-                token1,
-                reserve0: 0n,
-                reserve1: 0n,
-                lastTimestamp: 0,
-                factory: factory.name,
-                fee: factory.fee,
-            }));
-
-        if (RUNTIME.debug) console.log(`Mapped ${pairs.length} pairs for ${factory.name}`);
-
-        const filteredPairs = pairs.filter(pair =>
-            !bannedTokenSet.has(pair.token0.toLowerCase()) &&
-            !bannedTokenSet.has(pair.token1.toLowerCase())
-        );
-
-        if (RUNTIME.debug) {
-            console.log(`Filtering stats for ${factory.name}:`);
-            console.log(`- Original pairs: ${pairs.length}`);
-            console.log(`- Filtered out ${pairs.length - filteredPairs.length} pairs with banned tokens`);
-            console.log(`- Remaining pairs: ${filteredPairs.length}`);
-        }
-
-        return filteredPairs;
-    } catch (error) {
-        if (RUNTIME.debug) {
-            console.error(`Error fetching pairs for factory ${factory.name}:`, error);
-        }
-        return [];
-    }
 }
 
 async function filterVolatilePairs(
@@ -278,49 +195,6 @@ async function getReservesWithRetry(
     return result;
 }
 
-export async function discoverV2PoolMetadata(
-    client: V2Client
-): Promise<V2PoolMetadata[]> {
-    try {
-        console.log('Getting total pairs for each factory...');
-        const pairsLength = await getPairsLength(client, DEX_FACTORIES);
-        
-        let allPairs: DiscoveredPairInfo[] = [];
-
-        for (const factory of DEX_FACTORIES) {
-            const totalPairs = pairsLength.get(factory.name) || 0;
-            console.log(`Found ${totalPairs} pairs for factory ${factory.name}`);
-
-            const factoryPairs: DiscoveredPairInfo[] = [];
-            for (let start = 0; start < totalPairs; start += PAIR_DISCOVERY_POLICY.batchSize) {
-                const stop = Math.min(start + PAIR_DISCOVERY_POLICY.batchSize, totalPairs);
-                console.log(`Fetching pairs ${start} to ${stop} for ${factory.name}...`);
-                
-                const pairs = await getPairsInRange(client, factory, start, stop);
-                if (pairs.length > 0) {
-                    factoryPairs.push(...pairs);
-                }
-            }
-
-            console.log(`Total pairs collected for ${factory.name}: ${factoryPairs.length}`);
-            allPairs.push(...factoryPairs);
-        }
-
-        console.log(`Total pairs found across all factories: ${allPairs.length}`);
-
-        return allPairs.map(pair => ({
-            pairAddress: pair.pairAddress,
-            token0: pair.token0,
-            token1: pair.token1,
-            fee: pair.fee,
-            factory: pair.factory,
-        }));
-    } catch (error) {
-        console.error('Error discovering pairs:', error);
-        return [];
-    }
-}
-
 export async function getKnownPairsInfo(
     client: V2Client,
     pools: readonly V2PoolMetadata[]
@@ -355,4 +229,84 @@ export async function refreshKnownPairsInfo(
         ));
     }
     return refreshed;
+}
+
+export class V2EventAdapter implements ProtocolEventAdapter {
+  readonly id = 'v2';
+  private readonly pools = new Map<string, V2PoolMetadata>();
+  private readonly scheduler: LatestUpdateScheduler<ReserveUpdate>;
+
+  constructor(
+    private readonly client: PublicClient<any, any, any>,
+    private readonly engine: OpportunityEngine,
+    pools: readonly V2PoolMetadata[],
+    private readonly scan: (changedPairs: readonly string[], releasedPairs?: readonly Address[]) => Promise<void>
+  ) {
+    for (const pool of pools) this.pools.set(pool.pairAddress.toLowerCase(), pool);
+    this.scheduler = new LatestUpdateScheduler(
+      updates => this.applyUpdates(updates),
+      update => update.pairAddress.toLowerCase()
+    );
+  }
+
+  async watch(client: PublicClient, onLogs: (logs: any[]) => void | Promise<void>, onError: (error: any) => void | Promise<void>) {
+    if (this.pools.size === 0) return [];
+    const unwatch = await client.watchContractEvent({
+      address: [...this.pools.values()].map(pool => pool.pairAddress),
+      abi: V2_SYNC_EVENT_ABI,
+      strict: true,
+      onLogs,
+      onError,
+    });
+    return [unwatch];
+  }
+
+  bufferKey(log: any): string | null {
+    const key = log.address?.toLowerCase();
+    return key && this.pools.has(key) ? key : null;
+  }
+
+  async reconcile(logs: readonly any[]): Promise<void> {
+    const touched = new Map<string, V2PoolMetadata>();
+    for (const log of logs) {
+      const key = log.address?.toLowerCase();
+      const pool = key ? this.pools.get(key) : undefined;
+      if (pool) touched.set(key, pool);
+    }
+    const pairs = await refreshKnownPairsInfo(this.client, [...touched.values()]);
+    for (const pair of pairs) this.engine.addPair(pair);
+  }
+
+  async apply(logs: any[]): Promise<void> {
+    let count = 0;
+    const updates = new Array<ReserveUpdate>(logs.length);
+    for (const log of logs) {
+      const key = log.address?.toLowerCase();
+      const pool = key ? this.pools.get(key) : undefined;
+      const decoded = pool ? decodeV2SyncEvent(log) : null;
+      if (pool && decoded) updates[count++] = { pairAddress: pool.pairAddress, ...decoded };
+    }
+    updates.length = count;
+    if (count > 0) await this.scheduler.submit(updates);
+  }
+
+  clear(): void {
+    this.scheduler.clear();
+  }
+
+  private async applyUpdates(updates: ReserveUpdate[]): Promise<void> {
+    for (const update of updates) {
+      const pool = this.pools.get(update.pairAddress.toLowerCase());
+      if (!pool) continue;
+      this.engine.addPair({
+        pairAddress: pool.pairAddress,
+        token0: pool.token0,
+        token1: pool.token1,
+        fee: pool.fee,
+        reserve0: update.reserve0,
+        reserve1: update.reserve1,
+      });
+    }
+    await this.scan(updates.map(update => update.pairAddress), updates.map(update => update.pairAddress));
+  }
 }

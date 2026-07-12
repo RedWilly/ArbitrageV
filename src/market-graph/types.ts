@@ -1,5 +1,5 @@
 import { type Address } from 'viem';
-import { type CarbonOrder } from '../protocols/carbon/market';
+import { type CarbonOrder } from '../protocols/carbon/types';
 import { type SwapDirection } from '../protocols/v2/types';
 
 export type MarketProtocol = 'v2' | 'v3' | 'carbon';

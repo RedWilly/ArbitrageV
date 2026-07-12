@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
-import { type CarbonStrategy } from "../src/protocols/carbon/market";
+import { type CarbonStrategy } from "../src/protocols/carbon/types";
 import { MarketGraph } from "../src/market-graph/market-graph";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 

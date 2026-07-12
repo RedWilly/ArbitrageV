@@ -1,6 +1,6 @@
 import bannedTokens from './bannedtax.json';
-import { type V2PoolMetadata } from './protocols/v2/market';
-import { type CarbonPairMetadata } from './protocols/carbon/market';
+import { type V2PoolMetadata } from './protocols/v2/metadata';
+import { type CarbonPairMetadata } from './protocols/carbon/types';
 import { type V3PoolConfig } from './protocols/v3/types';
 import { graphToken } from './tokens';
 

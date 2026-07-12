@@ -2,8 +2,8 @@ import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { type Address } from 'viem';
-import { type V2PoolMetadata } from './protocols/v2/market';
-import { type CarbonPairMetadata } from './protocols/carbon/market';
+import { type V2PoolMetadata } from './protocols/v2/metadata';
+import { type CarbonPairMetadata } from './protocols/carbon/types';
 import { type V3PoolConfig } from './protocols/v3/types';
 
 type StoredPoolProtocol = 'v2' | 'v3';

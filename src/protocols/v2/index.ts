@@ -1,7 +1,7 @@
-import { discoverV2PoolMetadata, getKnownPairsInfo } from './market';
+import { discoverV2PoolMetadata } from './metadata';
+import { getKnownPairsInfo, V2EventAdapter } from './runtime';
 import { type ProtocolPlugin } from '../protocol-plugin';
 import { v2FlashLoanFee } from './execution';
-import { V2EventAdapter } from './live';
 
 export const v2Plugin: ProtocolPlugin = {
   id: 'v2',

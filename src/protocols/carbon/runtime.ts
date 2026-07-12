@@ -1,40 +1,12 @@
-import { parseAbi, type Address } from 'viem';
+import { parseAbi, type Address, type PublicClient } from 'viem';
 import { CONTRACTS, RUNTIME, TOKENS } from '../../constants';
 import { CARBON_CONTROLLERS, CARBON_STARTUP_POLICY } from './config';
 import { graphToken } from '../../tokens';
-
-export type CarbonPairMetadata = {
-  controller: Address;
-  token0: Address;
-  token1: Address;
-  strategyCount: number;
-  feePpm: number;
-};
-
-export type CarbonOrder = {
-  y: bigint;
-  z: bigint;
-  A: bigint;
-  B: bigint;
-};
-
-export type CarbonStrategy = {
-  id: bigint;
-  owner: Address;
-  controller: Address;
-  token0: Address;
-  token1: Address;
-  feePpm: number;
-  orders: [CarbonOrder, CarbonOrder];
-};
+import { type ProtocolEventAdapter } from '../../runtime/protocol-event-adapter';
+import { CARBON_CONTROLLER_EVENT_ABI } from './events';
+import { type CarbonOrder, type CarbonPairMetadata, type CarbonStrategy } from './types';
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as Address;
-
-const CARBON_CONTROLLER_ABI = parseAbi([
-  'function pairs() view returns (address[2][])',
-  'function pairTradingFeePPM(address token0, address token1) view returns (uint32)',
-  'function strategiesByPairCount(address token0, address token1) view returns (uint256)',
-]);
 
 const CARBON_BATCH_QUERY_ABI = parseAbi([
   'function getCarbonStrategiesByPairs(address controller, (address token0, address token1, uint256 startIndex, uint256 endIndex)[] requests) view returns ((address token0, address token1, uint32 feePpm, (uint256 id, address owner, address[2] tokens, (uint128 y, uint128 z, uint64 A, uint64 B)[2] orders)[] strategies)[])',
@@ -72,73 +44,6 @@ type RawCarbonPairStrategies = {
   2?: number;
   3?: RawCarbonStrategy[];
 };
-
-export type DiscoverCarbonPairsOptions = {
-  allowedTokens?: readonly Address[];
-};
-
-export async function discoverCarbonPairs(
-  client: CarbonClient,
-  options: DiscoverCarbonPairsOptions = {}
-): Promise<CarbonPairMetadata[]> {
-  const allowedTokens = new Set([
-    ...TOKENS.map(token => graphToken(token.address).toLowerCase()),
-    ...(options.allowedTokens ?? []).map(token => graphToken(token).toLowerCase()),
-  ]);
-  const pairs: CarbonPairMetadata[] = [];
-
-  for (const controller of CARBON_CONTROLLERS) {
-    if (!controller.enabled) continue;
-    if (RUNTIME.debug) console.log(`Discovering Carbon pairs from ${controller.name} (${controller.address})`);
-    const rawPairs = await client.readContract({
-      address: controller.address,
-      abi: CARBON_CONTROLLER_ABI,
-      functionName: 'pairs',
-    }) as readonly [Address, Address][];
-
-    let keptPairs = 0;
-    let skippedTokenPairs = 0;
-    let emptyPairs = 0;
-    for (const [token0, token1] of rawPairs) {
-      if (!allowedTokens.has(graphToken(token0).toLowerCase()) || !allowedTokens.has(graphToken(token1).toLowerCase())) {
-        skippedTokenPairs++;
-        continue;
-      }
-
-      const count = await client.readContract({
-        address: controller.address,
-        abi: CARBON_CONTROLLER_ABI,
-        functionName: 'strategiesByPairCount',
-        args: [token0, token1],
-      }) as bigint;
-
-      if (count === 0n) {
-        emptyPairs++;
-        continue;
-      }
-      const feePpm = await client.readContract({
-        address: controller.address,
-        abi: CARBON_CONTROLLER_ABI,
-        functionName: 'pairTradingFeePPM',
-        args: [token0, token1],
-      }) as number;
-      keptPairs++;
-      pairs.push({
-        controller: controller.address,
-        token0,
-        token1,
-        strategyCount: Number(count),
-        feePpm: Number(feePpm),
-      });
-    }
-
-    if (RUNTIME.debug) {
-      console.log(`Carbon ${controller.name}: ${rawPairs.length} pairs, kept ${keptPairs}, skipped ${skippedTokenPairs} outside allowed token universe, ${emptyPairs} empty pairs`);
-    }
-  }
-
-  return pairs;
-}
 
 export class CarbonStrategyStore {
   private readonly strategiesById = new Map<string, CarbonStrategy>();
@@ -431,4 +336,51 @@ export class CarbonStrategyStore {
 function field<TValue>(value: any, name: string, index: number): TValue {
   if (value && typeof value === 'object' && name in value) return value[name] as TValue;
   return value[index] as TValue;
+}
+
+export class CarbonEventAdapter implements ProtocolEventAdapter {
+  readonly id = 'carbon';
+  private readonly controllers = new Set(
+    CARBON_CONTROLLERS.filter(controller => controller.enabled).map(controller => controller.address.toLowerCase())
+  );
+
+  constructor(private readonly store: CarbonStrategyStore) {}
+
+  async watch(client: PublicClient, onLogs: (logs: any[]) => void | Promise<void>, onError: (error: any) => void | Promise<void>) {
+    const addresses = CARBON_CONTROLLERS
+      .filter(controller => controller.enabled)
+      .map(controller => controller.address);
+    if (addresses.length === 0) return [];
+    const unwatch = await client.watchContractEvent({
+      address: addresses,
+      abi: CARBON_CONTROLLER_EVENT_ABI,
+      strict: true,
+      onLogs,
+      onError,
+    });
+    return [unwatch];
+  }
+
+  bufferKey(log: any): string | null {
+    const key = log.address?.toLowerCase();
+    return key && this.controllers.has(key) ? key : null;
+  }
+
+  async reconcile(logs: readonly any[]): Promise<void> {
+    if (logs.length > 0) await this.store.loadAll();
+  }
+
+  async apply(logs: any[]): Promise<void> {
+    const byController = new Map<string, any[]>();
+    for (const log of logs) {
+      const key = log.address?.toLowerCase();
+      if (!key || !this.controllers.has(key)) continue;
+      const group = byController.get(key);
+      if (group) group.push(log);
+      else byController.set(key, [log]);
+    }
+    for (const [controller, controllerLogs] of byController) {
+      await this.store.handleEvents(controller as Address, controllerLogs);
+    }
+  }
 }

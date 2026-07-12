@@ -1,7 +1,7 @@
-import { CarbonStrategyStore, discoverCarbonPairs } from './market';
+import { discoverCarbonPairs } from './metadata';
+import { CarbonEventAdapter, CarbonStrategyStore } from './runtime';
 import { marketTokens } from '../../market-filter';
 import { type ProtocolPlugin } from '../protocol-plugin';
-import { CarbonEventAdapter } from './live';
 
 export function createCarbonPlugin(): ProtocolPlugin {
   let store: CarbonStrategyStore | undefined;

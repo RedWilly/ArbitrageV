@@ -1,8 +1,8 @@
-import { V3_POOLS } from './config';
+import { configuredV3PoolMetadata } from './metadata';
 import { loadConfiguredV3StartupState } from './runtime';
 import { type ProtocolPlugin } from '../protocol-plugin';
 import { v3FlashLoanFee } from './execution';
-import { V3EventAdapter } from './live';
+import { V3EventAdapter } from './runtime';
 
 export const v3Plugin: ProtocolPlugin = {
   id: 'v3',
@@ -10,7 +10,7 @@ export const v3Plugin: ProtocolPlugin = {
   flashLoanFee: v3FlashLoanFee,
   count: catalog => catalog.v3Pools.length,
   async discover({ catalog }) {
-    catalog.v3Pools = V3_POOLS.filter(pool => pool.enabled);
+    catalog.v3Pools = configuredV3PoolMetadata();
   },
   async hydrate({ client, catalog, engine }) {
     await loadConfiguredV3StartupState(client, engine, catalog.v3Pools);

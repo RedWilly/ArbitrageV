@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { EventMonitor } from "../src/runtime/event-monitor";
-import { CarbonStrategyStore, type CarbonPairMetadata } from "../src/protocols/carbon/market";
-import { CarbonEventAdapter } from "../src/protocols/carbon/live";
+import { CarbonStrategyStore } from "../src/protocols/carbon/runtime";
+import { type CarbonPairMetadata } from "../src/protocols/carbon/types";
+import { CarbonEventAdapter } from "../src/protocols/carbon/runtime";
 import { CARBON_CONTROLLERS } from "../src/protocols/carbon/config";
 
 const controller = "0x0000000000000000000000000000000000000c01" as Address;
