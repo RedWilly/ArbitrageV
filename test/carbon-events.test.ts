@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
-import { ARBITRAGE_SEARCH_POLICY, CARBON_CONTROLLERS } from "../src/constants";
+import { ARBITRAGE_SEARCH_POLICY } from "../src/constants";
 import { EventMonitor } from "../src/event";
 import { CarbonStrategyStore, type CarbonPairMetadata } from "../src/market/carbon";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
+import { CARBON_CONTROLLERS } from "../src/protocols/carbon-config";
 
 const controller = "0x0000000000000000000000000000000000000c01" as Address;
 const token0 = "0x0000000000000000000000000000000000000c02" as Address;
@@ -21,7 +22,17 @@ describe("CarbonStrategyStore events", () => {
   test("buffers Carbon with the same feed used after startup", async () => {
     const carbonController = CARBON_CONTROLLERS[0].address;
     const carbonPair = { ...pair, controller: carbonController };
-    const store = new CarbonStrategyStore({ readContract: async () => [] }, [carbonPair]);
+    const store = new CarbonStrategyStore({
+      readContract: async () => [{
+        feePpm: 4000,
+        strategies: [{
+          id: 12n,
+          owner: token0,
+          tokens: [token0, token1],
+          orders: [order(1_000n), order(2_000n)],
+        }],
+      }],
+    }, [carbonPair]);
     let onLogs: ((logs: any[]) => void | Promise<void>) | undefined;
     const client = {
       watchContractEvent: async (options: { onLogs: typeof onLogs }) => {

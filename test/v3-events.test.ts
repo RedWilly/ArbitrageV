@@ -25,7 +25,7 @@ describe("EventMonitor V3 pool events", () => {
   test("uses one feed for startup buffering and rejects stale live logs", async () => {
     const graph = new OpportunityEngine(ARBITRAGE_SEARCH_POLICY, []);
     const pairAddress = "0x0000000000000000000000000000000000000a22" as Address;
-    const feed = fakeEventClient();
+    const feed = fakeEventClient([[200n, 201n, BigInt(Math.floor(Date.now() / 1000))]]);
     const monitor = new EventMonitor(graph, { client: feed.client }, {
       v2Pools: [{ pairAddress, token0, token1, fee: 30 }],
       scan: async () => {},

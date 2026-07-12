@@ -11,20 +11,6 @@ export type TokenConfig = {
     decimals: number;
 };
 
-export type DexFactoryConfig = {
-    name: string;
-    address: Address;
-    fee: number;
-    volatile: boolean;
-};
-
-export type CarbonControllerConfig = {
-    name: string;
-    address: Address;
-    feePpm: number;
-    enabled: boolean;
-};
-
 export const NETWORK = {
     chainId: 1329,
     rpcUrl: process.env.RPC_URL,
@@ -50,17 +36,6 @@ export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
 
 export const V3_STARTUP_POLICY: V3StartupPolicy = {
     batchSize: 5,
-} as const;
-
-export const CARBON_STARTUP_POLICY = {
-    batchSize: 20,
-} as const;
-
-export const PAIR_DISCOVERY_POLICY = {
-    batchSize: 200,
-    woofReserveBatchSize: 5,
-    maxPairAgeSeconds: 700 * 24 * 60 * 60,
-    minOtherTokenLiquidity: tokenAmount('500'),
 } as const;
 
 export const EXECUTION_POLICY = {
@@ -133,15 +108,6 @@ export const TOKENS: TokenConfig[] = [
         minProfit: tokenAmount('10.50'),
         decimals: 18,
     },
-];
-
-export const DEX_FACTORIES: DexFactoryConfig[] = [
-    { name: 'dragonV1', address: '0x71f6b49ae1558357bBb5A6074f1143c46cBcA03d', fee: 30, volatile: false },
-    { name: 'yakafinance', address: '0xd45dAff288075952822d5323F1d571e73435E929', fee: 18, volatile: true }
-];
-
-export const CARBON_CONTROLLERS: CarbonControllerConfig[] = [
-    { name: 'carbon', address: '0xe4816658ad10bf215053c533cceae3f59e1f1087', feePpm: 4000, enabled: true },
 ];
 
 export const V3_POOLS: V3PoolConfig[] = [

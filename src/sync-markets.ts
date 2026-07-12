@@ -1,10 +1,9 @@
 import { createPublicClient, http } from 'viem';
 import { sei } from 'viem/chains';
-import { CONTRACTS, NETWORK, RUNTIME, V3_POOLS } from './constants';
-import { discoverV2PoolMetadata } from './getinfo';
-import { filterDiscoveredMarkets, marketTokens } from './market-filter';
-import { discoverCarbonPairs } from './market/carbon';
+import { CONTRACTS, NETWORK, RUNTIME } from './constants';
+import { filterDiscoveredMarkets } from './market-filter';
 import { replaceMarketSnapshot } from './market-db';
+import { PROTOCOL_PLUGINS } from './protocols/registry';
 
 async function main(): Promise<void> {
   if (!NETWORK.rpcUrl) throw new Error('RPC_URL is required');
@@ -15,17 +14,15 @@ async function main(): Promise<void> {
     transport: http(NETWORK.rpcUrl),
   });
 
-  const v2Pools = await discoverV2PoolMetadata(client);
-  const v3Pools = V3_POOLS.filter(pool => pool.enabled);
-  const carbonPairs = await discoverCarbonPairs(client, {
-    allowedTokens: marketTokens(v2Pools, v3Pools),
-  });
-  const filtered = filterDiscoveredMarkets(v2Pools, v3Pools, carbonPairs);
+  const catalog = { v2Pools: [], v3Pools: [], carbonPairs: [] };
+  for (const plugin of PROTOCOL_PLUGINS) await plugin.discover({ client, catalog });
+
+  const filtered = filterDiscoveredMarkets(catalog.v2Pools, catalog.v3Pools, catalog.carbonPairs);
   if (RUNTIME.debug) {
     console.log('Shared market filter:', {
-      v2: `${v2Pools.length} -> ${filtered.v2Pools.length}`,
-      v3: `${v3Pools.length} -> ${filtered.v3Pools.length}`,
-      carbon: `${carbonPairs.length} -> ${filtered.carbonPairs.length}`,
+      v2: `${catalog.v2Pools.length} -> ${filtered.v2Pools.length}`,
+      v3: `${catalog.v3Pools.length} -> ${filtered.v3Pools.length}`,
+      carbon: `${catalog.carbonPairs.length} -> ${filtered.carbonPairs.length}`,
     });
   }
   replaceMarketSnapshot({

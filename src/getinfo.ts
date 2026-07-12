@@ -1,10 +1,18 @@
-import { type Address, createPublicClient } from 'viem';
-import { CONTRACTS, DEX_FACTORIES, PAIR_DISCOVERY_POLICY, RUNTIME, TOKENS } from './constants';
+import { type Address } from 'viem';
+import { CONTRACTS, RUNTIME, TOKENS } from './constants';
+import {
+    V2_DISCOVERY_POLICY as PAIR_DISCOVERY_POLICY,
+    V2_FACTORIES as DEX_FACTORIES,
+} from './protocols/v2-config';
 import UniswapFlashQueryABI from './ABI/UniswapFlashQuery.json';
 import bannedTokens from './bannedtax.json';
 import { type PairInfo as MarketPairInfo } from './market/v2-types';
 
 const bannedTokenSet = new Set(bannedTokens.map(token => token.toLowerCase()));
+
+type V2Client = {
+    readContract(parameters: any): Promise<unknown>;
+};
 
 export type V2PoolMetadata = {
     pairAddress: Address;
@@ -65,7 +73,7 @@ function hasEnoughLiquidity(pair: DiscoveredPairInfo): boolean {
 }
 
 async function getPairsLength(
-    client: ReturnType<typeof createPublicClient>,
+    client: V2Client,
     factories: typeof DEX_FACTORIES
 ): Promise<Map<string, number>> {
     try {
@@ -91,7 +99,7 @@ async function getPairsLength(
 }
 
 async function getPairsInRange(
-    client: ReturnType<typeof createPublicClient>,
+    client: V2Client,
     factory: typeof DEX_FACTORIES[number],
     start: number,
     stop: number
@@ -142,7 +150,7 @@ async function getPairsInRange(
 }
 
 async function filterVolatilePairs(
-    client: ReturnType<typeof createPublicClient>,
+    client: V2Client,
     pairs: DiscoveredPairInfo[]
 ): Promise<boolean[]> {
     try {
@@ -164,7 +172,7 @@ async function filterVolatilePairs(
 }
 
 async function getReservesForPairs(
-    client: ReturnType<typeof createPublicClient>,
+    client: V2Client,
     pairs: DiscoveredPairInfo[]
 ): Promise<DiscoveredPairInfo[]> {
     try {
@@ -190,7 +198,7 @@ async function getReservesForPairs(
 }
 
 async function getReservesWithRetry(
-    client: ReturnType<typeof createPublicClient>,
+    client: V2Client,
     pairs: DiscoveredPairInfo[]
 ): Promise<DiscoveredPairInfo[]> {
     const result: DiscoveredPairInfo[] = [];
@@ -271,7 +279,7 @@ async function getReservesWithRetry(
 }
 
 export async function discoverV2PoolMetadata(
-    client: ReturnType<typeof createPublicClient>
+    client: V2Client
 ): Promise<V2PoolMetadata[]> {
     try {
         console.log('Getting total pairs for each factory...');
@@ -314,7 +322,7 @@ export async function discoverV2PoolMetadata(
 }
 
 export async function getKnownPairsInfo(
-    client: ReturnType<typeof createPublicClient>,
+    client: V2Client,
     pools: readonly V2PoolMetadata[]
 ): Promise<MarketPairInfo[]> {
     const discovered = pools.map(pool => ({
@@ -326,4 +334,25 @@ export async function getKnownPairsInfo(
     const pairsWithReserves = await getReservesWithRetry(client, discovered);
     console.log(`Successfully fetched reserves for ${pairsWithReserves.length} pairs`);
     return pairsWithReserves;
+}
+
+export async function refreshKnownPairsInfo(
+    client: V2Client,
+    pools: readonly V2PoolMetadata[]
+): Promise<MarketPairInfo[]> {
+    if (pools.length === 0) return [];
+    const discovered = pools.map(pool => ({
+        ...pool,
+        reserve0: 0n,
+        reserve1: 0n,
+        lastTimestamp: 0,
+    }));
+    const refreshed: MarketPairInfo[] = [];
+    for (let start = 0; start < discovered.length; start += PAIR_DISCOVERY_POLICY.batchSize) {
+        refreshed.push(...await getReservesForPairs(
+            client,
+            discovered.slice(start, start + PAIR_DISCOVERY_POLICY.batchSize)
+        ));
+    }
+    return refreshed;
 }

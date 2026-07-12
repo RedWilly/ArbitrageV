@@ -1,10 +1,12 @@
 import { type Address, type PublicClient } from 'viem';
-import { CARBON_CONTROLLERS, RUNTIME } from './constants';
+import { RUNTIME } from './constants';
+import { refreshKnownPairsInfo } from './getinfo';
 import { type CarbonStrategyStore } from './market/carbon';
 import { loadConfiguredV3StartupState } from './market/v3-loader';
 import { type ReserveUpdate } from './market/v2-types';
 import { type V3PoolConfig, type V3PoolInfo, type V3Tick } from './market/v3-types';
 import { OpportunityEngine } from './opportunities/opportunity-engine';
+import { CARBON_CONTROLLERS } from './protocols/carbon-config';
 import { LatestUpdateScheduler } from './runtime/event-scheduler';
 import {
     advanceCursor,
@@ -198,12 +200,17 @@ export class EventMonitor {
             this.markApplied(v3Liquidity);
             this.markApplied(carbon);
 
-            if (v2.length > 0) await this.handleSyncEvents(v2);
-            if (v3Swaps.length > 0) await this.handleV3PoolEvents(v3Swaps);
-            if (v3Liquidity.length > 0) {
-                await this.reloadV3Pools(v3Liquidity.map(log => log.address as Address));
-            }
-            if (carbon.length > 0) await this.applyCarbonLogs(carbon);
+            // Reads made during hydration do not expose a reliable per-pool block.
+            // Re-read touched markets while buffering continues instead of replaying
+            // an event that may be older than the fetched state.
+            await Promise.all([
+                this.reloadV2Pools(v2.map(log => log.address as Address)),
+                this.reloadV3Pools([
+                    ...v3Swaps.map(log => log.address as Address),
+                    ...v3Liquidity.map(log => log.address as Address),
+                ]),
+                carbon.length > 0 ? this.options.carbonStore?.loadAll() : undefined,
+            ]);
         }
 
         this.buffering = false;
@@ -337,26 +344,27 @@ export class EventMonitor {
     }
 
     private async reloadV3Pools(addresses: readonly Address[]): Promise<void> {
-        const pools: V3PoolConfig[] = [];
+        const pools = new Map<string, V3PoolConfig>();
         for (const address of addresses) {
             const pool = this.v3PoolConfigByAddress.get(address.toLowerCase());
-            if (pool) pools.push(pool);
+            if (pool) pools.set(address.toLowerCase(), pool);
         }
-        if (pools.length > 0) await loadConfiguredV3StartupState(this.client, this.graph, pools);
+        if (pools.size > 0) await loadConfiguredV3StartupState(this.client, this.graph, [...pools.values()]);
     }
 
-    private async applyCarbonLogs(logs: readonly any[]): Promise<void> {
-        const byController = new Map<string, any[]>();
-        for (const log of logs) {
-            const key = log.address?.toLowerCase();
-            if (!key) continue;
-            const group = byController.get(key);
-            if (group) group.push(log);
-            else byController.set(key, [log]);
+    private async reloadV2Pools(addresses: readonly Address[]): Promise<void> {
+        const pools = new Map<string, V2WatchPool>();
+        for (const address of addresses) {
+            const key = address.toLowerCase();
+            const pool = this.v2PoolByAddress.get(key);
+            if (pool) pools.set(key, pool);
         }
-        for (const [key, controllerLogs] of byController) {
-            await this.options.carbonStore?.handleEvents(key as Address, controllerLogs);
-        }
+        if (pools.size === 0) return;
+        const pairs = await refreshKnownPairsInfo(this.client, [...pools.values()].map(pool => ({
+            ...pool,
+            factory: '',
+        })));
+        for (const pair of pairs) this.graph.addPair(pair);
     }
 
     private async handleSyncEvents(logs: any[]) {
