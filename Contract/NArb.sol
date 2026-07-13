@@ -96,7 +96,11 @@ contract ArbitrageExecutor is Withdrawable {
     constructor(address owner_) Withdrawable(owner_) {}
 
     function executeArbitrage(ArbParams calldata params) external {
-        _checkRoute(params.pools, params.protocols, params.fees, params.data);
+        if (
+            params.pools.length != params.protocols.length ||
+            params.pools.length != params.fees.length ||
+            params.pools.length != params.data.length
+        ) revert ArrayLengthMismatch();
         bool borrowToken0 = _isToken0(params.flashPool, params.borrowToken);
         _startFlashLoan(params, borrowToken0, _flashData(params, borrowToken0));
     }
@@ -177,8 +181,7 @@ contract ArbitrageExecutor is Withdrawable {
         _finishFlashLoan(loan, loan.borrowedAmount + (loan.borrowedToken0 ? fee0 : fee1));
     }
 
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external {
-        data;
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata) external {
         _finishV3SwapCallback(amount0Delta, amount1Delta);
     }
 
@@ -224,7 +227,18 @@ contract ArbitrageExecutor is Withdrawable {
 
         for (uint256 i; i < pools.length; ) {
             if (protocols[i] == V2) {
-                (token, amount) = _swapV2(token, amount, pools[i], fees[i]);
+                bool forwardToNextV2 =
+                    i + 1 < pools.length &&
+                    protocols[i + 1] == V2 &&
+                    pools[i + 1] != pools[i];
+                (token, amount) = _swapV2(
+                    token,
+                    amount,
+                    pools[i],
+                    fees[i],
+                    forwardToNextV2 ? pools[i + 1] : address(this),
+                    i > 0 && protocols[i - 1] == V2 && pools[i - 1] != pools[i]
+                );
             } else if (protocols[i] == V3) {
                 (token, amount) = _swapV3(token, amount, pools[i]);
             } else if (protocols[i] == CARBON) {
@@ -244,12 +258,32 @@ contract ArbitrageExecutor is Withdrawable {
         address tokenIn,
         uint256 amountIn,
         address pairAddr,
-        uint256 fee
+        uint256 fee,
+        address recipient,
+        bool inputAlreadySent
     ) internal returns (address tokenOut, uint256 amountOut) {
         IUniswapV2Pair pair = IUniswapV2Pair(pairAddr);
+        bool zeroForOne;
+        (tokenOut, amountOut, zeroForOne) = _quoteV2(pair, tokenIn, amountIn, fee);
+
+        if (!inputAlreadySent) _safeTransfer(tokenIn, pairAddr, amountIn);
+        pair.swap(
+            zeroForOne ? 0 : amountOut,
+            zeroForOne ? amountOut : 0,
+            recipient,
+            new bytes(0)
+        );
+    }
+
+    function _quoteV2(
+        IUniswapV2Pair pair,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 fee
+    ) internal view returns (address tokenOut, uint256 amountOut, bool zeroForOne) {
         address token0 = pair.token0();
         address token1 = pair.token1();
-        bool zeroForOne = tokenIn == token0;
+        zeroForOne = tokenIn == token0;
         if (!zeroForOne && tokenIn != token1) revert SwapPathError();
 
         (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
@@ -259,15 +293,6 @@ contract ArbitrageExecutor is Withdrawable {
 
         amountOut = _v2AmountOut(amountIn, reserveIn, reserveOut, fee);
         if (amountOut >= reserveOut) revert OutputExceedsReserve();
-
-        _safeTransfer(tokenIn, pairAddr, amountIn);
-        pair.swap(
-            zeroForOne ? 0 : amountOut,
-            zeroForOne ? amountOut : 0,
-            address(this),
-            new bytes(0)
-        );
-
         tokenOut = zeroForOne ? token1 : token0;
     }
 
@@ -407,17 +432,6 @@ contract ArbitrageExecutor is Withdrawable {
     ) internal pure returns (uint256) {
         uint256 amountInWithFee = amountIn * (FEE_DENOMINATOR - fee);
         return (amountInWithFee * reserveOut) / ((reserveIn * FEE_DENOMINATOR) + amountInWithFee);
-    }
-
-    function _checkRoute(
-        address[] calldata pools,
-        uint8[] calldata protocols,
-        uint256[] calldata fees,
-        bytes[] calldata data
-    ) internal pure {
-        if (pools.length != protocols.length || pools.length != fees.length || pools.length != data.length) {
-            revert ArrayLengthMismatch();
-        }
     }
 
     function _safeTransfer(address token, address to, uint256 amount) internal {

@@ -106,6 +106,40 @@ describe("V3 swap math", () => {
     expect(quote.amountOut).toBe(getAmount1Delta(sqrtLower, sqrtStart, liquidity, false));
   });
 
+  test("includes the initialized current tick when moving left", () => {
+    const liquidity = 520_984_746_264n;
+    const quote = quoteV3MultiRangeExactInput({
+      amountIn: 2_433_032n,
+      sqrtPriceX96: 79_208_358_942_307_134_520_351_225_250n,
+      liquidity,
+      tick: -5,
+      fee: 100,
+      direction: "token0ToToken1",
+      ticks: [{ index: -5, liquidityGross: liquidity, liquidityNet: liquidity }],
+    });
+
+    expect(quote.initializedTicksCrossed).toBe(1);
+    expect(quote.liquidityAfter).toBe(0n);
+    expect(quote.exhaustedLiquidity).toBe(true);
+  });
+
+  test("crosses an initialized current tick at zero price distance", () => {
+    const liquidity = 1_000_000n;
+    const quote = quoteV3MultiRangeExactInput({
+      amountIn: 1n,
+      sqrtPriceX96: getSqrtRatioAtTick(-5),
+      liquidity,
+      tick: -5,
+      fee: 0,
+      direction: "token0ToToken1",
+      ticks: [{ index: -5, liquidityGross: liquidity, liquidityNet: liquidity }],
+    });
+
+    expect(quote.initializedTicksCrossed).toBe(1);
+    expect(quote.liquidityAfter).toBe(0n);
+    expect(quote.exhaustedLiquidity).toBe(true);
+  });
+
   test("crosses an upper initialized tick for token1 to token0 swaps", () => {
     const upperTick = 100;
     const liquidity = 1_000_000n;

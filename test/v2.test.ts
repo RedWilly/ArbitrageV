@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
+import { swapV2 } from "../src/protocols/v2/quote";
 import { type PairInfo } from "../src/protocols/v2/types";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
@@ -41,6 +42,15 @@ function buildGraph(pairs: PairInfo[]): OpportunityEngine {
   }
   return graph;
 }
+
+test("swapV2 matches the Solidity formula without early rounding", () => {
+  expect(swapV2(
+    539925606765789908n,
+    3985615020080708851788n,
+    192800406359137571957073064n,
+    30,
+  )).toBe(26036525510536776183643n);
+});
 
 describe("V2 arbitrage graph", () => {
   test("finds a profitable three-pool circular arbitrage route", () => {

@@ -284,7 +284,7 @@ export function quoteV3MultiRangeExactInput(request: V3MultiRangeQuoteRequest): 
       : getAmount1Delta(sqrtPriceX96, boundarySqrtPriceX96, liquidity, true);
     const availableNetInput = amountAfterV3Fee(amountRemaining, request.fee);
 
-    if (availableNetInput < netInputToBoundary || netInputToBoundary === 0n) {
+    if (availableNetInput < netInputToBoundary) {
       const quote = quoteV3SingleRangeExactInput({
         amountIn: amountRemaining,
         sqrtPriceX96,
@@ -346,12 +346,11 @@ function nextInitializedTick(ticks: V3Tick[], currentTick: number, zeroForOne: b
   let high = ticks.length;
   while (low < high) {
     const middle = (low + high) >>> 1;
-    if (ticks[middle].index < currentTick) low = middle + 1;
+    if (ticks[middle].index <= currentTick) low = middle + 1;
     else high = middle;
   }
 
   if (zeroForOne) return low > 0 ? ticks[low - 1] : null;
-  while (low < ticks.length && ticks[low].index <= currentTick) low++;
   return ticks[low] ?? null;
 }
 
