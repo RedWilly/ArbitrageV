@@ -1,68 +1,60 @@
-import { createPublicClient, http, webSocket, createWalletClient, type Account, type Transport } from 'viem';
+import { createPublicClient, http, webSocket, createWalletClient, type Account } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { shibarium } from 'viem/chains';
-import { RPC_URL, WSS_URL, PRIVATE_KEY, CHAIN_ID, WSS_ENABLED } from './constants';
+import { sei } from 'viem/chains';
+import { NETWORK, RUNTIME } from './constants';
 
-// Network configuration type
 export type NetworkConfig = {
   client: ReturnType<typeof createPublicClient>;
-  wsClient?: ReturnType<typeof createPublicClient>; // Optional WebSocket client
+  wsClient?: ReturnType<typeof createPublicClient>;
   walletClient: ReturnType<typeof createWalletClient>;
   account: Account;
 };
 
-/**
- * Initialize network connections and wallet
- * @returns NetworkConfig object containing initialized clients and account
- * @throws Error if environment variables are not set
- */
 export async function initializeNetwork(): Promise<NetworkConfig> {
-  // Validate environment variables
-  if (!RPC_URL || !PRIVATE_KEY) {
+  if (!NETWORK.rpcUrl || !NETWORK.privateKey) {
     throw new Error('Missing required environment variables: RPC_URL or PRIVATE_KEY');
   }
 
-  // Initialize account from private key
-  const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
+  const account = privateKeyToAccount(NETWORK.privateKey as `0x${string}`);
 
   const chainConfig = {
-    ...shibarium,
-    id: CHAIN_ID as number,
+    ...sei,
+    id: NETWORK.chainId,
   };
 
-  // Create public client for reading from the blockchain
   const client = createPublicClient({
     chain: chainConfig,
-    transport: http(RPC_URL),
+    transport: http(NETWORK.rpcUrl),
   });
 
-  // Create wallet client for sending transactions
   const walletClient = createWalletClient({
     chain: chainConfig,
-    transport: http(RPC_URL),
+    transport: http(NETWORK.rpcUrl),
     account,
   });
 
-  // Create WebSocket client if enabled and WSS_URL is available
-  let wsClient: ReturnType<typeof createPublicClient> | undefined;
-  
-  if (WSS_ENABLED && WSS_URL) {
+  const config = {
+    client,
+    walletClient,
+    account,
+  };
+
+  if (RUNTIME.websocketEnabled && NETWORK.wsUrl) {
     try {
-      wsClient = createPublicClient({
+      const wsClient = createPublicClient({
         chain: chainConfig,
-        transport: webSocket(WSS_URL),
+        transport: webSocket(NETWORK.wsUrl),
       });
       console.log('WebSocket client initialized successfully');
+      return {
+        ...config,
+        wsClient,
+      };
     } catch (error) {
       console.error('Failed to initialize WebSocket client:', error);
       console.warn('Falling back to HTTP client for events');
     }
   }
 
-  return {
-    client,
-    wsClient,
-    walletClient,
-    account,
-  };
+  return config;
 }

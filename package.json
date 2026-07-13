@@ -3,20 +3,17 @@
   "module": "index.ts",
   "type": "module",
   "scripts": {
-    "start": "bun run index.ts"
+    "start": "bun run index.ts",
+    "sync:markets": "bun run src/sync-markets.ts",
+    "test": "bun test",
+    "test:stress": "bun test test/v2.stress.test.ts",
+    "bench:stress": "bun run scripts/bench-stress.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/node-telegram-bot-api": "^0.64.7"
-  },
-  "peerDependencies": {
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "bignumber.js": "^9.1.2",
-    "dotenv": "^16.4.7",
-    "mathjs": "^14.2.1",
-    "node-telegram-bot-api": "^0.66.0",
-    "viem": "^2.28.1"
+    "viem": "^2.54.1"
   }
 }

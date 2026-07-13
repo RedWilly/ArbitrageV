@@ -12,11 +12,6 @@
 	},
 	{
 		"inputs": [],
-		"name": "ArbitrageLoss",
-		"type": "error"
-	},
-	{
-		"inputs": [],
 		"name": "ArbitrageMustReturnToStart",
 		"type": "error"
 	},
@@ -26,130 +21,8 @@
 		"type": "error"
 	},
 	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "sender",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount0",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount1",
-				"type": "uint256"
-			},
-			{
-				"internalType": "bytes",
-				"name": "data",
-				"type": "bytes"
-			}
-		],
-		"name": "chewyCall",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "flashLoanPair",
-				"type": "address"
-			},
-			{
-				"internalType": "address",
-				"name": "startToken",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "borrowAmount",
-				"type": "uint256"
-			},
-			{
-				"internalType": "address[]",
-				"name": "arbPairs",
-				"type": "address[]"
-			},
-			{
-				"internalType": "uint256[]",
-				"name": "arbFees",
-				"type": "uint256[]"
-			},
-			{
-				"internalType": "uint256",
-				"name": "repayFee",
-				"type": "uint256"
-			}
-		],
-		"name": "executeArbitrage",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "startToken",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "startAmount",
-				"type": "uint256"
-			},
-			{
-				"internalType": "address[]",
-				"name": "arbPairs",
-				"type": "address[]"
-			},
-			{
-				"internalType": "uint256[]",
-				"name": "arbFees",
-				"type": "uint256[]"
-			}
-		],
-		"name": "executeArbitrageDirect",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "sender",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount0",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount1",
-				"type": "uint256"
-			},
-			{
-				"internalType": "bytes",
-				"name": "data",
-				"type": "bytes"
-			}
-		],
-		"name": "hook",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
 		"inputs": [],
-		"name": "InsufficientContractBalance",
+		"name": "CarbonApprovalFailed",
 		"type": "error"
 	},
 	{
@@ -159,64 +32,28 @@
 	},
 	{
 		"inputs": [],
+		"name": "InvalidCarbonAmount",
+		"type": "error"
+	},
+	{
+		"inputs": [],
+		"name": "InvalidFlashLoanCallback",
+		"type": "error"
+	},
+	{
+		"inputs": [],
 		"name": "InvalidReserves",
 		"type": "error"
 	},
 	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "sender",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount0",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount1",
-				"type": "uint256"
-			},
-			{
-				"internalType": "bytes",
-				"name": "data",
-				"type": "bytes"
-			}
-		],
-		"name": "miniMeCall",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
+		"inputs": [],
+		"name": "InvalidV3SwapCallback",
+		"type": "error"
 	},
 	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "sender",
-				"type": "address"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount0",
-				"type": "uint256"
-			},
-			{
-				"internalType": "uint256",
-				"name": "amount1",
-				"type": "uint256"
-			},
-			{
-				"internalType": "bytes",
-				"name": "data",
-				"type": "bytes"
-			}
-		],
-		"name": "netswapCall",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
+		"inputs": [],
+		"name": "InvalidV3SwapDelta",
+		"type": "error"
 	},
 	{
 		"inputs": [],
@@ -244,6 +81,88 @@
 		"type": "error"
 	},
 	{
+		"inputs": [],
+		"name": "UnsupportedProtocol",
+		"type": "error"
+	},
+	{
+		"stateMutability": "payable",
+		"type": "fallback"
+	},
+	{
+		"inputs": [
+			{
+				"components": [
+					{
+						"internalType": "uint8",
+						"name": "flashProtocol",
+						"type": "uint8"
+					},
+					{
+						"internalType": "address",
+						"name": "flashPool",
+						"type": "address"
+					},
+					{
+						"internalType": "address",
+						"name": "borrowToken",
+						"type": "address"
+					},
+					{
+						"internalType": "uint256",
+						"name": "borrowAmount",
+						"type": "uint256"
+					},
+					{
+						"internalType": "uint256",
+						"name": "v2RepayFee",
+						"type": "uint256"
+					},
+					{
+						"internalType": "address[]",
+						"name": "pools",
+						"type": "address[]"
+					},
+					{
+						"internalType": "uint8[]",
+						"name": "protocols",
+						"type": "uint8[]"
+					},
+					{
+						"internalType": "uint256[]",
+						"name": "fees",
+						"type": "uint256[]"
+					},
+					{
+						"internalType": "bytes[]",
+						"name": "data",
+						"type": "bytes[]"
+					}
+				],
+				"internalType": "struct ArbitrageExecutor.ArbParams",
+				"name": "params",
+				"type": "tuple"
+			}
+		],
+		"name": "executeArbitrage",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
 		"inputs": [
 			{
 				"internalType": "address",
@@ -259,18 +178,13 @@
 	{
 		"inputs": [
 			{
-				"internalType": "address",
-				"name": "sender",
-				"type": "address"
-			},
-			{
 				"internalType": "uint256",
-				"name": "amount0",
+				"name": "fee0",
 				"type": "uint256"
 			},
 			{
 				"internalType": "uint256",
-				"name": "amount1",
+				"name": "fee1",
 				"type": "uint256"
 			},
 			{
@@ -279,7 +193,30 @@
 				"type": "bytes"
 			}
 		],
-		"name": "uniswapV2Call",
+		"name": "uniswapV3FlashCallback",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "int256",
+				"name": "amount0Delta",
+				"type": "int256"
+			},
+			{
+				"internalType": "int256",
+				"name": "amount1Delta",
+				"type": "int256"
+			},
+			{
+				"internalType": "bytes",
+				"name": "data",
+				"type": "bytes"
+			}
+		],
+		"name": "uniswapV3SwapCallback",
 		"outputs": [],
 		"stateMutability": "nonpayable",
 		"type": "function"
@@ -338,18 +275,5 @@
 	{
 		"stateMutability": "payable",
 		"type": "receive"
-	},
-	{
-		"inputs": [],
-		"name": "owner",
-		"outputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
 	}
 ]
