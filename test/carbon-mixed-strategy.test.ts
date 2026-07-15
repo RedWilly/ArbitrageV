@@ -36,6 +36,9 @@ test("finds a profitable mixed Carbon and V2 route", () => {
     fee: 30,
     reserve0: 10n ** 30n,
     reserve1: 10n ** 24n,
+    variant: 'uniswap-v2',
+    scale0: 1n,
+    scale1: 1n,
   } satisfies PairInfo);
   engine.setCarbonStrategies([carbonStrategy()]);
 
@@ -68,6 +71,9 @@ test("finds a profitable mixed Carbon, V2, and V3 route", () => {
     fee: 30,
     reserve0: 10n ** 24n,
     reserve1: 10n ** 30n,
+    variant: 'uniswap-v2',
+    scale0: 1n,
+    scale1: 1n,
   } satisfies PairInfo);
   addV3Pool(engine, address(5), TOKENS[2].address, tokenA);
   engine.setCarbonStrategies([carbonStrategy()]);

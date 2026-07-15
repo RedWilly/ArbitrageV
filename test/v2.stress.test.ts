@@ -47,6 +47,9 @@ function pair(
     reserve0,
     reserve1,
     fee,
+    variant: 'uniswap-v2',
+    scale0: 1n,
+    scale1: 1n,
   };
 }
 

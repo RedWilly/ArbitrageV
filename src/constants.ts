@@ -23,7 +23,7 @@ export const CONTRACTS = {
 } as const;
 
 export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
-    topTokens: 7,
+    topTokens: 10,
     allowedProtocols: ['v2', 'v3', 'carbon'],
     allowProtocolMixing: true,
     maxRouteEdges: 5,
@@ -35,9 +35,8 @@ export const ARBITRAGE_SEARCH_POLICY: ArbitrageSearchPolicy = {
 
 export const EXECUTION_POLICY = {
     executeTrades: true,
-    gasLimit: 1500000n,
+    gasLimit: 2500000n,
     baseFee: gasPrice('50.9'),
-    legacy: true,
 } as const;
 
 export const RUNTIME = {
@@ -82,6 +81,13 @@ export const TOKENS: TokenConfig[] = [
         minProfit: tokenAmount('0.09', 6),
         decimals: 6,
     },
+        {
+        name: 'USDT.Kava',
+        address: '0xB75D0B03c06A926e488e2659DF1A861F860bD3d1',
+        liquidityAmount: tokenAmount('20', 6),
+        minProfit: tokenAmount('0.09', 6),
+        decimals: 6,
+    },
     {
         name: 'WBTC',
         address: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c',
@@ -101,6 +107,13 @@ export const TOKENS: TokenConfig[] = [
         address: '0x0a526e425809aEA71eb279d24ae22Dee6C92A4Fe',
         liquidityAmount: tokenAmount('2100'),
         minProfit: tokenAmount('10.50'),
+        decimals: 18,
+    },
+    {
+        name: 'ISEI',
+        address: '0x5Cf6826140C1C56Ff49C808A1A75407Cd1DF9423',
+        liquidityAmount: tokenAmount('668'),
+        minProfit: tokenAmount('3.34'),
         decimals: 18,
     },
     {

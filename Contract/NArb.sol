@@ -3,6 +3,7 @@
 pragma solidity ^0.8.0;
 
 import "./interfaces/Withdrawable.sol";
+import "./interfaces/IBaseV1Pair.sol";
 import "./interfaces/IUniswapV2Pair.sol";
 
 interface IUniswapV3Pool {
@@ -53,6 +54,9 @@ error InvalidV3SwapDelta();
 error InvalidFlashLoanCallback();
 error InvalidCarbonAmount();
 error CarbonApprovalFailed();
+error UnsupportedV2QuoteMode();
+error InvalidStablePair();
+error StableSolverDidNotConverge();
 
 contract ArbitrageExecutor is Withdrawable {
     uint8 private constant V2 = 0;
@@ -61,6 +65,7 @@ contract ArbitrageExecutor is Withdrawable {
     address private constant NATIVE_SEI = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     address private constant WSEI = 0xE30feDd158A2e3b13e9badaeABaFc5516e95e8C7;
     uint256 private constant FEE_DENOMINATOR = 10000;
+    uint256 private constant ONE = 1e18;
     uint160 private constant MIN_SQRT_RATIO_PLUS_ONE = 4295128740;
     uint160 private constant MAX_SQRT_RATIO_MINUS_ONE =
         1461446703485210103287273052203988822378723970341;
@@ -68,7 +73,6 @@ contract ArbitrageExecutor is Withdrawable {
     uint8 private pendingFlashProtocol;
     address private pendingFlashPool;
     address private pendingV3Pool;
-    address private pendingV3TokenIn;
 
     struct FlashData {
         address borrowedToken;
@@ -91,6 +95,16 @@ contract ArbitrageExecutor is Withdrawable {
         uint8[] protocols;
         uint256[] fees;
         bytes[] data;
+    }
+
+    struct StablePairState {
+        uint256 scale0;
+        uint256 scale1;
+        uint256 reserve0;
+        uint256 reserve1;
+        bool stable;
+        address token0;
+        address token1;
     }
 
     constructor(address owner_) Withdrawable(owner_) {}
@@ -137,7 +151,7 @@ contract ArbitrageExecutor is Withdrawable {
 
     // ponytail: one generic fallback handles callback name variants instead of dozens of wrappers.
     fallback() external payable {
-        if (msg.sender == pendingV3Pool && pendingV3TokenIn != address(0)) {
+        if (msg.sender == pendingV3Pool && pendingV3Pool != address(0)) {
             (int256 amount0Delta, int256 amount1Delta, ) =
                 abi.decode(msg.data[4:], (int256, int256, bytes));
             _finishV3SwapCallback(amount0Delta, amount1Delta);
@@ -168,7 +182,7 @@ contract ArbitrageExecutor is Withdrawable {
 
         _finishFlashLoan(
             loan,
-            borrowedAmount + ((borrowedAmount * loan.v2RepayFee) / (FEE_DENOMINATOR - loan.v2RepayFee)) + 1
+            _v2RepayAmount(borrowedAmount, loan.v2RepayFee)
         );
     }
 
@@ -186,27 +200,19 @@ contract ArbitrageExecutor is Withdrawable {
     }
 
     function _finishV3SwapCallback(int256 amount0Delta, int256 amount1Delta) internal {
-        address tokenIn = pendingV3TokenIn;
-        if (msg.sender != pendingV3Pool || tokenIn == address(0)) revert InvalidV3SwapCallback();
+        if (msg.sender != pendingV3Pool || pendingV3Pool == address(0)) revert InvalidV3SwapCallback();
 
         if (amount0Delta > 0 && amount1Delta <= 0) {
-            _safeTransfer(tokenIn, msg.sender, uint256(amount0Delta));
+            _safeTransfer(IUniswapV3Pool(msg.sender).token0(), msg.sender, uint256(amount0Delta));
         } else if (amount1Delta > 0 && amount0Delta <= 0) {
-            _safeTransfer(tokenIn, msg.sender, uint256(amount1Delta));
+            _safeTransfer(IUniswapV3Pool(msg.sender).token1(), msg.sender, uint256(amount1Delta));
         } else {
             revert InvalidV3SwapDelta();
         }
     }
 
     function _finishFlashLoan(FlashData memory loan, uint256 repayAmount) internal {
-        uint256 finalAmount = _executeCircularRoute(
-            loan.borrowedToken,
-            loan.borrowedAmount,
-            loan.pools,
-            loan.protocols,
-            loan.fees,
-            loan.data
-        );
+        uint256 finalAmount = _executeCircularRoute(loan);
 
         if (finalAmount < repayAmount) revert InsufficientFlashLoanRepayment();
         if (!IERC20(loan.borrowedToken).transfer(msg.sender, repayAmount)) {
@@ -214,35 +220,29 @@ contract ArbitrageExecutor is Withdrawable {
         }
     }
 
-    function _executeCircularRoute(
-        address startToken,
-        uint256 startAmount,
-        address[] memory pools,
-        uint8[] memory protocols,
-        uint256[] memory fees,
-        bytes[] memory data
-    ) internal returns (uint256) {
-        address token = startToken;
-        uint256 amount = startAmount;
+    function _executeCircularRoute(FlashData memory loan) internal returns (uint256) {
+        address token = loan.borrowedToken;
+        uint256 amount = loan.borrowedAmount;
 
-        for (uint256 i; i < pools.length; ) {
-            if (protocols[i] == V2) {
+        for (uint256 i; i < loan.pools.length; ) {
+            if (loan.protocols[i] == V2) {
                 bool forwardToNextV2 =
-                    i + 1 < pools.length &&
-                    protocols[i + 1] == V2 &&
-                    pools[i + 1] != pools[i];
+                    i + 1 < loan.pools.length &&
+                    loan.protocols[i + 1] == V2 &&
+                    loan.pools[i + 1] != loan.pools[i];
                 (token, amount) = _swapV2(
                     token,
                     amount,
-                    pools[i],
-                    fees[i],
-                    forwardToNextV2 ? pools[i + 1] : address(this),
-                    i > 0 && protocols[i - 1] == V2 && pools[i - 1] != pools[i]
+                    loan.pools[i],
+                    loan.fees[i],
+                    loan.data[i],
+                    forwardToNextV2 ? loan.pools[i + 1] : address(this),
+                    i > 0 && loan.protocols[i - 1] == V2 && loan.pools[i - 1] != loan.pools[i]
                 );
-            } else if (protocols[i] == V3) {
-                (token, amount) = _swapV3(token, amount, pools[i]);
-            } else if (protocols[i] == CARBON) {
-                (token, amount) = _swapCarbon(token, amount, pools[i], data[i]);
+            } else if (loan.protocols[i] == V3) {
+                (token, amount) = _swapV3(token, amount, loan.pools[i]);
+            } else if (loan.protocols[i] == CARBON) {
+                (token, amount) = _swapCarbon(token, amount, loan.pools[i], loan.data[i]);
             } else {
                 revert UnsupportedProtocol();
             }
@@ -250,7 +250,7 @@ contract ArbitrageExecutor is Withdrawable {
             unchecked { ++i; }
         }
 
-        if (token != startToken) revert ArbitrageMustReturnToStart();
+        if (token != loan.borrowedToken) revert ArbitrageMustReturnToStart();
         return amount;
     }
 
@@ -259,19 +259,20 @@ contract ArbitrageExecutor is Withdrawable {
         uint256 amountIn,
         address pairAddr,
         uint256 fee,
+        bytes memory quoteData,
         address recipient,
         bool inputAlreadySent
     ) internal returns (address tokenOut, uint256 amountOut) {
         IUniswapV2Pair pair = IUniswapV2Pair(pairAddr);
         bool zeroForOne;
-        (tokenOut, amountOut, zeroForOne) = _quoteV2(pair, tokenIn, amountIn, fee);
+        (tokenOut, amountOut, zeroForOne) = _quoteV2(pair, tokenIn, amountIn, fee, quoteData);
 
         if (!inputAlreadySent) _safeTransfer(tokenIn, pairAddr, amountIn);
         pair.swap(
             zeroForOne ? 0 : amountOut,
             zeroForOne ? amountOut : 0,
             recipient,
-            new bytes(0)
+            hex""
         );
     }
 
@@ -279,8 +280,14 @@ contract ArbitrageExecutor is Withdrawable {
         IUniswapV2Pair pair,
         address tokenIn,
         uint256 amountIn,
-        uint256 fee
+        uint256 fee,
+        bytes memory quoteData
     ) internal view returns (address tokenOut, uint256 amountOut, bool zeroForOne) {
+        if (quoteData.length != 0) {
+            if (quoteData.length != 1 || quoteData[0] != 0x01) revert UnsupportedV2QuoteMode();
+            return _quoteStableV2(address(pair), tokenIn, amountIn, fee);
+        }
+
         address token0 = pair.token0();
         address token1 = pair.token1();
         zeroForOne = tokenIn == token0;
@@ -296,6 +303,38 @@ contract ArbitrageExecutor is Withdrawable {
         tokenOut = zeroForOne ? token1 : token0;
     }
 
+    function _quoteStableV2(
+        address pair,
+        address tokenIn,
+        uint256 amountIn,
+        uint256 fee
+    ) internal view returns (address tokenOut, uint256 amountOut, bool zeroForOne) {
+        StablePairState memory state = _stablePairState(pair);
+        if (!state.stable) revert InvalidStablePair();
+
+        zeroForOne = tokenIn == state.token0;
+        if (!zeroForOne && tokenIn != state.token1) revert SwapPathError();
+        if (state.reserve0 == 0 || state.reserve1 == 0 || state.scale0 == 0 || state.scale1 == 0) revert InvalidReserves();
+
+        amountOut = zeroForOne
+            ? _stableAmountOut(amountIn, state.reserve0, state.reserve1, state.scale0, state.scale1, fee)
+            : _stableAmountOut(amountIn, state.reserve1, state.reserve0, state.scale1, state.scale0, fee);
+        if (amountOut >= (zeroForOne ? state.reserve1 : state.reserve0)) revert OutputExceedsReserve();
+        tokenOut = zeroForOne ? state.token1 : state.token0;
+    }
+
+    function _stablePairState(address pair) private view returns (StablePairState memory state) {
+        (
+            state.scale0,
+            state.scale1,
+            state.reserve0,
+            state.reserve1,
+            state.stable,
+            state.token0,
+            state.token1
+        ) = IBaseV1Pair(pair).metadata();
+    }
+
     function _swapV3(
         address tokenIn,
         uint256 amountIn,
@@ -308,22 +347,20 @@ contract ArbitrageExecutor is Withdrawable {
         if (!zeroForOne && tokenIn != token1) revert SwapPathError();
 
         tokenOut = zeroForOne ? token1 : token0;
-        uint256 balanceBefore = IERC20(tokenOut).balanceOf(address(this));
 
         pendingV3Pool = poolAddr;
-        pendingV3TokenIn = tokenIn;
-        pool.swap(
+        (int256 amount0, int256 amount1) = pool.swap(
             address(this),
             zeroForOne,
             int256(amountIn),
             zeroForOne ? MIN_SQRT_RATIO_PLUS_ONE : MAX_SQRT_RATIO_MINUS_ONE,
-            new bytes(0)
+            hex""
         );
         pendingV3Pool = address(0);
-        pendingV3TokenIn = address(0);
 
-        amountOut = IERC20(tokenOut).balanceOf(address(this)) - balanceBefore;
-        if (amountOut == 0) revert SwapPathError();
+        int256 outputDelta = zeroForOne ? amount1 : amount0;
+        if (outputDelta >= 0) revert InvalidV3SwapDelta();
+        amountOut = uint256(-outputDelta);
     }
 
     function _swapCarbon(
@@ -336,25 +373,36 @@ contract ArbitrageExecutor is Withdrawable {
 
         address rawSourceToken;
         address rawTargetToken;
-        uint256[] memory strategyIds;
-        uint128[] memory amounts;
+        ICarbonController.TradeAction[] memory actions;
         if (data.length == 96) {
             uint256 strategyId;
             (strategyId, rawSourceToken, rawTargetToken) = abi.decode(data, (uint256, address, address));
-            strategyIds = new uint256[](1);
-            amounts = new uint128[](1);
-            strategyIds[0] = strategyId;
-            amounts[0] = uint128(amountIn);
+            actions = new ICarbonController.TradeAction[](1);
+            actions[0] = ICarbonController.TradeAction({strategyId: strategyId, amount: uint128(amountIn)});
         } else {
+            uint256[] memory strategyIds;
+            uint128[] memory amounts;
             (rawSourceToken, rawTargetToken, strategyIds, amounts) =
                 abi.decode(data, (address, address, uint256[], uint128[]));
+            if (strategyIds.length == 0 || strategyIds.length != amounts.length) revert SwapPathError();
+
+            actions = new ICarbonController.TradeAction[](strategyIds.length);
+            uint256 totalActionAmount;
+            for (uint256 i; i < strategyIds.length; ) {
+                totalActionAmount += amounts[i];
+                actions[i] = ICarbonController.TradeAction({
+                    strategyId: strategyIds[i],
+                    amount: amounts[i]
+                });
+                unchecked { ++i; }
+            }
+            if (totalActionAmount != amountIn) revert InvalidCarbonAmount();
         }
         bool sourceIsNative = rawSourceToken == NATIVE_SEI;
         bool targetIsNative = rawTargetToken == NATIVE_SEI;
         tokenOut = targetIsNative ? WSEI : rawTargetToken;
         if (sourceIsNative && tokenIn != WSEI) revert SwapPathError();
         if (!sourceIsNative && tokenIn != rawSourceToken) revert SwapPathError();
-        if (strategyIds.length == 0 || strategyIds.length != amounts.length) revert SwapPathError();
 
         if (sourceIsNative) {
             IWSEI(WSEI).withdraw(amountIn);
@@ -365,18 +413,6 @@ contract ArbitrageExecutor is Withdrawable {
         uint256 balanceBefore = targetIsNative
             ? address(this).balance
             : IERC20(rawTargetToken).balanceOf(address(this));
-
-        ICarbonController.TradeAction[] memory actions = new ICarbonController.TradeAction[](strategyIds.length);
-        uint256 totalActionAmount;
-        for (uint256 i; i < strategyIds.length; ) {
-            totalActionAmount += amounts[i];
-            actions[i] = ICarbonController.TradeAction({
-                strategyId: strategyIds[i],
-                amount: amounts[i]
-            });
-            unchecked { ++i; }
-        }
-        if (totalActionAmount != amountIn) revert InvalidCarbonAmount();
 
         ICarbonController(controller).tradeBySourceAmount{value: sourceIsNative ? amountIn : 0}(
             rawSourceToken,
@@ -432,6 +468,74 @@ contract ArbitrageExecutor is Withdrawable {
     ) internal pure returns (uint256) {
         uint256 amountInWithFee = amountIn * (FEE_DENOMINATOR - fee);
         return (amountInWithFee * reserveOut) / ((reserveIn * FEE_DENOMINATOR) + amountInWithFee);
+    }
+
+    function _v2RepayAmount(uint256 borrowedAmount, uint256 fee) internal pure returns (uint256) {
+        uint256 denominator = FEE_DENOMINATOR - fee;
+        return borrowedAmount + ((borrowedAmount * fee + denominator - 1) / denominator);
+    }
+
+    function _stableAmountOut(
+        uint256 amountIn,
+        uint256 reserveIn,
+        uint256 reserveOut,
+        uint256 scaleIn,
+        uint256 scaleOut,
+        uint256 fee
+    ) internal pure returns (uint256) {
+        amountIn -= (amountIn * fee) / FEE_DENOMINATOR;
+        uint256 normalizedIn = (reserveIn * ONE) / scaleIn;
+        uint256 normalizedOut = (reserveOut * ONE) / scaleOut;
+        uint256 invariant = _stableK(normalizedIn, normalizedOut);
+        uint256 nextOut = _stableY(
+            normalizedIn + (amountIn * ONE) / scaleIn,
+            invariant,
+            normalizedOut
+        );
+        return ((normalizedOut - nextOut) * scaleOut) / ONE;
+    }
+
+    function _stableK(uint256 x, uint256 y) private pure returns (uint256) {
+        uint256 a = (x * y) / ONE;
+        uint256 b = ((x * x) / ONE) + ((y * y) / ONE);
+        return (a * b) / ONE;
+    }
+
+    function _stableF(uint256 x, uint256 x3, uint256 y) private pure returns (uint256) {
+        return _stableF(x, x3, y, (y * y) / ONE);
+    }
+
+    function _stableF(uint256 x, uint256 x3, uint256 y, uint256 y2) private pure returns (uint256) {
+        return (x * ((y2 * y) / ONE)) / ONE + (x3 * y) / ONE;
+    }
+
+    function _stableY(uint256 x, uint256 invariant, uint256 y) private pure returns (uint256) {
+        uint256 x3 = ((((x * x) / ONE) * x) / ONE);
+        for (uint256 i; i < 255; ) {
+            uint256 y2 = (y * y) / ONE;
+            uint256 k = _stableF(x, x3, y, y2);
+            uint256 d = (3 * x * y2) / ONE + x3;
+            if (d == 0) revert InvalidReserves();
+
+            if (k < invariant) {
+                uint256 dy = ((invariant - k) * ONE) / d;
+                if (dy == 0) {
+                    if (k == invariant) return y;
+                    if (_stableF(x, x3, y + 1) > invariant) return y + 1;
+                    dy = 1;
+                }
+                y += dy;
+            } else {
+                uint256 dy = ((k - invariant) * ONE) / d;
+                if (dy == 0) {
+                    if (k == invariant || _stableF(x, x3, y - 1) < invariant) return y;
+                    dy = 1;
+                }
+                y -= dy;
+            }
+            unchecked { ++i; }
+        }
+        revert StableSolverDidNotConverge();
     }
 
     function _safeTransfer(address token, address to, uint256 amount) internal {

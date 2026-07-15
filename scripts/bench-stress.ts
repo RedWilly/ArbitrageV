@@ -34,7 +34,7 @@ function poolAddress(id: number): Address {
 }
 
 function pair(id: number, token0: Address, token1: Address, reserve0: bigint, reserve1: bigint): PairInfo {
-  return { pairAddress: pairAddress(id), token0, token1, reserve0, reserve1, fee: 30 };
+  return { pairAddress: pairAddress(id), token0, token1, reserve0, reserve1, fee: 30, variant: 'uniswap-v2', scale0: 1n, scale1: 1n };
 }
 
 function pool(id: number, token0: Address, token1: Address): V3PoolConfig {

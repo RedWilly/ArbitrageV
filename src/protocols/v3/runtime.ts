@@ -206,6 +206,14 @@ export class V3EventAdapter implements ProtocolEventAdapter {
     for (const pool of pools) this.pools.set(pool.address.toLowerCase(), pool);
   }
 
+  addresses(): readonly Address[] {
+    return [...this.pools.values()].map(pool => pool.address);
+  }
+
+  owns(address: Address): boolean {
+    return this.pools.has(address.toLowerCase());
+  }
+
   async watch(client: PublicClient, onLogs: (logs: any[]) => void | Promise<void>, onError: (error: any) => void | Promise<void>) {
     if (this.pools.size === 0) return [];
     const unwatch = await client.watchContractEvent({
@@ -226,10 +234,18 @@ export class V3EventAdapter implements ProtocolEventAdapter {
   }
 
   async reconcile(logs: readonly any[]): Promise<void> {
-    const touched = new Map<string, V3PoolConfig>();
+    const addresses: Address[] = [];
     for (const log of logs) {
-      const key = log.address?.toLowerCase();
-      const pool = key ? this.pools.get(key) : undefined;
+      if (log.address) addresses.push(log.address);
+    }
+    await this.reconcileAddresses(addresses);
+  }
+
+  async reconcileAddresses(addresses: readonly Address[]): Promise<void> {
+    const touched = new Map<string, V3PoolConfig>();
+    for (const address of addresses) {
+      const key = address.toLowerCase();
+      const pool = this.pools.get(key);
       if (pool) touched.set(key, pool);
     }
     if (touched.size > 0) await loadConfiguredV3StartupState(this.client, this.engine, [...touched.values()]);

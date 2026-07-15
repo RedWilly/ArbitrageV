@@ -1,6 +1,6 @@
 import { type Address } from 'viem';
 import { type CarbonOrder } from '../protocols/carbon/types';
-import { type SwapDirection } from '../protocols/v2/types';
+import { type SwapDirection, type V2Variant } from '../protocols/v2/types';
 
 export type MarketProtocol = 'v2' | 'v3' | 'carbon';
 
@@ -34,6 +34,9 @@ export type V2MarketEdge = MarketEdge & {
   protocol: 'v2';
   reserveIn: bigint;
   reserveOut: bigint;
+  variant: V2Variant;
+  scaleIn: bigint;
+  scaleOut: bigint;
 };
 
 export type V3MarketEdge = MarketEdge & {

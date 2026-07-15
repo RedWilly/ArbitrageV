@@ -18,6 +18,9 @@ describe("filterDiscoveredMarkets", () => {
         token1: tokenA,
         fee: 30,
         factory: "v2",
+        variant: 'uniswap-v2',
+        scale0: 1n,
+        scale1: 1n,
       }],
       [{
         name: "v3",
@@ -44,6 +47,9 @@ describe("filterDiscoveredMarkets", () => {
         token1: tokenA,
         fee: 30,
         factory: "v2",
+        variant: 'uniswap-v2',
+        scale0: 1n,
+        scale1: 1n,
       }],
       [{
         name: "v3",

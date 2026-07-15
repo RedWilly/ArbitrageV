@@ -148,5 +148,23 @@ export const V3_POOLS: V3PoolConfig[] = [
     fee: 500,
     tickSpacing: 10,
     enabled: true,
+  },
+  {
+    name: 'sailor-usdc-wsei',
+    address: '0x80fe558c54f1f43263e08f0e1fa3e02d8b897f93',
+    token0: '0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392',
+    token1: '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7',
+    fee: 3000,
+    tickSpacing: 60,
+    enabled: true,
+  },
+    {
+    name: 'sailor-usdc.n-usdc',
+    address: '0xdc39167b80874765a334be78a378417bb42aae26',
+    token0: '0x3894085ef7ff0f0aedf52e2a2704928d1ec074f1',
+    token1: '0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392',
+    fee: 100,
+    tickSpacing: 1,
+    enabled: true,
   }
 ];

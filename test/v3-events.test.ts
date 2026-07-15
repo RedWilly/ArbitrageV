@@ -30,7 +30,10 @@ describe("EventMonitor V3 pool events", () => {
     const pairAddress = "0x0000000000000000000000000000000000000a22" as Address;
     const feed = fakeEventClient([[200n, 201n, BigInt(Math.floor(Date.now() / 1000))]]);
     const monitor = new EventMonitor({ client: feed.client }, [
-      new V2EventAdapter(feed.client, graph, [{ pairAddress, token0, token1, fee: 30, factory: '' }], async () => {}),
+      new V2EventAdapter(feed.client, graph, [{
+        pairAddress, token0, token1, fee: 30, factory: '',
+        variant: 'uniswap-v2', scale0: 1n, scale1: 1n,
+      }], async () => {}),
     ]);
 
     await monitor.startBuffering();
@@ -62,6 +65,9 @@ describe("EventMonitor V3 pool events", () => {
         token1,
         fee: 30,
         factory: '',
+        variant: 'uniswap-v2',
+        scale0: 1n,
+        scale1: 1n,
       }], async () => {}),
     ]);
     await monitor.start();
@@ -76,6 +82,55 @@ describe("EventMonitor V3 pool events", () => {
       reserve0: 200n,
       reserve1: 201n,
     });
+    await monitor.stop();
+  });
+
+  test("rejects logs older than the hydration floor", async () => {
+    const graph = new OpportunityEngine(ARBITRAGE_SEARCH_POLICY, []);
+    const pairAddress = "0x0000000000000000000000000000000000000a22" as Address;
+    const feed = fakeEventClient();
+    graph.addPair({
+      pairAddress, token0, token1, reserve0: 200n, reserve1: 201n, fee: 30,
+      variant: "uniswap-v2", scale0: 1n, scale1: 1n,
+    });
+    const monitor = new EventMonitor({ client: feed.client }, [
+      new V2EventAdapter(feed.client, graph, [{
+        pairAddress, token0, token1, fee: 30, factory: "",
+        variant: "uniswap-v2", scale0: 1n, scale1: 1n,
+      }], async () => {}),
+    ]);
+
+    await monitor.startBuffering();
+    await monitor.activate(2n);
+    await feed.emit([syncLog(pairAddress, 0, 100n, 101n, 1n)]);
+    expect(graph.getAllPairs()[0]).toMatchObject({ reserve0: 200n, reserve1: 201n });
+
+    await feed.emit([syncLog(pairAddress, 0, 300n, 301n, 3n)]);
+    expect(graph.getAllPairs()[0]).toMatchObject({ reserve0: 300n, reserve1: 301n });
+    await monitor.stop();
+  });
+
+  test("reconciles selected markets and versions them at the current head", async () => {
+    const graph = new OpportunityEngine(ARBITRAGE_SEARCH_POLICY, []);
+    const pairAddress = "0x0000000000000000000000000000000000000a22" as Address;
+    const feed = fakeEventClient([[300n, 301n, 1n]], 10n);
+    graph.addPair({
+      pairAddress, token0, token1, reserve0: 100n, reserve1: 101n, fee: 30,
+      variant: "uniswap-v2", scale0: 1n, scale1: 1n,
+    });
+    const monitor = new EventMonitor({ client: feed.client }, [
+      new V2EventAdapter(feed.client, graph, [{
+        pairAddress, token0, token1, fee: 30, factory: "",
+        variant: "uniswap-v2", scale0: 1n, scale1: 1n,
+      }], async () => {}),
+    ]);
+
+    await monitor.start();
+    await monitor.reconcileMarkets([pairAddress]);
+    expect(graph.getAllPairs()[0]).toMatchObject({ reserve0: 300n, reserve1: 301n });
+
+    await feed.emit([syncLog(pairAddress, 0, 200n, 201n, 10n)]);
+    expect(graph.getAllPairs()[0]).toMatchObject({ reserve0: 300n, reserve1: 301n });
     await monitor.stop();
   });
 
@@ -151,7 +206,7 @@ describe("EventMonitor V3 pool events", () => {
   });
 });
 
-function fakeEventClient(readResult?: unknown): { client: any; emit(logs: any[]): Promise<void> } {
+function fakeEventClient(readResult?: unknown, blockNumber = 1n): { client: any; emit(logs: any[]): Promise<void> } {
   let onLogs: ((logs: any[]) => void | Promise<void>) | undefined;
   return {
     client: {
@@ -160,6 +215,7 @@ function fakeEventClient(readResult?: unknown): { client: any; emit(logs: any[])
         return () => {};
       },
       readContract: async () => readResult,
+      getBlockNumber: async () => blockNumber,
     },
     async emit(logs) {
       if (!onLogs) throw new Error('event monitor is not started');
