@@ -20,6 +20,9 @@ describe('market catalog', () => {
           token1,
           fee: 30,
           factory: 'test-v2',
+          variant: 'solidly-stable',
+          scale0: 1_000_000n,
+          scale1: 1_000_000n,
         }],
         v3Pools: [{
           name: 'test-v3',

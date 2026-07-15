@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { type Address } from "viem";
 import { TOKENS } from "../src/constants";
-import { swapV2 } from "../src/protocols/v2/quote";
+import { swapSolidlyStable, swapV2 } from "../src/protocols/v2/quote";
+import { encodeV2RouteData } from "../src/protocols/v2/execution";
 import { type PairInfo } from "../src/protocols/v2/types";
 import { type ArbitrageSearchPolicy } from "../src/market-graph/types";
 import { OpportunityEngine } from "../src/opportunities/opportunity-engine";
@@ -32,6 +33,9 @@ function pair(
     reserve0,
     reserve1,
     fee,
+    variant: 'uniswap-v2',
+    scale0: 1n,
+    scale1: 1n,
   };
 }
 
@@ -52,7 +56,36 @@ test("swapV2 matches the Solidity formula without early rounding", () => {
   )).toBe(26036525510536776183643n);
 });
 
+test("stable V2 quote matches the historical Yaka pool output", () => {
+  expect(swapSolidlyStable(12_271_683n, {
+    variant: 'solidly-stable',
+    reserveIn: 21_501_234n,
+    reserveOut: 149_089_569n,
+    scaleIn: 1_000_000n,
+    scaleOut: 1_000_000n,
+    fee: 4,
+  })).toBe(22_886_491n);
+  expect(encodeV2RouteData('solidly-stable')).toBe('0x01');
+  expect(encodeV2RouteData('solidly-volatile')).toBe('0x');
+});
+
 describe("V2 arbitrage graph", () => {
+  test("keeps stable pools in routes and marks their execution mode", () => {
+    const stable = pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200"), 4);
+    stable.variant = 'solidly-stable';
+    stable.scale0 = 10n ** 18n;
+    stable.scale1 = 10n ** 18n;
+    const graph = buildGraph([
+      stable,
+      pair(2, tokenB, tokenC, tokenAmount("1000"), tokenAmount("2200")),
+      pair(3, tokenC, tokenA, tokenAmount("1000"), tokenAmount("2200")),
+    ]);
+
+    const opportunity = graph.findOpportunities({ startTokens: [tokenA] })[0];
+    expect(opportunity.routeData).toEqual(['0x01', '0x', '0x']);
+    expect(graph.findBestFlashPoolForToken(tokenA, 1n, [pairAddress(2), pairAddress(3)])).toBeNull();
+  });
+
   test("finds a profitable three-pool circular arbitrage route", () => {
     const graph = buildGraph([
       pair(1, tokenA, tokenB, tokenAmount("1000"), tokenAmount("2200")),

@@ -5,7 +5,7 @@ import { loadMarketSnapshot } from '../market-db';
 import { initializeNetwork } from '../network';
 import { OpportunityEngine } from '../opportunities/opportunity-engine';
 import { createOpportunityScanner } from '../opportunities/opportunity-workflow';
-import { createProtocolPlugins, PROTOCOL_PLUGINS } from '../protocols/registry';
+import { PROTOCOL_PLUGINS } from '../protocols/registry';
 import { LatestUpdateScheduler } from './event-scheduler';
 
 type ScanUpdate = { key: string; releasedPairs: readonly Address[] };
@@ -29,7 +29,12 @@ export async function runArbitrageBot(): Promise<void> {
     ARBITRAGE_SEARCH_POLICY,
     []
   );
-  const scanOpportunities = createOpportunityScanner(graph, network);
+  let monitor!: EventMonitor;
+  const scanOpportunities = createOpportunityScanner(
+    graph,
+    network,
+    addresses => monitor.reconcileMarkets(addresses)
+  );
   const scanScheduler = new LatestUpdateScheduler<ScanUpdate>(
     async updates => {
       const releasedPairs = new Map<string, Address>();
@@ -45,11 +50,11 @@ export async function runArbitrageBot(): Promise<void> {
   );
   const scheduleScan = (changedPairs: readonly string[], releasedPairs: readonly Address[] = []) =>
     scanScheduler.submit(changedPairs.map(key => ({ key, releasedPairs })));
-  const runtimePlugins = createProtocolPlugins();
+  const runtimePlugins = PROTOCOL_PLUGINS;
   const eventAdapters = runtimePlugins
     .map(plugin => plugin.events({ client: network.client, catalog, engine: graph, scan: scheduleScan }))
     .filter(adapter => adapter !== null);
-  const monitor = new EventMonitor(network, eventAdapters);
+  monitor = new EventMonitor(network, eventAdapters);
 
   console.log('Starting market event feed in buffering mode...');
   await monitor.startBuffering();
@@ -67,7 +72,7 @@ export async function runArbitrageBot(): Promise<void> {
 
     if (RUNTIME.debug) console.log(`Loaded live state for ${runtimePlugins.map(plugin => plugin.id).join(', ')}`);
     console.log('Reconciling events received during startup...');
-    await monitor.activate();
+    await monitor.activate(hydrationStartedAtBlock);
   } catch (error) {
     await monitor.stop();
     throw error;

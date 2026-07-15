@@ -66,28 +66,6 @@ function hasEnoughLiquidity(pair: DiscoveredPairInfo): boolean {
     return hasEnoughLiquidity;
 }
 
-async function filterVolatilePairs(
-    client: V2Client,
-    pairs: DiscoveredPairInfo[]
-): Promise<boolean[]> {
-    try {
-        const isVolatile = await client.readContract({
-            address: CONTRACTS.flashQuery as Address,
-            abi: UniswapFlashQueryABI,
-            functionName: 'filterVolatileHermesPairs',
-            args: [pairs.map(p => p.pairAddress)],
-        }) as boolean[];
-
-        return isVolatile;
-    } catch (error) {
-        if (RUNTIME.debug) {
-            console.error('Error checking volatile pairs:', error);
-        }
-        // In case of error, assume all pairs are volatile (false)
-        return pairs.map(() => false);
-    }
-}
-
 async function getReservesForPairs(
     client: V2Client,
     pairs: DiscoveredPairInfo[]
@@ -134,9 +112,9 @@ async function getReservesWithRetry(
     for (const factory of Object.keys(pairsByFactory)) {
         const factoryPairs = pairsByFactory[factory];
         const factoryConfig = DEX_FACTORIES.find(f => f.name === factory);
-        const isWoofFactory = factoryConfig?.volatile ?? false;
-        const batchSize = isWoofFactory
-            ? PAIR_DISCOVERY_POLICY.woofReserveBatchSize
+        const isSolidlyFactory = factoryConfig?.kind === 'solidly';
+        const batchSize = isSolidlyFactory
+            ? PAIR_DISCOVERY_POLICY.solidlyReserveBatchSize
             : PAIR_DISCOVERY_POLICY.batchSize;
         
         if (RUNTIME.debug) {
@@ -150,31 +128,17 @@ async function getReservesWithRetry(
                     console.log(`Fetching reserves for ${batch.length} pairs from ${factory} (${i + 1} to ${i + batch.length})`);
                 }
 
-                let filteredBatch = batch;
-                if (isWoofFactory) {
-                    const isStablePair = await filterVolatilePairs(client, batch);
-                    filteredBatch = batch.filter((_, index) => !isStablePair[index]);
-                    
-                    if (RUNTIME.debug && batch.length !== filteredBatch.length) {
-                        console.log(`Filtered out ${batch.length - filteredBatch.length} stable pairs from Woof factory`);
-                    }
-
-                    if (filteredBatch.length === 0) {
-                        continue;
-                    }
-                }
-
-                const pairsWithReserves = await getReservesForPairs(client, filteredBatch);
+                const pairsWithReserves = await getReservesForPairs(client, batch);
                 
                 const validPairs = pairsWithReserves.filter(pair => 
                     isPairActive(pair.lastTimestamp) && 
                     hasEnoughLiquidity(pair)
                 );
                 
-                const skippedCount = filteredBatch.length - validPairs.length;
+                const skippedCount = batch.length - validPairs.length;
                 if (skippedCount > 0 && RUNTIME.debug) {
                     console.log(`Skipped ${skippedCount} pairs (${
-                        filteredBatch.length - validPairs.length - pairsWithReserves.filter(p => !isPairActive(p.lastTimestamp)).length
+                        batch.length - validPairs.length - pairsWithReserves.filter(p => !isPairActive(p.lastTimestamp)).length
                     } with zero reserves, ${
                         pairsWithReserves.filter(p => !isPairActive(p.lastTimestamp)).length
                     } inactive, ${
@@ -249,6 +213,14 @@ export class V2EventAdapter implements ProtocolEventAdapter {
     );
   }
 
+  addresses(): readonly Address[] {
+    return [...this.pools.values()].map(pool => pool.pairAddress);
+  }
+
+  owns(address: Address): boolean {
+    return this.pools.has(address.toLowerCase());
+  }
+
   async watch(client: PublicClient, onLogs: (logs: any[]) => void | Promise<void>, onError: (error: any) => void | Promise<void>) {
     if (this.pools.size === 0) return [];
     const unwatch = await client.watchContractEvent({
@@ -267,10 +239,18 @@ export class V2EventAdapter implements ProtocolEventAdapter {
   }
 
   async reconcile(logs: readonly any[]): Promise<void> {
-    const touched = new Map<string, V2PoolMetadata>();
+    const addresses: Address[] = [];
     for (const log of logs) {
-      const key = log.address?.toLowerCase();
-      const pool = key ? this.pools.get(key) : undefined;
+      if (log.address) addresses.push(log.address);
+    }
+    await this.reconcileAddresses(addresses);
+  }
+
+  async reconcileAddresses(addresses: readonly Address[]): Promise<void> {
+    const touched = new Map<string, V2PoolMetadata>();
+    for (const address of addresses) {
+      const key = address.toLowerCase();
+      const pool = this.pools.get(key);
       if (pool) touched.set(key, pool);
     }
     const pairs = await refreshKnownPairsInfo(this.client, [...touched.values()]);
@@ -298,14 +278,7 @@ export class V2EventAdapter implements ProtocolEventAdapter {
     for (const update of updates) {
       const pool = this.pools.get(update.pairAddress.toLowerCase());
       if (!pool) continue;
-      this.engine.addPair({
-        pairAddress: pool.pairAddress,
-        token0: pool.token0,
-        token1: pool.token1,
-        fee: pool.fee,
-        reserve0: update.reserve0,
-        reserve1: update.reserve1,
-      });
+      this.engine.addPair({ ...pool, reserve0: update.reserve0, reserve1: update.reserve1 });
     }
     await this.scan(updates.map(update => update.pairAddress), updates.map(update => update.pairAddress));
   }

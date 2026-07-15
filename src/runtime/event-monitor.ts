@@ -1,4 +1,4 @@
-import { type PublicClient } from 'viem';
+import { type Address, type PublicClient } from 'viem';
 import { RUNTIME } from '../constants';
 import { advanceCursor, chainLogBlockNumber, type ChainCursor, compareChainLogs, isLogAfterCursor } from './chain-cursor';
 import { type ProtocolEventAdapter } from './protocol-event-adapter';
@@ -24,6 +24,7 @@ export class EventMonitor {
   private firstBufferedBlock: bigint | null = null;
   private lastBufferedBlock: bigint | null = null;
   private bufferedLogCount = 0;
+  private hydrationFloor = 0n;
 
   constructor(
     network: any,
@@ -62,13 +63,15 @@ export class EventMonitor {
     }
   }
 
-  async activate(): Promise<void> {
+  async activate(hydrationFloor = 0n): Promise<void> {
     if (!this.running || !this.buffering) return;
+    if (hydrationFloor > this.hydrationFloor) this.hydrationFloor = hydrationFloor;
     while (this.buffered.size > 0) {
       const entries = [...this.buffered.values()].sort((a, b) => compareChainLogs(a.log, b.log));
       this.buffered.clear();
       const byAdapter = new Map<ProtocolEventAdapter, any[]>();
       for (const entry of entries) {
+        if (chainLogBlockNumber(entry.log) <= this.hydrationFloor) continue;
         this.markApplied(entry.adapter, entry.log);
         const logs = byAdapter.get(entry.adapter);
         if (logs) logs.push(entry.log);
@@ -81,6 +84,17 @@ export class EventMonitor {
       ? 'no market events arrived during hydration'
       : `${this.bufferedLogCount} events observed across blocks ${this.firstBufferedBlock}-${this.lastBufferedBlock}`;
     console.log(`Market event feed caught up and is now live (${range})`);
+  }
+
+  async reconcileMarkets(addresses: readonly Address[]): Promise<bigint> {
+    const blockNumber = await this.client.getBlockNumber();
+    await Promise.all(this.adapters.map(async adapter => {
+      const owned = addresses.filter(address => adapter.owns(address));
+      if (owned.length === 0) return;
+      await adapter.reconcileAddresses(owned);
+      for (const address of owned) this.markReconciled(adapter, address, blockNumber);
+    }));
+    return blockNumber;
   }
 
   async stop(): Promise<void> {
@@ -113,6 +127,7 @@ export class EventMonitor {
   private freshLogs(adapter: ProtocolEventAdapter, logs: any[]): any[] {
     let count = 0;
     for (const log of logs) {
+      if (chainLogBlockNumber(log) <= this.hydrationFloor) continue;
       const key = this.cursorKey(adapter, log);
       if (!key) continue;
       const cursor = this.cursors.get(key);
@@ -136,6 +151,17 @@ export class EventMonitor {
     return address ? `${adapter.id}:${address}` : null;
   }
 
+  private markReconciled(adapter: ProtocolEventAdapter, address: Address, blockNumber: bigint): void {
+    const key = `${adapter.id}:${address.toLowerCase()}`;
+    const cursor = this.cursors.get(key);
+    const reconciled = {
+      blockNumber,
+      transactionIndex: Number.MAX_SAFE_INTEGER,
+      logIndex: Number.MAX_SAFE_INTEGER,
+    };
+    if (!cursor || cursor.blockNumber <= blockNumber) this.cursors.set(key, reconciled);
+  }
+
   private async stopInternal(preserveCursors: boolean): Promise<void> {
     if (!this.running) return;
     this.running = false;
@@ -148,7 +174,10 @@ export class EventMonitor {
     this.lastBufferedBlock = null;
     this.bufferedLogCount = 0;
     for (const adapter of this.adapters) adapter.clear?.();
-    if (!preserveCursors) this.cursors.clear();
+    if (!preserveCursors) {
+      this.cursors.clear();
+      this.hydrationFloor = 0n;
+    }
   }
 
   private async recover(reason: string): Promise<void> {
@@ -166,6 +195,7 @@ export class EventMonitor {
       console.log(`${reason}; restarting market event feed`);
       await this.stopInternal(true);
       await this.start();
+      await this.reconcileMarkets(this.adapters.flatMap(adapter => adapter.addresses()));
     } finally {
       this.reconnecting = false;
     }

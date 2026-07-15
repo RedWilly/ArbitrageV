@@ -340,19 +340,25 @@ function field<TValue>(value: any, name: string, index: number): TValue {
 
 export class CarbonEventAdapter implements ProtocolEventAdapter {
   readonly id = 'carbon';
-  private readonly controllers = new Set(
-    CARBON_CONTROLLERS.filter(controller => controller.enabled).map(controller => controller.address.toLowerCase())
-  );
+  private readonly controllerAddresses = CARBON_CONTROLLERS
+    .filter(controller => controller.enabled)
+    .map(controller => controller.address);
+  private readonly controllers = new Set(this.controllerAddresses.map(address => address.toLowerCase()));
 
   constructor(private readonly store: CarbonStrategyStore) {}
 
+  addresses(): readonly Address[] {
+    return this.controllerAddresses;
+  }
+
+  owns(address: Address): boolean {
+    return this.controllers.has(address.toLowerCase());
+  }
+
   async watch(client: PublicClient, onLogs: (logs: any[]) => void | Promise<void>, onError: (error: any) => void | Promise<void>) {
-    const addresses = CARBON_CONTROLLERS
-      .filter(controller => controller.enabled)
-      .map(controller => controller.address);
-    if (addresses.length === 0) return [];
+    if (this.controllerAddresses.length === 0) return [];
     const unwatch = await client.watchContractEvent({
-      address: addresses,
+      address: this.controllerAddresses,
       abi: CARBON_CONTROLLER_EVENT_ABI,
       strict: true,
       onLogs,
@@ -367,7 +373,15 @@ export class CarbonEventAdapter implements ProtocolEventAdapter {
   }
 
   async reconcile(logs: readonly any[]): Promise<void> {
-    if (logs.length > 0) await this.store.loadAll();
+    const addresses: Address[] = [];
+    for (const log of logs) {
+      if (log.address) addresses.push(log.address);
+    }
+    await this.reconcileAddresses(addresses);
+  }
+
+  async reconcileAddresses(addresses: readonly Address[]): Promise<void> {
+    if (addresses.some(address => this.owns(address))) await this.store.loadAll();
   }
 
   async apply(logs: any[]): Promise<void> {

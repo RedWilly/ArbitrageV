@@ -8,6 +8,7 @@ import { MarketGraph } from '../market-graph/market-graph';
 import { sizeRoute } from '../market-graph/route-sizer';
 import { type ArbitrageSearchPolicy, type FlashPoolCandidate } from '../market-graph/types';
 import { type PairInfo, type ReserveUpdate } from '../protocols/v2/types';
+import { encodeV2RouteData } from '../protocols/v2/execution';
 import {
   type V3BitmapWord,
   type V3BitmapWordUpdate,
@@ -175,7 +176,9 @@ export class OpportunityEngine {
       fees.push(edge.fee);
       routeData.push(edge.protocol === 'carbon' && edgeIndex !== undefined
         ? this.encodeCarbonRouteData(edgeIndex, amount)
-        : '0x');
+        : edge.protocol === 'v2'
+          ? encodeV2RouteData(edge.variant)
+          : '0x');
 
       const quote = edgeIndex !== undefined
         ? this.graph.quoteEdgeAt(edgeIndex, amount)

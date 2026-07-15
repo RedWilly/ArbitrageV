@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { type Address } from 'viem';
 import { type V2PoolMetadata } from './protocols/v2/metadata';
+import { type V2Variant } from './protocols/v2/types';
 import { type CarbonPairMetadata } from './protocols/carbon/types';
 import { type V3PoolConfig } from './protocols/v3/types';
 
@@ -16,6 +17,9 @@ type StoredPool = {
   token1: Address;
   fee: number;
   tickSpacing: number | null;
+  variant: V2Variant | null;
+  scale0: string | null;
+  scale1: string | null;
 };
 
 export type MarketSnapshot = {
@@ -32,6 +36,9 @@ type PoolRow = {
   token1: string;
   fee: number;
   tick_spacing: number | null;
+  variant: V2Variant | null;
+  scale0: string | null;
+  scale1: string | null;
 };
 
 type CarbonPairRow = {
@@ -81,6 +88,11 @@ function openMarketDb(path = marketDbPath()): Database {
 }
 
 function initMarketDb(db: Database): void {
+  const version = db.prepare('PRAGMA user_version').get() as { user_version: number };
+  if (version.user_version < 2) {
+    db.exec('DROP TABLE IF EXISTS pools; DROP TABLE IF EXISTS carbon_pairs; PRAGMA user_version = 2');
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS pools (
       address TEXT PRIMARY KEY,
@@ -89,7 +101,10 @@ function initMarketDb(db: Database): void {
       token0 TEXT NOT NULL,
       token1 TEXT NOT NULL,
       fee INTEGER NOT NULL,
-      tick_spacing INTEGER
+      tick_spacing INTEGER,
+      variant TEXT,
+      scale0 TEXT,
+      scale1 TEXT
     )
   `);
 
@@ -107,8 +122,8 @@ function initMarketDb(db: Database): void {
 
 function replaceStoredPools(db: Database, pools: readonly StoredPool[]): void {
   const insert = db.prepare(`
-    INSERT INTO pools (address, protocol, factory, token0, token1, fee, tick_spacing)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO pools (address, protocol, factory, token0, token1, fee, tick_spacing, variant, scale0, scale1)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const replace = db.transaction((rows: readonly StoredPool[]) => {
     db.exec('DELETE FROM pools');
@@ -120,7 +135,10 @@ function replaceStoredPools(db: Database, pools: readonly StoredPool[]): void {
         pool.token0,
         pool.token1,
         pool.fee,
-        pool.tickSpacing
+        pool.tickSpacing,
+        pool.variant,
+        pool.scale0,
+        pool.scale1
       );
     }
   });
@@ -129,7 +147,7 @@ function replaceStoredPools(db: Database, pools: readonly StoredPool[]): void {
 }
 
 function loadStoredPools(db: Database): StoredPool[] {
-  const rows = db.prepare('SELECT address, protocol, factory, token0, token1, fee, tick_spacing FROM pools').all() as PoolRow[];
+  const rows = db.prepare('SELECT address, protocol, factory, token0, token1, fee, tick_spacing, variant, scale0, scale1 FROM pools').all() as PoolRow[];
   return rows.map(row => ({
     address: row.address as Address,
     protocol: row.protocol,
@@ -138,6 +156,9 @@ function loadStoredPools(db: Database): StoredPool[] {
     token1: row.token1 as Address,
     fee: row.fee,
     tickSpacing: row.tick_spacing,
+    variant: row.variant,
+    scale0: row.scale0,
+    scale1: row.scale1,
   }));
 }
 
@@ -186,6 +207,9 @@ function toStoredV2Pool(pool: V2PoolMetadata): StoredPool {
     token1: pool.token1,
     fee: pool.fee,
     tickSpacing: null,
+    variant: pool.variant,
+    scale0: pool.scale0.toString(),
+    scale1: pool.scale1.toString(),
   };
 }
 
@@ -198,6 +222,9 @@ function toStoredV3Pool(pool: V3PoolConfig): StoredPool {
     token1: pool.token1,
     fee: pool.fee,
     tickSpacing: pool.tickSpacing,
+    variant: null,
+    scale0: null,
+    scale1: null,
   };
 }
 
@@ -210,6 +237,9 @@ function storedV2Pools(pools: readonly StoredPool[]): V2PoolMetadata[] {
       token1: pool.token1,
       fee: pool.fee,
       factory: pool.factory || '',
+      variant: pool.variant!,
+      scale0: BigInt(pool.scale0!),
+      scale1: BigInt(pool.scale1!),
     }));
 }
 

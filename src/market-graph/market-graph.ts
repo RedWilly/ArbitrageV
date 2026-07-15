@@ -18,7 +18,7 @@ import {
   type V3TickUpdate,
 } from '../protocols/v3/types';
 import { compareFractions } from '../fractions';
-import { FEE_DENOMINATOR, swapV2 } from '../protocols/v2/quote';
+import { quoteV2ExactInput, v2MarginalRate } from '../protocols/v2/quote';
 import {
   carbonMarginalRate,
   carbonSourceAmountForFullOrder,
@@ -27,7 +27,6 @@ import {
   type CarbonAllocation,
 } from '../protocols/carbon/quote';
 import { Q96, quoteV3MultiRangeExactInput, V3_FEE_DENOMINATOR } from '../protocols/v3/quote';
-import { feeMultiplier } from '../values';
 import { protocolPlugin } from '../protocols/registry';
 import {
   type AnyMarketEdge,
@@ -456,6 +455,7 @@ export class MarketGraph {
       if (excluded.has(this.edges[edgeIndex].poolIndex)) continue;
       const edge = this.edges[edgeIndex].edge;
       if (!protocolPlugin(edge.protocol).flashLoanFee) continue;
+      if (edge.protocol === 'v2' && edge.variant !== 'uniswap-v2') continue;
       if (edge.protocol === 'v2' && edge.reserveIn <= amountIn) continue;
       const inputCapacity = this.edgeInputCapacity(edge);
       if (edge.protocol === 'v3' && inputCapacity <= amountIn) continue;
@@ -478,7 +478,7 @@ export class MarketGraph {
       return { amountIn, amountOut: 0n, profit: -1n, complete: false };
     }
 
-    const amountOut = swapV2(amountIn, edge.reserveIn, edge.reserveOut, edge.fee);
+    const amountOut = quoteV2ExactInput(amountIn, edge);
     return {
       amountIn,
       amountOut,
@@ -535,6 +535,24 @@ export class MarketGraph {
 
     const token0Index = this.tokenIndex(pair.token0);
     const token1Index = this.tokenIndex(pair.token1);
+    const forward = {
+      variant: pair.variant,
+      reserveIn: pair.reserve0,
+      reserveOut: pair.reserve1,
+      scaleIn: pair.scale0,
+      scaleOut: pair.scale1,
+      fee: pair.fee,
+    };
+    const reverse = {
+      variant: pair.variant,
+      reserveIn: pair.reserve1,
+      reserveOut: pair.reserve0,
+      scaleIn: pair.scale1,
+      scaleOut: pair.scale0,
+      fee: pair.fee,
+    };
+    const forwardRate = v2MarginalRate(forward);
+    const reverseRate = v2MarginalRate(reverse);
 
     this.upsertEdge({
       id: this.edgeId('v2', poolIndex, 'token0ToToken1'),
@@ -543,11 +561,9 @@ export class MarketGraph {
       to: pair.token1,
       poolAddress: pair.pairAddress,
       direction: 'token0ToToken1',
-      fee: pair.fee,
-      reserveIn: pair.reserve0,
-      reserveOut: pair.reserve1,
-      rateNumerator: pair.reserve1 * feeMultiplier(pair.fee),
-      rateDenominator: pair.reserve0 * FEE_DENOMINATOR,
+      ...forward,
+      rateNumerator: forwardRate.numerator,
+      rateDenominator: forwardRate.denominator,
       liquidity: pair.reserve0,
     }, token0Index, token1Index, poolIndex);
 
@@ -558,11 +574,9 @@ export class MarketGraph {
       to: pair.token0,
       poolAddress: pair.pairAddress,
       direction: 'token1ToToken0',
-      fee: pair.fee,
-      reserveIn: pair.reserve1,
-      reserveOut: pair.reserve0,
-      rateNumerator: pair.reserve0 * feeMultiplier(pair.fee),
-      rateDenominator: pair.reserve1 * FEE_DENOMINATOR,
+      ...reverse,
+      rateNumerator: reverseRate.numerator,
+      rateDenominator: reverseRate.denominator,
       liquidity: pair.reserve1,
     }, token1Index, token0Index, poolIndex);
   }
@@ -887,7 +901,11 @@ export class MarketGraph {
     const cached = this.flashEdgesCache.get(tokenIndex);
     if (cached) return cached;
     const edgeIndexes = this.tokens[tokenIndex].edgeIndexes
-      .filter(edgeIndex => Boolean(protocolPlugin(this.edges[edgeIndex].edge.protocol).flashLoanFee))
+      .filter(edgeIndex => {
+        const edge = this.edges[edgeIndex].edge;
+        return Boolean(protocolPlugin(edge.protocol).flashLoanFee) &&
+          (edge.protocol !== 'v2' || edge.variant === 'uniswap-v2');
+      })
       .sort((aIndex, bIndex) => {
         const a = this.edges[aIndex].edge;
         const b = this.edges[bIndex].edge;

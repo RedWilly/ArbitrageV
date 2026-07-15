@@ -50,7 +50,6 @@ class NonceTracker {
 
 async function sendTransactionNotification(
     hash: string,
-    type: 'flashswap' | 'direct',
     expectedProfit: bigint,
     tokenAddress?: Address
 ): Promise<void> {
@@ -60,7 +59,7 @@ async function sendTransactionNotification(
     const status = expectedProfit > 0n ? 'PROFIT' : 'WARNING';
     const message =
         `<b>${status}: Arbitrage Transaction</b>\n\n` +
-        `<b>Type:</b> ${type === 'flashswap' ? 'Flash Swap' : 'Direct Swap'}\n` +
+        '<b>Type:</b> Flash Swap\n' +
         `<b>Expected Profit:</b> ${formatTokenAmountWithSymbol(expectedProfit, token)}\n\n` +
         `<b>Transaction:</b>\n` +
         `<code>${hash}</code>\n\n` +
@@ -101,7 +100,10 @@ export class OpportunityManager {
         private readonly submitOpportunity?: (
             graph: FlashPoolLookup,
             opportunity: ExecutableOpportunity
-        ) => Promise<boolean>
+        ) => Promise<boolean>,
+        private readonly refreshOpportunity?: (
+            opportunity: ExecutableOpportunity
+        ) => Promise<ExecutableOpportunity | null>
     ) {
         this.nonceTracker = new NonceTracker(networkConfig);
     }
@@ -161,10 +163,18 @@ export class OpportunityManager {
             }
 
             try {
+                const current = this.refreshOpportunity
+                    ? await this.refreshOpportunity(opp)
+                    : opp;
+                if (!current) {
+                    this.releasePairs(opp.pairs);
+                    continue;
+                }
+
                 // Execute the opportunity
                 const executed = await (this.submitOpportunity
-                    ? this.submitOpportunity(graph, opp)
-                    : this.executeArbitrageOpportunity(graph, opp));
+                    ? this.submitOpportunity(graph, current)
+                    : this.executeArbitrageOpportunity(graph, current));
                 if (!executed) {
                     this.releasePairs(opp.pairs);
                     continue;
@@ -172,8 +182,8 @@ export class OpportunityManager {
 
                 if (RUNTIME.debug) {
                     console.log('Submitted opportunity:', {
-                        profit: opp.profit.toString(),
-                        pairs: opp.pairs
+                        profit: current.profit.toString(),
+                        pairs: current.pairs
                     });
                 }
             } catch (error) {
@@ -219,10 +229,6 @@ export class OpportunityManager {
 
         const nonce = await this.nonceTracker.next();
 
-        // Calculate dynamic gas fees based on opportunity's expected profit
-        const { maxFeePerGas, maxPriorityFeePerGas } = this.calculateGasFees(opportunity.profit);
-
-        // Send transaction directly with gas parameters
         const hash = await this.networkConfig.walletClient.writeContract({
             address: CONTRACTS.arbitrage as Address,
             abi: ArbABI,
@@ -232,9 +238,8 @@ export class OpportunityManager {
             account: this.networkConfig.account,
             nonce,
             gas: EXECUTION_POLICY.gasLimit,
-            ...(EXECUTION_POLICY.legacy
-                ? { gasPrice: EXECUTION_POLICY.baseFee, type: 'legacy' as const }
-                : { maxFeePerGas, maxPriorityFeePerGas, type: 'eip1559' as const }),
+            gasPrice: EXECUTION_POLICY.baseFee,
+            type: 'legacy',
         });
         
         if (RUNTIME.debug) {
@@ -247,28 +252,10 @@ export class OpportunityManager {
 
         await sendTransactionNotification(
             hash,
-            'flashswap',
             opportunity.profit,
             opportunity.path[opportunity.path.length - 1]
         );
 
         return true;
-    }
-
-    // Helper function to calculate dynamic gas fees based on expected profit
-    public calculateGasFees(expectedProfit: bigint): { maxFeePerGas: bigint, maxPriorityFeePerGas: bigint } {
-        // Use 90% of expected profit as total gas fee budget
-        const totalGasFee = (expectedProfit * 90n) / 100n;
-        
-        // Calculate maxFeePerGas with (totalGasFee * 1_000_000_000) / gasLimit
-        const maxFeePerGas = (totalGasFee * 1n) /  EXECUTION_POLICY.gasLimit;
-        
-        // // Use same value for maxPriorityFeePerGas as maxFeePerGas
-        const maxPriorityFeePerGas = maxFeePerGas;
-        
-        return {
-            maxFeePerGas,
-            maxPriorityFeePerGas
-        };
     }
 }
