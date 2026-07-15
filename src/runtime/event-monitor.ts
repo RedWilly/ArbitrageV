@@ -71,8 +71,11 @@ export class EventMonitor {
       this.buffered.clear();
       const byAdapter = new Map<ProtocolEventAdapter, any[]>();
       for (const entry of entries) {
-        if (chainLogBlockNumber(entry.log) <= this.hydrationFloor) continue;
-        this.markApplied(entry.adapter, entry.log);
+        if (this.isAtOrBelowHydrationFloor(entry.log)) continue;
+        const address = entry.log.address as Address | undefined;
+        if (address) {
+          this.updateCursorForAddress(entry.adapter, address, advanceCursor(undefined, entry.log));
+        }
         const logs = byAdapter.get(entry.adapter);
         if (logs) logs.push(entry.log);
         else byAdapter.set(entry.adapter, [entry.log]);
@@ -92,7 +95,12 @@ export class EventMonitor {
       const owned = addresses.filter(address => adapter.owns(address));
       if (owned.length === 0) return;
       await adapter.reconcileAddresses(owned);
-      for (const address of owned) this.markReconciled(adapter, address, blockNumber);
+      const reconciled = {
+        blockNumber,
+        transactionIndex: Number.MAX_SAFE_INTEGER,
+        logIndex: Number.MAX_SAFE_INTEGER,
+      };
+      for (const address of owned) this.updateCursorForAddress(adapter, address, reconciled);
     }));
     return blockNumber;
   }
@@ -127,39 +135,29 @@ export class EventMonitor {
   private freshLogs(adapter: ProtocolEventAdapter, logs: any[]): any[] {
     let count = 0;
     for (const log of logs) {
-      if (chainLogBlockNumber(log) <= this.hydrationFloor) continue;
-      const key = this.cursorKey(adapter, log);
-      if (!key) continue;
-      const cursor = this.cursors.get(key);
-      if (cursor && !isLogAfterCursor(log, cursor)) continue;
-      this.cursors.set(key, advanceCursor(cursor, log));
+      if (this.isAtOrBelowHydrationFloor(log)) continue;
+      const address = log.address as Address | undefined;
+      if (!address || !this.updateCursorForAddress(adapter, address, advanceCursor(undefined, log))) continue;
       logs[count++] = log;
     }
     logs.length = count;
     return logs;
   }
 
-  private markApplied(adapter: ProtocolEventAdapter, log: any): void {
-    const key = this.cursorKey(adapter, log);
-    if (!key) return;
-    const cursor = this.cursors.get(key);
-    if (!cursor || isLogAfterCursor(log, cursor)) this.cursors.set(key, advanceCursor(cursor, log));
+  private isAtOrBelowHydrationFloor(log: any): boolean {
+    return chainLogBlockNumber(log) <= this.hydrationFloor;
   }
 
-  private cursorKey(adapter: ProtocolEventAdapter, log: any): string | null {
-    const address = log.address?.toLowerCase();
-    return address ? `${adapter.id}:${address}` : null;
-  }
-
-  private markReconciled(adapter: ProtocolEventAdapter, address: Address, blockNumber: bigint): void {
+  private updateCursorForAddress(
+    adapter: ProtocolEventAdapter,
+    address: Address,
+    next: ChainCursor
+  ): boolean {
     const key = `${adapter.id}:${address.toLowerCase()}`;
     const cursor = this.cursors.get(key);
-    const reconciled = {
-      blockNumber,
-      transactionIndex: Number.MAX_SAFE_INTEGER,
-      logIndex: Number.MAX_SAFE_INTEGER,
-    };
-    if (!cursor || cursor.blockNumber <= blockNumber) this.cursors.set(key, reconciled);
+    if (cursor && !isLogAfterCursor(next, cursor)) return false;
+    this.cursors.set(key, next);
+    return true;
   }
 
   private async stopInternal(preserveCursors: boolean): Promise<void> {
